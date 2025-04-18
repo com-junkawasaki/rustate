@@ -1,11 +1,11 @@
 #![cfg(feature = "wasm")]
 
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 use web_sys::console;
 
-use crate::{Action, ActionType, Context, Event, Machine, MachineBuilder, State, Transition};
+use crate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
 use std::cell::RefCell;
-use std::rc::Rc;
 
 // グローバルな状態を保持するためのラッパー
 thread_local! {
@@ -37,28 +37,39 @@ pub fn init_traffic_light() -> Result<(), JsValue> {
 
 #[wasm_bindgen]
 pub fn send_traffic_light_event(event: &str) -> Result<(), JsValue> {
+    let mut success = false;
+    
     TRAFFIC_MACHINE.with(|cell| {
         if let Some(machine) = &mut *cell.borrow_mut() {
-            machine.send(event).map_err(|e| JsValue::from_str(&e.to_string()))?;
-            update_traffic_light_state();
+            // エラーを処理するが関数からは伝播させない
+            if let Err(e) = machine.send(event) {
+                console::log_1(&format!("Error sending event: {}", e).into());
+            } else {
+                success = true;
+            }
         }
     });
     
-    Ok(())
+    if success {
+        update_traffic_light_state();
+        Ok(())
+    } else {
+        Err(JsValue::from_str("Failed to send event"))
+    }
 }
 
 fn update_traffic_light_state() {
     TRAFFIC_MACHINE.with(|cell| {
         if let Some(machine) = &*cell.borrow() {
-            let state = machine.current_states.iter().next().unwrap_or("unknown");
+            let state = machine.current_states.iter().next().map_or("unknown", |s| s.as_str());
             console::log_2(&"Current state:".into(), &state.into());
             
             // JS側から呼び出される関数を設定（実際のDOM操作はJS側で行う）
-            let js_update_fn = js_sys::global().get("updateTrafficLightUI");
-            if let Ok(js_fn) = js_update_fn {
-                if js_fn.is_function() {
+            if let Some(update_fn) = js_sys::Reflect::get(&js_sys::global(), &"updateTrafficLightUI".into()).ok() {
+                if update_fn.is_function() {
+                    let function = update_fn.dyn_into::<js_sys::Function>().unwrap();
                     let _ = js_sys::Reflect::apply(
-                        &js_fn.into(),
+                        &function,
                         &JsValue::NULL,
                         &js_sys::Array::of1(&JsValue::from_str(state)),
                     );
@@ -84,14 +95,25 @@ pub fn init_music_player() -> Result<(), JsValue> {
 
 #[wasm_bindgen]
 pub fn send_music_player_event(event: &str) -> Result<(), JsValue> {
+    let mut success = false;
+    
     MUSIC_MACHINE.with(|cell| {
         if let Some(machine) = &mut *cell.borrow_mut() {
-            machine.send(event).map_err(|e| JsValue::from_str(&e.to_string()))?;
-            update_music_player_state();
+            // エラーを処理するが関数からは伝播させない
+            if let Err(e) = machine.send(event) {
+                console::log_1(&format!("Error sending event: {}", e).into());
+            } else {
+                success = true;
+            }
         }
     });
     
-    Ok(())
+    if success {
+        update_music_player_state();
+        Ok(())
+    } else {
+        Err(JsValue::from_str("Failed to send event"))
+    }
 }
 
 fn update_music_player_state() {
@@ -99,14 +121,18 @@ fn update_music_player_state() {
         if let Some(machine) = &*cell.borrow() {
             let states: Vec<&String> = machine.current_states.iter().collect();
             let states_json = serde_json::to_string(&states).unwrap_or_default();
-            console::log_2(&"Current states:".into(), &states_json.into());
+            
+            // JsValueに変換する前にクローンを作成
+            let js_status = JsValue::from_str(&states_json);
+            
+            console::log_2(&"Current states:".into(), &js_status);
             
             // JS側から呼び出される関数を設定
-            let js_update_fn = js_sys::global().get("updateMusicPlayerUI");
-            if let Ok(js_fn) = js_update_fn {
-                if js_fn.is_function() {
+            if let Some(update_fn) = js_sys::Reflect::get(&js_sys::global(), &"updateMusicPlayerUI".into()).ok() {
+                if update_fn.is_function() {
+                    let function = update_fn.dyn_into::<js_sys::Function>().unwrap();
                     let _ = js_sys::Reflect::apply(
-                        &js_fn.into(),
+                        &function,
                         &JsValue::NULL,
                         &js_sys::Array::of1(&JsValue::from_str(&states_json)),
                     );

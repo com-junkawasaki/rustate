@@ -1,7 +1,8 @@
 use crate::{
-    action::ActionType, state::StateType, Action, Context, Error, Event, IntoAction, IntoEvent,
+    action::ActionType, state::StateType, Action, Context, Error, Event, IntoAction,
     Result, State, Transition,
 };
+use crate::event::IntoEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

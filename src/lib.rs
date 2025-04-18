@@ -16,7 +16,7 @@ pub use wasm::*;
 pub use action::{Action, ActionType, IntoAction};
 pub use context::Context;
 pub use error::{Error, Result};
-pub use event::{Event, EventType};
+pub use event::{Event, IntoEvent};
 pub use guard::{Guard, IntoGuard};
 pub use machine::{Machine, MachineBuilder};
 pub use state::{State, StateType};

@@ -12,6 +12,12 @@ pub enum Error {
     /// Event could not be handled
     #[error("No transition found for event: {0}")]
     NoTransitionFound(String),
+    /// Invalid transition
+    #[error("Invalid transition: {0}")]
+    InvalidTransition(String),
+    /// Invalid configuration
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
     /// JSON serialization/deserialization error
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
