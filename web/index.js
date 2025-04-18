@@ -1,10 +1,10 @@
-// RState Wasm モジュールをインポート
-import init, {
-    init_traffic_light,
-    send_traffic_light_event,
-    init_music_player,
-    send_music_player_event
-} from '../pkg/rstate.js';
+// RuState Wasm モジュールをインポート
+import {
+    Machine,
+    State,
+    Transition,
+    init,
+} from '../pkg/rustate.js';
 
 let currentTrack = 0;
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RState - ドキュメント</title>
+    <title>RuState - ドキュメント</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .docs-container {
@@ -112,20 +112,23 @@
 </head>
 <body>
     <header>
-        <h1>RState ドキュメント</h1>
-        <p>Rustで実装した状態機械をWebAssemblyとして利用する方法</p>
-        <nav>
-            <a href="index.html" class="nav-link">デモ</a>
-            <a href="docs.html" class="nav-link">ドキュメント</a>
-            <a href="https://github.com/yourusername/rstate" class="nav-link" target="_blank">GitHub</a>
-        </nav>
+        <div class="container">
+            <h1>RuState ドキュメント</h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">デモ</a></li>
+                    <li><a href="docs.html" class="active">ドキュメント</a></li>
+                    <li><a href="https://github.com/yourusername/rustate" class="nav-link" target="_blank">GitHub</a></li>
+                </ul>
+            </nav>
+        </div>
     </header>
     
     <main class="documentation">
         <div class="nav-container">
             <h3>目次</h3>
             <ul>
-                <li><a href="#about">RStateとは</a></li>
+                <li><a href="#about">RuStateとは</a></li>
                 <li><a href="#features">主な特徴</a></li>
                 <li><a href="#basic-usage">基本的な使い方</a></li>
                 <li><a href="#advanced-usage">高度な使い方</a></li>
@@ -140,10 +143,10 @@
         </div>
 
         <section id="about" class="doc-section">
-            <h2>RStateとは</h2>
-            <p>RStateは、Rustで実装された状態機械（ステートマシン）ライブラリで、WebAssemblyを通じてブラウザからの利用を可能にします。</p>
+            <h2>RuStateとは</h2>
+            <p>RuStateは、Rustで実装された状態機械（ステートマシン）ライブラリで、WebAssemblyを通じてブラウザからの利用を可能にします。</p>
             <p>状態機械は、プログラムが取りうる有限の状態と、その間の遷移を明示的に定義することで、複雑な振る舞いを管理するパターンです。</p>
-            <p>RStateは特に以下のような場面で威力を発揮します：</p>
+            <p>RuStateは特に以下のような場面で威力を発揮します：</p>
             <ul>
                 <li>複雑なUIの状態遷移</li>
                 <li>バリデーションを含むフォーム管理</li>
@@ -348,7 +351,7 @@ impl StateMachine for CounterMachine {
             </table>
 
             <h3>エラー処理</h3>
-            <p>RStateでは以下のような方法でエラーを扱います：</p>
+            <p>RuStateでは以下のような方法でエラーを扱います：</p>
             <pre><code>// Rust側
 pub enum StateMachineError {
     InvalidTransition,
@@ -459,7 +462,7 @@ impl AppService {
 }</code></pre>
 
             <h3>Reactとの連携パターン</h3>
-            <p>React.jsでRStateを利用する効果的な方法：</p>
+            <p>React.jsでRuStateを利用する効果的な方法：</p>
             <pre><code>// React Custom Hook
 function useStateMachine(initialMachine) {
   const [state, setState] = useState(initialMachine.getState());
@@ -525,8 +528,8 @@ if (savedState) {
 
         <section id="project-structure" class="doc-section">
             <h2>プロジェクト構成</h2>
-            <p>RStateを使ったプロジェクトの基本構成：</p>
-            <pre><code>rstate/
+            <p>RuStateを使ったプロジェクトの基本構成：</p>
+            <pre><code>rustate/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs        # メインライブラリコード
@@ -588,7 +591,7 @@ jobs:
         <section id="performance" class="doc-section">
             <h2>パフォーマンスとデバッグ</h2>
             <h3>パフォーマンス考慮事項</h3>
-            <p>RStateで効率的なアプリケーションを構築するためのヒント：</p>
+            <p>RuStateで効率的なアプリケーションを構築するためのヒント：</p>
             <ul>
                 <li>状態機械は小さく保ち、責任を明確に分離する</li>
                 <li>頻繁に更新される大きなデータ構造は状態から分離する</li>
@@ -626,8 +629,8 @@ impl MachineService {
         <section id="faq" class="doc-section">
             <h2>よくある質問</h2>
             <dl>
-                <dt>RStateは他のステートマシンライブラリとどう違いますか？</dt>
-                <dd>RStateは特にWebAssemblyとの連携に重点を置いており、Rustの型安全性を最大限に活用しています。</dd>
+                <dt>RuStateは他のステートマシンライブラリとどう違いますか？</dt>
+                <dd>RuStateは特にWebAssemblyとの連携に重点を置いており、Rustの型安全性を最大限に活用しています。</dd>
                 
                 <dt>大規模なアプリケーションでも利用できますか？</dt>
                 <dd>はい。複数の小さな状態機械を組み合わせることで、大規模なアプリケーションも構築できます。</dd>
@@ -648,7 +651,9 @@ impl MachineService {
     </main>
     
     <footer>
-        <p>&copy; 2023 RState プロジェクト</p>
+        <div class="container">
+            <p>&copy; 2023 RuState プロジェクト</p>
+        </div>
     </footer>
 </body>
 </html> 

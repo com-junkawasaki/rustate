@@ -1,6 +1,6 @@
-# RState WebAssembly Demo
+# RuState WebAssembly Demo
 
-RState ライブラリの WebAssembly デモページです。交通信号機と音楽プレーヤーの状態機械の動作をブラウザで確認できます。
+RuState ライブラリの WebAssembly デモページです。交通信号機と音楽プレーヤーの状態機械の動作をブラウザで確認できます。
 
 ## ビルド方法
 
