@@ -1,30 +1,32 @@
-pub mod error;
-pub mod state;
-pub mod event;
-pub mod context;
-pub mod transition;
-pub mod guard;
-pub mod action;
-pub mod machine;
+mod action;
+mod context;
+mod error;
+mod event;
+mod guard;
+mod machine;
+mod state;
+mod transition;
 
-pub use {
-    action::{Action, ActionType, IntoAction},
-    context::Context,
-    error::Error,
-    event::{Event, IntoEvent},
-    guard::{Guard, IntoGuard},
-    machine::{Machine, MachineBuilder},
-    state::{State, StateType},
-    transition::Transition,
-};
+#[cfg(feature = "wasm")]
+mod wasm;
 
-/// Result type for operations that can fail
-pub type Result<T> = std::result::Result<T, Error>;
+#[cfg(feature = "wasm")]
+pub use wasm::*;
+
+pub use action::{Action, ActionType, IntoAction};
+pub use context::Context;
+pub use error::{Error, Result};
+pub use event::{Event, EventType};
+pub use guard::{Guard, IntoGuard};
+pub use machine::{Machine, MachineBuilder};
+pub use state::{State, StateType};
+pub use transition::Transition;
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn it_works() {
-        assert_eq!(2 + 2, 4);
+        let result = 2 + 2;
+        assert_eq!(result, 4);
     }
 }
