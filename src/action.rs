@@ -14,7 +14,7 @@ pub enum ActionType {
 }
 
 /// An action that can be executed during state transitions
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Action {
     /// The name of this action
     pub name: String,
@@ -23,6 +23,28 @@ pub struct Action {
     /// Function pointer to execute the action
     #[serde(skip)]
     pub(crate) executor: Option<Box<dyn Fn(&mut Context, &Event) + Send + Sync>>,
+}
+
+impl Clone for Action {
+    fn clone(&self) -> Self {
+        // Note: We can't actually clone the executor function,
+        // so this creates an action with the same name and type but no executor
+        Self {
+            name: self.name.clone(),
+            action_type: self.action_type,
+            executor: None,
+        }
+    }
+}
+
+impl fmt::Debug for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Action")
+            .field("name", &self.name)
+            .field("action_type", &self.action_type)
+            .field("executor", &format_args!("{}", if self.executor.is_some() { "Some(Fn)" } else { "None" }))
+            .finish()
+    }
 }
 
 impl Action {

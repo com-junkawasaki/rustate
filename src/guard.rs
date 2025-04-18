@@ -3,13 +3,33 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A guard condition for a transition
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Guard {
     /// The name of this guard
     pub name: String,
     /// Function pointer to evaluate the guard
     #[serde(skip)]
     pub(crate) predicate: Option<Box<dyn Fn(&Context, &Event) -> bool + Send + Sync>>,
+}
+
+impl Clone for Guard {
+    fn clone(&self) -> Self {
+        // Note: We can't actually clone the predicate function,
+        // so this creates a guard with the same name but no predicate
+        Self {
+            name: self.name.clone(),
+            predicate: None,
+        }
+    }
+}
+
+impl fmt::Debug for Guard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Guard")
+            .field("name", &self.name)
+            .field("predicate", &format_args!("{}", if self.predicate.is_some() { "Some(Fn)" } else { "None" }))
+            .finish()
+    }
 }
 
 impl Guard {
