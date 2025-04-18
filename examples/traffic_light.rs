@@ -1,4 +1,4 @@
-use rstate::{Action, ActionType, Context, Event, Machine, MachineBuilder, State, Transition};
+use rstate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
 use std::thread::sleep;
 use std::time::Duration;
 

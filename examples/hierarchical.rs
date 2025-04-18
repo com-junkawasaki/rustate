@@ -1,7 +1,6 @@
 use rstate::{
-    Action, ActionType, Context, Event, Guard, Machine, MachineBuilder, State, StateType, Transition,
+    Action, ActionType, Context, Machine, MachineBuilder, State, Transition,
 };
-use serde_json::json;
 
 fn main() -> rstate::Result<()> {
     // Create a hierarchical state machine for a music player
@@ -36,7 +35,7 @@ fn main() -> rstate::Result<()> {
 
 fn create_player() -> rstate::Result<Machine> {
     // Create states
-    let mut power_off = State::new("powerOff");
+    let power_off = State::new("powerOff");
 
     let mut player = State::new_compound("player", "stopped");
     player.parent = Some("root".to_string());
