@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RState ドキュメント</title>
+    <title>RState - ドキュメント</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .docs-container {
@@ -113,145 +113,214 @@
 <body>
     <header>
         <h1>RState ドキュメント</h1>
-        <p>Rust Statechartライブラリの詳細情報</p>
+        <p>Rustで実装した状態機械をWebAssemblyとして利用する方法</p>
         <nav>
             <a href="index.html" class="nav-link">デモ</a>
             <a href="docs.html" class="nav-link">ドキュメント</a>
+            <a href="https://github.com/yourusername/rstate" class="nav-link" target="_blank">GitHub</a>
         </nav>
     </header>
     
-    <main>
+    <main class="documentation">
         <section class="doc-section">
             <h2>RStateとは</h2>
-            <p>RStateはRustで実装された状態機械（Statechart）ライブラリです。状態管理を型安全に行い、WebAssemblyと連携することでブラウザ上でも動作します。</p>
+            <p>RStateは、Rustで実装された状態機械（ステートマシン）ライブラリで、WebAssemblyを通じてブラウザからの利用を可能にします。</p>
+            <p>状態機械は、プログラムが取りうる有限の状態と、その間の遷移を明示的に定義することで、複雑な振る舞いを管理するパターンです。</p>
+        </section>
+
+        <section class="doc-section">
+            <h2>主な特徴</h2>
+            <ul>
+                <li><strong>型安全な状態管理:</strong> Rustの強力な型システムを活用した安全な状態遷移</li>
+                <li><strong>WebAssembly対応:</strong> wasmを通じてJavaScriptから利用可能</li>
+                <li><strong>軽量設計:</strong> 必要最小限の依存関係と高速な実行</li>
+                <li><strong>自由度の高いAPI:</strong> さまざまなユースケースに適応可能</li>
+            </ul>
         </section>
 
         <section class="doc-section">
             <h2>基本的な使い方</h2>
-            <h3>1. 状態定義</h3>
-            <pre><code>
-// Rustでの状態定義例
-#[derive(Clone, Debug)]
+            <h3>1. ステートマシンの定義</h3>
+            <p>Rustで状態と遷移を定義します：</p>
+            <pre><code>// Rust側のコード
 pub enum TrafficLightState {
     Red,
     Yellow,
     Green,
 }
-            </code></pre>
 
-            <h3>2. イベント定義</h3>
-            <pre><code>
-// イベント定義例
-#[derive(Clone, Debug)]
 pub enum TrafficLightEvent {
-    Next,
-    // その他のイベント
+    CHANGE,
+    RESET,
 }
-            </code></pre>
 
-            <h3>3. 状態機械の実装</h3>
-            <pre><code>
-// 状態機械実装例
-impl Statechart for TrafficLight {
-    type State = TrafficLightState;
-    type Event = TrafficLightEvent;
-    type Context = ();
-    
-    fn transition(&self, state: &Self::State, event: &Self::Event, _ctx: &Self::Context) -> Option<Self::State> {
-        match (state, event) {
-            (TrafficLightState::Red, TrafficLightEvent::Next) => Some(TrafficLightState::Green),
-            (TrafficLightState::Green, TrafficLightEvent::Next) => Some(TrafficLightState::Yellow),
-            (TrafficLightState::Yellow, TrafficLightEvent::Next) => Some(TrafficLightState::Red),
-            _ => None,
-        }
-    }
-}
-            </code></pre>
-        </section>
-
-        <section class="doc-section">
-            <h2>WebAssemblyとの連携</h2>
-            <p>RStateはWebAssemblyとシームレスに連携できます。これにより、Rustで記述した状態機械をJavaScriptから利用できます。</p>
-            
-            <h3>Rustコード（wasm-bindgen対応）</h3>
-            <pre><code>
-// wasm-bindgenを使用した公開例
-#[wasm_bindgen]
-impl TrafficLight {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-    
-    #[wasm_bindgen]
-    pub fn get_state(&self) -> String {
-        format!("{:?}", self.state)
-    }
-    
-    #[wasm_bindgen]
-    pub fn send(&mut self, event: &str) -> bool {
-        // イベントの変換処理
-        let event = match event {
-            "next" => TrafficLightEvent::Next,
-            _ => return false,
+impl StateMachine for TrafficLight {
+    fn transition(&mut self, event: TrafficLightEvent) {
+        self.state = match (&self.state, event) {
+            (TrafficLightState::Red, TrafficLightEvent::CHANGE) => TrafficLightState::Green,
+            (TrafficLightState::Green, TrafficLightEvent::CHANGE) => TrafficLightState::Yellow,
+            (TrafficLightState::Yellow, TrafficLightEvent::CHANGE) => TrafficLightState::Red,
+            (_, TrafficLightEvent::RESET) => TrafficLightState::Red,
         };
-        
-        // 状態遷移の実行
-        if let Some(new_state) = self.transition(&self.state, &event, &()) {
-            self.state = new_state;
-            true
-        } else {
-            false
+    }
+}</code></pre>
+
+            <h3>2. WebAssemblyへのエクスポート</h3>
+            <p>wasm-bindgenを使ってJavaScript向けにサービスを公開します：</p>
+            <pre><code>#[wasm_bindgen]
+pub struct TrafficLightService {
+    machine: TrafficLight,
+}
+
+#[wasm_bindgen]
+impl TrafficLightService {
+    pub fn new() -> Self {
+        TrafficLightService {
+            machine: TrafficLight::new(),
         }
     }
-}
-            </code></pre>
-
-            <h3>JavaScript側の使用例</h3>
-            <pre><code>
-// JavaScriptからの呼び出し例
-import init, { TrafficLight } from './pkg/rstate_wasm.js';
-
-async function run() {
-    await init();
     
-    const trafficLight = new TrafficLight();
-    console.log(trafficLight.get_state()); // "Red"
+    pub fn send(&mut self, event: &str) {
+        let event = match event {
+            "CHANGE" => TrafficLightEvent::CHANGE,
+            "RESET" => TrafficLightEvent::RESET,
+            _ => return,
+        };
+        self.machine.transition(event);
+    }
     
-    trafficLight.send("next");
-    console.log(trafficLight.get_state()); // "Green"
-}
+    pub fn get_state(&self) -> String {
+        format!("{:?}", self.machine.state)
+    }
+}</code></pre>
 
-run();
-            </code></pre>
+            <h3>3. JavaScript側での利用</h3>
+            <p>ブラウザで以下のようにして利用します：</p>
+            <pre><code>// WebAssemblyモジュールをロード
+wasm_demo.default().then(() => {
+    // TrafficLightサービスを初期化
+    const trafficLightService = wasm_demo.createTrafficLightService();
+    
+    // イベントの送信
+    trafficLightService.send('CHANGE');
+    
+    // 現在の状態の取得
+    const currentState = trafficLightService.getState();
+});</code></pre>
         </section>
 
         <section class="doc-section">
-            <h2>デモ実装の解説</h2>
-            <p>このサイトで提供している各デモの詳細な実装解説です。</p>
-            
-            <h3>信号機デモ</h3>
-            <p>信号機デモは、基本的な状態遷移を視覚化したものです。「Red」→「Green」→「Yellow」→「Red」のサイクルを実装しています。</p>
-            
-            <h3>音楽プレーヤーデモ</h3>
-            <p>音楽プレーヤーデモは、より複雑な状態管理を示しています。「Playing」「Paused」「Stopped」の状態と、再生、一時停止、停止、次の曲、前の曲などの様々なイベントを処理します。</p>
+            <h2>高度な使い方</h2>
+            <h3>コンテキスト付きの状態機械</h3>
+            <p>状態だけでなく、追加のデータを持つステートマシンを定義できます：</p>
+            <pre><code>pub struct CounterMachine {
+    state: CounterState,
+    context: CounterContext,
+}
+
+pub struct CounterContext {
+    count: i32,
+    max_value: i32,
+}
+
+// 状態遷移時にコンテキストも更新
+impl StateMachine for CounterMachine {
+    fn transition(&mut self, event: CounterEvent) {
+        match (&self.state, event) {
+            (CounterState::Active, CounterEvent::Increment) => {
+                if self.context.count < self.context.max_value {
+                    self.context.count += 1;
+                } else {
+                    self.state = CounterState::MaxReached;
+                }
+            },
+            // 他の遷移...
+        }
+    }
+}</code></pre>
+
+            <h3>条件付き遷移</h3>
+            <p>遷移にガード条件を設定する例：</p>
+            <pre><code>fn transition(&mut self, event: UserEvent) {
+    self.state = match (&self.state, event) {
+        (UserState::LoggedOut, UserEvent::Login) => {
+            if self.validate_credentials() {
+                UserState::LoggedIn
+            } else {
+                UserState::Error
+            }
+        },
+        // 他の遷移...
+    };
+}</code></pre>
         </section>
 
         <section class="doc-section">
-            <h2>高度な機能</h2>
-            <h3>ネストした状態</h3>
-            <p>RStateは階層的な状態（ネストした状態）をサポートしています。これにより、複雑な状態機械を構造化して実装できます。</p>
-            
-            <h3>ガード条件</h3>
-            <p>状態遷移にガード条件を追加することで、特定の条件下でのみ遷移が発生するようにできます。</p>
-            
-            <h3>副作用（アクション）</h3>
-            <p>状態遷移時に副作用を発生させることができます。これにより、状態変化に応じた処理を実行できます。</p>
+            <h2>プロジェクト構成</h2>
+            <p>RStateを使ったプロジェクトの基本構成：</p>
+            <pre><code>rstate/
+├── Cargo.toml
+├── src/
+│   ├── lib.rs        # メインライブラリコード
+│   ├── machines/     # 状態機械の実装
+│   └── bindings.rs   # WebAssembly向けバインディング
+└── web/
+    ├── index.html    # デモページ
+    ├── docs.html     # このドキュメント
+    ├── style.css     # スタイルシート
+    └── pkg/          # ビルドされたwasmモジュール</code></pre>
+        </section>
+
+        <section class="doc-section">
+            <h2>ビルドとデプロイ</h2>
+            <h3>環境設定</h3>
+            <p>必要なツール：</p>
+            <ul>
+                <li>Rust と Cargo</li>
+                <li>wasm-pack</li>
+                <li>Node.js (オプション)</li>
+            </ul>
+
+            <h3>ビルド手順</h3>
+            <pre><code># WebAssemblyとしてビルド
+wasm-pack build --target web
+
+# 開発サーバーを起動（オプション）
+npx serve .</code></pre>
+        </section>
+
+        <section class="doc-section">
+            <h2>パフォーマンスとデバッグ</h2>
+            <h3>パフォーマンス考慮事項</h3>
+            <p>RStateで効率的なアプリケーションを構築するためのヒント：</p>
+            <ul>
+                <li>状態機械は小さく保ち、責任を明確に分離する</li>
+                <li>頻繁に更新される大きなデータ構造は状態から分離する</li>
+                <li>デバッグビルドとリリースビルドでパフォーマンスが大きく異なることを認識する</li>
+            </ul>
+
+            <h3>デバッグツール</h3>
+            <p>wasm-pack testコマンドを使用して、WebAssemblyコードのテストを実行できます。</p>
+            <p>開発時は、console.logでの状態出力や、chromeのWebAssemblyデバッグツールも活用してください。</p>
+        </section>
+
+        <section class="doc-section">
+            <h2>よくある質問</h2>
+            <dl>
+                <dt>RStateは他のステートマシンライブラリとどう違いますか？</dt>
+                <dd>RStateは特にWebAssemblyとの連携に重点を置いており、Rustの型安全性を最大限に活用しています。</dd>
+                
+                <dt>大規模なアプリケーションでも利用できますか？</dt>
+                <dd>はい。複数の小さな状態機械を組み合わせることで、大規模なアプリケーションも構築できます。</dd>
+                
+                <dt>Redux/XStateなどのJavaScriptライブラリと併用できますか？</dt>
+                <dd>はい。WebAssemblyを通じて公開されるAPIを利用して、既存のJavaScriptフレームワークと統合できます。</dd>
+            </dl>
         </section>
     </main>
-
+    
     <footer>
-        <p>&copy; 2023 RState - <a href="https://github.com/junkawasaki/rstate" target="_blank">GitHub</a></p>
+        <p>&copy; 2023 RState プロジェクト</p>
     </footer>
 </body>
 </html> 
