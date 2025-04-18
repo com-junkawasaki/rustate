@@ -1,15 +1,15 @@
 [package]
-name = "rstate"
+name = "rustate"
 version = "0.1.0"
 edition = "2021"
 description = "A Rust implementation of statecharts inspired by XState"
 license = "MIT"
-authors = ["RState Contributors"]
-repository = "https://github.com/rstate-org/rstate"
-documentation = "https://docs.rs/rstate"
+authors = ["Jun Kawasaki"]
+repository = "https://github.com/jun784/rustate" 
+documentation = "https://docs.rs/rustate"
 readme = "README.md"
 keywords = ["statecharts", "statemachine", "fsm", "xstate", "actors"]
-categories = ["data-structures", "concurrency", "state-machines"]
+categories = ["data-structures", "concurrency"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

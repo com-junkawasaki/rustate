@@ -101,7 +101,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rstate = "0.1.0"
+rustate = "0.1.0"
 ```
 
 ## Documentation
