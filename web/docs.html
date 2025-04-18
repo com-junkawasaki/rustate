@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RState ドキュメント</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .docs-container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        
+        .docs-container h2 {
+            margin-top: 2rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary-color);
+        }
+        
+        .docs-container h3 {
+            margin-top: 1.5rem;
+            color: var(--secondary-color);
+        }
+        
+        pre {
+            background-color: #f8f8f8;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        code {
+            font-family: 'Courier New', monospace;
+        }
+        
+        .code-block {
+            margin: 1rem 0;
+        }
+        
+        .nav-container {
+            position: sticky;
+            top: 20px;
+            padding: 1rem;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .nav-container ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        
+        .nav-container ul li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .nav-container a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+        
+        .nav-container a:hover {
+            text-decoration: underline;
+        }
+        
+        .back-to-demo {
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 0.5rem 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        
+        .implementation-notes {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+        
+        .api-section table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        
+        .api-section table th,
+        .api-section table td {
+            border: 1px solid #ddd;
+            padding: 0.5rem;
+            text-align: left;
+        }
+        
+        .api-section table th {
+            background-color: #f2f2f2;
+        }
+        
+        .diagram {
+            margin: 1.5rem 0;
+            text-align: center;
+        }
+        
+        .diagram img {
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>RState ドキュメント</h1>
+        <p>Rust Statechartライブラリの詳細情報</p>
+        <nav>
+            <a href="index.html" class="nav-link">デモ</a>
+            <a href="docs.html" class="nav-link">ドキュメント</a>
+        </nav>
+    </header>
+    
+    <main>
+        <section class="doc-section">
+            <h2>RStateとは</h2>
+            <p>RStateはRustで実装された状態機械（Statechart）ライブラリです。状態管理を型安全に行い、WebAssemblyと連携することでブラウザ上でも動作します。</p>
+        </section>
+
+        <section class="doc-section">
+            <h2>基本的な使い方</h2>
+            <h3>1. 状態定義</h3>
+            <pre><code>
+// Rustでの状態定義例
+#[derive(Clone, Debug)]
+pub enum TrafficLightState {
+    Red,
+    Yellow,
+    Green,
+}
+            </code></pre>
+
+            <h3>2. イベント定義</h3>
+            <pre><code>
+// イベント定義例
+#[derive(Clone, Debug)]
+pub enum TrafficLightEvent {
+    Next,
+    // その他のイベント
+}
+            </code></pre>
+
+            <h3>3. 状態機械の実装</h3>
+            <pre><code>
+// 状態機械実装例
+impl Statechart for TrafficLight {
+    type State = TrafficLightState;
+    type Event = TrafficLightEvent;
+    type Context = ();
+    
+    fn transition(&self, state: &Self::State, event: &Self::Event, _ctx: &Self::Context) -> Option<Self::State> {
+        match (state, event) {
+            (TrafficLightState::Red, TrafficLightEvent::Next) => Some(TrafficLightState::Green),
+            (TrafficLightState::Green, TrafficLightEvent::Next) => Some(TrafficLightState::Yellow),
+            (TrafficLightState::Yellow, TrafficLightEvent::Next) => Some(TrafficLightState::Red),
+            _ => None,
+        }
+    }
+}
+            </code></pre>
+        </section>
+
+        <section class="doc-section">
+            <h2>WebAssemblyとの連携</h2>
+            <p>RStateはWebAssemblyとシームレスに連携できます。これにより、Rustで記述した状態機械をJavaScriptから利用できます。</p>
+            
+            <h3>Rustコード（wasm-bindgen対応）</h3>
+            <pre><code>
+// wasm-bindgenを使用した公開例
+#[wasm_bindgen]
+impl TrafficLight {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    #[wasm_bindgen]
+    pub fn get_state(&self) -> String {
+        format!("{:?}", self.state)
+    }
+    
+    #[wasm_bindgen]
+    pub fn send(&mut self, event: &str) -> bool {
+        // イベントの変換処理
+        let event = match event {
+            "next" => TrafficLightEvent::Next,
+            _ => return false,
+        };
+        
+        // 状態遷移の実行
+        if let Some(new_state) = self.transition(&self.state, &event, &()) {
+            self.state = new_state;
+            true
+        } else {
+            false
+        }
+    }
+}
+            </code></pre>
+
+            <h3>JavaScript側の使用例</h3>
+            <pre><code>
+// JavaScriptからの呼び出し例
+import init, { TrafficLight } from './pkg/rstate_wasm.js';
+
+async function run() {
+    await init();
+    
+    const trafficLight = new TrafficLight();
+    console.log(trafficLight.get_state()); // "Red"
+    
+    trafficLight.send("next");
+    console.log(trafficLight.get_state()); // "Green"
+}
+
+run();
+            </code></pre>
+        </section>
+
+        <section class="doc-section">
+            <h2>デモ実装の解説</h2>
+            <p>このサイトで提供している各デモの詳細な実装解説です。</p>
+            
+            <h3>信号機デモ</h3>
+            <p>信号機デモは、基本的な状態遷移を視覚化したものです。「Red」→「Green」→「Yellow」→「Red」のサイクルを実装しています。</p>
+            
+            <h3>音楽プレーヤーデモ</h3>
+            <p>音楽プレーヤーデモは、より複雑な状態管理を示しています。「Playing」「Paused」「Stopped」の状態と、再生、一時停止、停止、次の曲、前の曲などの様々なイベントを処理します。</p>
+        </section>
+
+        <section class="doc-section">
+            <h2>高度な機能</h2>
+            <h3>ネストした状態</h3>
+            <p>RStateは階層的な状態（ネストした状態）をサポートしています。これにより、複雑な状態機械を構造化して実装できます。</p>
+            
+            <h3>ガード条件</h3>
+            <p>状態遷移にガード条件を追加することで、特定の条件下でのみ遷移が発生するようにできます。</p>
+            
+            <h3>副作用（アクション）</h3>
+            <p>状態遷移時に副作用を発生させることができます。これにより、状態変化に応じた処理を実行できます。</p>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2023 RState - <a href="https://github.com/junkawasaki/rstate" target="_blank">GitHub</a></p>
+    </footer>
+</body>
+</html> 
