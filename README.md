@@ -1,6 +1,6 @@
-# RState
+# RuState
 
-A Rust implementation of statecharts inspired by XState. RState provides a type-safe way to model and
+A Rust implementation of statecharts inspired by XState. RuState provides a type-safe way to model and
 implement finite state machines and statecharts in Rust.
 
 ## Features
@@ -19,7 +19,7 @@ implement finite state machines and statecharts in Rust.
 ### Simple State Machine
 
 ```rust
-use rstate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
+use rustate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
 
 // Create states
 let green = State::new("green");
@@ -58,7 +58,7 @@ machine.send("TIMER").unwrap();
 ### Hierarchical State Machine
 
 ```rust
-use rstate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
+use rustate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
 
 // Create hierarchical states
 let power_off = State::new("powerOff");

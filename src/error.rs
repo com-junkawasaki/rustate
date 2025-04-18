@@ -1,8 +1,8 @@
 use thiserror::Error;
 
-/// Errors that can occur in the RState library
+/// Errors that can occur in the RuState library
 #[derive(Error, Debug)]
-pub enum Error {
+pub enum StateError {
     /// State not found in the machine
     #[error("State not found: {0}")]
     StateNotFound(String),
@@ -24,4 +24,4 @@ pub enum Error {
 }
 
 /// Result type for operations that can fail
-pub type Result<T> = std::result::Result<T, Error>; 
+pub type Result<T> = std::result::Result<T, StateError>; 

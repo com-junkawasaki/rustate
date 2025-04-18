@@ -1,8 +1,8 @@
-use rstate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
+use rustate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
 use std::thread::sleep;
 use std::time::Duration;
 
-fn main() -> rstate::Result<()> {
+fn main() -> rustate::Result<()> {
     // Create a traffic light state machine
     let machine = create_traffic_light()?;
 
@@ -15,7 +15,7 @@ fn main() -> rstate::Result<()> {
     Ok(())
 }
 
-fn create_traffic_light() -> rstate::Result<Machine> {
+fn create_traffic_light() -> rustate::Result<Machine> {
     // Create the states
     let green = State::new("green");
     let yellow = State::new("yellow");
@@ -62,7 +62,7 @@ fn create_traffic_light() -> rstate::Result<Machine> {
     Ok(machine)
 }
 
-fn run_simulation(mut machine: Machine) -> rstate::Result<()> {
+fn run_simulation(mut machine: Machine) -> rustate::Result<()> {
     println!("\nStarting traffic light simulation...");
     println!("Press Ctrl+C to exit\n");
 

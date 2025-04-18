@@ -1,8 +1,8 @@
-use rstate::{
-    Action, ActionType, Context, Machine, MachineBuilder, State, Transition,
+use rustate::{
+    Action, ActionType, Context, Event, Guard, Machine, MachineBuilder, State, Transition,
 };
 
-fn main() -> rstate::Result<()> {
+fn main() -> rustate::Result<()> {
     // Create a hierarchical state machine for a music player
     let mut machine = create_player()?;
 
@@ -33,7 +33,7 @@ fn main() -> rstate::Result<()> {
     Ok(())
 }
 
-fn create_player() -> rstate::Result<Machine> {
+fn create_player() -> rustate::Result<Machine> {
     // Create states
     let power_off = State::new("powerOff");
 

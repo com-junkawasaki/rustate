@@ -18,7 +18,7 @@ pub fn start() {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
     
-    console::log_1(&"RState Wasm initialized".into());
+    console::log_1(&"RuState Wasm initialized".into());
 }
 
 #[wasm_bindgen]
