@@ -6,48 +6,148 @@
     <title>RuState - ドキュメント</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .docs-container {
-            max-width: 960px;
+        /* Rust Doc Style Overrides */
+        :root {
+            --bg-color: #353535; /* Main background */
+            --sidebar-bg-color: #2A2A2A; /* Sidebar background */
+            --header-bg-color: #1E1E1E; /* Header background */
+            --text-color: #DCDCDC; /* Main text */
+            --link-color: #FAC863; /* Links */
+            --code-bg-color: #2A2A2A; /* Code block background */
+            --border-color: #555;
+            --heading-border-color: #777;
+            --table-header-bg: #444;
+            --table-border-color: #666;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        header {
+            background-color: var(--header-bg-color);
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        header .container {
+            max-width: 1200px;
             margin: 0 auto;
+            padding: 0 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         
-        .docs-container h2 {
+        header h1 {
+            color: var(--text-color);
+            margin: 0;
+        }
+
+        header nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+        }
+
+        header nav ul li {
+            margin-left: 1.5rem;
+        }
+
+        header nav a {
+            color: var(--link-color);
+            text-decoration: none;
+            font-weight: bold;
+        }
+        header nav a:hover, header nav a.active {
+            text-decoration: underline;
+        }
+
+        .docs-layout {
+            display: flex;
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .docs-sidebar {
+            width: 250px;
+            flex-shrink: 0;
+            margin-right: 2rem;
+            position: sticky;
+            top: 20px;
+            height: calc(100vh - 40px); /* Adjust based on header/footer */
+            overflow-y: auto;
+        }
+
+        .docs-main-content {
+            flex-grow: 1;
+            min-width: 0; /* Prevent overflow issues */
+        }
+
+        /* Overwrite existing styles */
+        .docs-container { /* Remove fixed width */
+            max-width: none;
+            margin: 0;
+        }
+        
+        .docs-main-content h2 { /* Updated heading style */
             margin-top: 2rem;
             padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--primary-color);
+            border-bottom: 1px solid var(--heading-border-color);
+            color: var(--text-color);
         }
         
-        .docs-container h3 {
+        .docs-main-content h3 { /* Updated subheading style */
             margin-top: 1.5rem;
-            color: var(--secondary-color);
+            color: var(--link-color); /* Use link color for emphasis */
         }
         
         pre {
-            background-color: #f8f8f8;
+            background-color: var(--code-bg-color);
+            color: var(--text-color);
             padding: 1rem;
             border-radius: 4px;
             overflow-x: auto;
-            border-left: 4px solid var(--primary-color);
+            border: 1px solid var(--border-color); /* Use border instead of left border */
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
         }
         
         code {
-            font-family: 'Courier New', monospace;
+            font-family: inherit; /* Use pre's font */
+            background-color: rgba(255, 255, 255, 0.1); /* Slight background for inline code */
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
         }
         
-        .code-block {
-            margin: 1rem 0;
+        pre code {
+             background-color: transparent;
+             padding: 0;
+             border-radius: 0;
         }
-        
+
         .nav-container {
-            position: sticky;
-            top: 20px;
+            position: static; /* Remove sticky positioning from original */
             padding: 1rem;
-            background-color: white;
+            background-color: var(--sidebar-bg-color);
             border-radius: 4px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
+            box-shadow: none; /* Remove shadow */
+            margin-bottom: 0; /* Remove margin */
         }
         
+        .nav-container h3 {
+             color: var(--text-color);
+             margin-top: 0;
+             margin-bottom: 1rem;
+             border-bottom: 1px solid var(--border-color);
+             padding-bottom: 0.5rem;
+        }
+
         .nav-container ul {
             list-style-type: none;
             padding-left: 0;
@@ -58,26 +158,31 @@
         }
         
         .nav-container a {
-            color: var(--primary-color);
+            color: var(--link-color);
             text-decoration: none;
+            display: block; /* Make links easier to click */
+            padding: 0.25rem 0;
         }
         
         .nav-container a:hover {
             text-decoration: underline;
+            background-color: rgba(255, 255, 255, 0.05);
         }
         
         .back-to-demo {
             display: inline-block;
             margin-top: 1rem;
             padding: 0.5rem 1rem;
-            background-color: var(--primary-color);
-            color: white;
+            background-color: var(--link-color);
+            color: var(--header-bg-color); /* Dark text on light button */
             text-decoration: none;
             border-radius: 4px;
+            font-weight: bold;
         }
         
         .implementation-notes {
-            background-color: #f8f9fa;
+            background-color: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
             padding: 1rem;
             border-radius: 4px;
             margin: 1rem 0;
@@ -87,19 +192,26 @@
             width: 100%;
             border-collapse: collapse;
             margin: 1rem 0;
+            border: 1px solid var(--table-border-color);
         }
         
         .api-section table th,
         .api-section table td {
-            border: 1px solid #ddd;
-            padding: 0.5rem;
+            border: 1px solid var(--table-border-color);
+            padding: 0.75rem;
             text-align: left;
         }
         
         .api-section table th {
-            background-color: #f2f2f2;
+            background-color: var(--table-header-bg);
+            color: var(--text-color);
+            font-weight: bold;
         }
         
+        .api-section table tr:nth-child(even) {
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+
         .diagram {
             margin: 1.5rem 0;
             text-align: center;
@@ -107,7 +219,30 @@
         
         .diagram img {
             max-width: 100%;
+            background-color: #fff; /* Add white background for diagrams if needed */
+            padding: 0.5rem;
+            border-radius: 4px;
         }
+
+        a {
+             color: var(--link-color);
+        }
+        a:hover {
+             text-decoration: underline;
+        }
+
+        footer {
+            margin-top: 3rem;
+            padding: 1.5rem 0;
+            text-align: center;
+            border-top: 1px solid var(--border-color);
+            color: #aaa;
+        }
+
+        footer a {
+            color: var(--link-color);
+        }
+
     </style>
 </head>
 <body>
@@ -124,53 +259,56 @@
         </div>
     </header>
     
-    <main class="documentation">
-        <div class="nav-container">
-            <h3>目次</h3>
-            <ul>
-                <li><a href="#about">RuStateとは</a></li>
-                <li><a href="#features">主な特徴</a></li>
-                <li><a href="#basic-usage">基本的な使い方</a></li>
-                <li><a href="#advanced-usage">高度な使い方</a></li>
-                <li><a href="#api-reference">API リファレンス</a></li>
-                <li><a href="#wasm-integration">WebAssembly 連携詳細</a></li>
-                <li><a href="#patterns">実装パターン集</a></li>
-                <li><a href="#project-structure">プロジェクト構成</a></li>
-                <li><a href="#build-deploy">ビルドとデプロイ</a></li>
-                <li><a href="#performance">パフォーマンスとデバッグ</a></li>
-                <li><a href="#faq">よくある質問</a></li>
-            </ul>
-        </div>
+    <div class="docs-layout">
+        <aside class="docs-sidebar">
+            <div class="nav-container">
+                <h3>目次</h3>
+                <ul>
+                    <li><a href="#about">RuStateとは</a></li>
+                    <li><a href="#features">主な特徴</a></li>
+                    <li><a href="#basic-usage">基本的な使い方</a></li>
+                    <li><a href="#advanced-usage">高度な使い方</a></li>
+                    <li><a href="#api-reference">API リファレンス</a></li>
+                    <li><a href="#wasm-integration">WebAssembly 連携詳細</a></li>
+                    <li><a href="#patterns">実装パターン集</a></li>
+                    <li><a href="#project-structure">プロジェクト構成</a></li>
+                    <li><a href="#build-deploy">ビルドとデプロイ</a></li>
+                    <li><a href="#performance">パフォーマンスとデバッグ</a></li>
+                    <li><a href="#faq">よくある質問</a></li>
+                </ul>
+            </div>
+        </aside>
+        
+        <main class="docs-main-content">
+            <section id="about" class="doc-section">
+                <h2>RuStateとは</h2>
+                <p>RuStateは、Rustで実装された状態機械（ステートマシン）ライブラリで、WebAssemblyを通じてブラウザからの利用を可能にします。</p>
+                <p>状態機械は、プログラムが取りうる有限の状態と、その間の遷移を明示的に定義することで、複雑な振る舞いを管理するパターンです。</p>
+                <p>RuStateは特に以下のような場面で威力を発揮します：</p>
+                <ul>
+                    <li>複雑なUIの状態遷移</li>
+                    <li>バリデーションを含むフォーム管理</li>
+                    <li>ワークフローやプロセス制御</li>
+                    <li>ゲームのロジック実装</li>
+                    <li>安全性が求められるビジネスルールの実装</li>
+                </ul>
+            </section>
 
-        <section id="about" class="doc-section">
-            <h2>RuStateとは</h2>
-            <p>RuStateは、Rustで実装された状態機械（ステートマシン）ライブラリで、WebAssemblyを通じてブラウザからの利用を可能にします。</p>
-            <p>状態機械は、プログラムが取りうる有限の状態と、その間の遷移を明示的に定義することで、複雑な振る舞いを管理するパターンです。</p>
-            <p>RuStateは特に以下のような場面で威力を発揮します：</p>
-            <ul>
-                <li>複雑なUIの状態遷移</li>
-                <li>バリデーションを含むフォーム管理</li>
-                <li>ワークフローやプロセス制御</li>
-                <li>ゲームのロジック実装</li>
-                <li>安全性が求められるビジネスルールの実装</li>
-            </ul>
-        </section>
+            <section id="features" class="doc-section">
+                <h2>主な特徴</h2>
+                <ul>
+                    <li><strong>型安全な状態管理:</strong> Rustの強力な型システムを活用した安全な状態遷移</li>
+                    <li><strong>WebAssembly対応:</strong> wasmを通じてJavaScriptから利用可能</li>
+                    <li><strong>軽量設計:</strong> 必要最小限の依存関係と高速な実行</li>
+                    <li><strong>自由度の高いAPI:</strong> さまざまなユースケースに適応可能</li>
+                </ul>
+            </section>
 
-        <section id="features" class="doc-section">
-            <h2>主な特徴</h2>
-            <ul>
-                <li><strong>型安全な状態管理:</strong> Rustの強力な型システムを活用した安全な状態遷移</li>
-                <li><strong>WebAssembly対応:</strong> wasmを通じてJavaScriptから利用可能</li>
-                <li><strong>軽量設計:</strong> 必要最小限の依存関係と高速な実行</li>
-                <li><strong>自由度の高いAPI:</strong> さまざまなユースケースに適応可能</li>
-            </ul>
-        </section>
-
-        <section id="basic-usage" class="doc-section">
-            <h2>基本的な使い方</h2>
-            <h3>1. ステートマシンの定義</h3>
-            <p>Rustで状態と遷移を定義します：</p>
-            <pre><code>// Rust側のコード
+            <section id="basic-usage" class="doc-section">
+                <h2>基本的な使い方</h2>
+                <h3>1. ステートマシンの定義</h3>
+                <p>Rustで状態と遷移を定義します：</p>
+                <pre><code>// Rust側のコード
 pub enum TrafficLightState {
     Red,
     Yellow,
@@ -193,9 +331,9 @@ impl StateMachine for TrafficLight {
     }
 }</code></pre>
 
-            <h3>2. WebAssemblyへのエクスポート</h3>
-            <p>wasm-bindgenを使ってJavaScript向けにサービスを公開します：</p>
-            <pre><code>#[wasm_bindgen]
+                <h3>2. WebAssemblyへのエクスポート</h3>
+                <p>wasm-bindgenを使ってJavaScript向けにサービスを公開します：</p>
+                <pre><code>#[wasm_bindgen]
 pub struct TrafficLightService {
     machine: TrafficLight,
 }
@@ -222,9 +360,9 @@ impl TrafficLightService {
     }
 }</code></pre>
 
-            <h3>3. JavaScript側での利用</h3>
-            <p>ブラウザで以下のようにして利用します：</p>
-            <pre><code>// WebAssemblyモジュールをロード
+                <h3>3. JavaScript側での利用</h3>
+                <p>ブラウザで以下のようにして利用します：</p>
+                <pre><code>// WebAssemblyモジュールをロード
 wasm_demo.default().then(() => {
     // TrafficLightサービスを初期化
     const trafficLightService = wasm_demo.createTrafficLightService();
@@ -235,13 +373,13 @@ wasm_demo.default().then(() => {
     // 現在の状態の取得
     const currentState = trafficLightService.getState();
 });</code></pre>
-        </section>
+            </section>
 
-        <section id="advanced-usage" class="doc-section">
-            <h2>高度な使い方</h2>
-            <h3>コンテキスト付きの状態機械</h3>
-            <p>状態だけでなく、追加のデータを持つステートマシンを定義できます：</p>
-            <pre><code>pub struct CounterMachine {
+            <section id="advanced-usage" class="doc-section">
+                <h2>高度な使い方</h2>
+                <h3>コンテキスト付きの状態機械</h3>
+                <p>状態だけでなく、追加のデータを持つステートマシンを定義できます：</p>
+                <pre><code>pub struct CounterMachine {
     state: CounterState,
     context: CounterContext,
 }
@@ -267,9 +405,9 @@ impl StateMachine for CounterMachine {
     }
 }</code></pre>
 
-            <h3>条件付き遷移</h3>
-            <p>遷移にガード条件を設定する例：</p>
-            <pre><code>fn transition(&mut self, event: UserEvent) {
+                <h3>条件付き遷移</h3>
+                <p>遷移にガード条件を設定する例：</p>
+                <pre><code>fn transition(&mut self, event: UserEvent) {
     self.state = match (&self.state, event) {
         (UserState::LoggedOut, UserEvent::Login) => {
             if self.validate_credentials() {
@@ -281,13 +419,13 @@ impl StateMachine for CounterMachine {
         // 他の遷移...
     };
 }</code></pre>
-        </section>
+            </section>
 
-        <section id="api-reference" class="doc-section api-section">
-            <h2>API リファレンス</h2>
-            <h3>StateMachine トレイト</h3>
-            <p>すべての状態機械の基本となるトレイトです：</p>
-            <pre><code>pub trait StateMachine {
+            <section id="api-reference" class="doc-section api-section">
+                <h2>API リファレンス</h2>
+                <h3>StateMachine トレイト</h3>
+                <p>すべての状態機械の基本となるトレイトです：</p>
+                <pre><code>pub trait StateMachine {
     type State;
     type Event;
     
@@ -296,63 +434,63 @@ impl StateMachine for CounterMachine {
     fn can_transition(&self, event: &Self::Event) -> bool;
 }</code></pre>
 
-            <h3>Serviceトレイト</h3>
-            <p>WebAssemblyとして公開するための標準的なインターフェース：</p>
-            <pre><code>pub trait Service {
+                <h3>Serviceトレイト</h3>
+                <p>WebAssemblyとして公開するための標準的なインターフェース：</p>
+                <pre><code>pub trait Service {
     fn send(&mut self, event: &str) -> Result<(), JsValue>;
     fn get_state(&self) -> JsValue;
     fn get_meta(&self) -> JsValue;
 }</code></pre>
 
-            <h3>コアAPI関数一覧</h3>
-            <table>
-                <tr>
-                    <th>関数名</th>
-                    <th>説明</th>
-                    <th>引数</th>
-                    <th>戻り値</th>
-                </tr>
-                <tr>
-                    <td>transition</td>
-                    <td>指定されたイベントで状態遷移を実行</td>
-                    <td>event: Event</td>
-                    <td>なし</td>
-                </tr>
-                <tr>
-                    <td>get_state</td>
-                    <td>現在の状態を取得</td>
-                    <td>なし</td>
-                    <td>State</td>
-                </tr>
-                <tr>
-                    <td>can_transition</td>
-                    <td>特定のイベントで遷移可能か検証</td>
-                    <td>event: &Event</td>
-                    <td>bool</td>
-                </tr>
-                <tr>
-                    <td>send</td>
-                    <td>文字列イベントを送信（JS連携用）</td>
-                    <td>event: &str</td>
-                    <td>Result</td>
-                </tr>
-                <tr>
-                    <td>get_context</td>
-                    <td>コンテキストデータを取得</td>
-                    <td>なし</td>
-                    <td>Context</td>
-                </tr>
-                <tr>
-                    <td>get_meta</td>
-                    <td>状態機械のメタデータを取得</td>
-                    <td>なし</td>
-                    <td>JsValue</td>
-                </tr>
-            </table>
+                <h3>コアAPI関数一覧</h3>
+                <table>
+                    <tr>
+                        <th>関数名</th>
+                        <th>説明</th>
+                        <th>引数</th>
+                        <th>戻り値</th>
+                    </tr>
+                    <tr>
+                        <td>transition</td>
+                        <td>指定されたイベントで状態遷移を実行</td>
+                        <td>event: Event</td>
+                        <td>なし</td>
+                    </tr>
+                    <tr>
+                        <td>get_state</td>
+                        <td>現在の状態を取得</td>
+                        <td>なし</td>
+                        <td>State</td>
+                    </tr>
+                    <tr>
+                        <td>can_transition</td>
+                        <td>特定のイベントで遷移可能か検証</td>
+                        <td>event: &Event</td>
+                        <td>bool</td>
+                    </tr>
+                    <tr>
+                        <td>send</td>
+                        <td>文字列イベントを送信（JS連携用）</td>
+                        <td>event: &str</td>
+                        <td>Result</td>
+                    </tr>
+                    <tr>
+                        <td>get_context</td>
+                        <td>コンテキストデータを取得</td>
+                        <td>なし</td>
+                        <td>Context</td>
+                    </tr>
+                    <tr>
+                        <td>get_meta</td>
+                        <td>状態機械のメタデータを取得</td>
+                        <td>なし</td>
+                        <td>JsValue</td>
+                    </tr>
+                </table>
 
-            <h3>エラー処理</h3>
-            <p>RuStateでは以下のような方法でエラーを扱います：</p>
-            <pre><code>// Rust側
+                <h3>エラー処理</h3>
+                <p>RuStateでは以下のような方法でエラーを扱います：</p>
+                <pre><code>// Rust側
 pub enum StateMachineError {
     InvalidTransition,
     InvalidState,
@@ -369,13 +507,13 @@ pub fn send(&mut self, event: &str) -> Result<(), StateMachineError> {
     self.transition(parsed_event);
     Ok(())
 }</code></pre>
-        </section>
+            </section>
 
-        <section id="wasm-integration" class="doc-section">
-            <h2>WebAssembly 連携詳細</h2>
-            <h3>wasm-bindgenの使い方</h3>
-            <p>Rustコードをwasmにコンパイルし、JavaScriptから利用可能にするための設定：</p>
-            <pre><code>// Cargo.toml
+            <section id="wasm-integration" class="doc-section">
+                <h2>WebAssembly 連携詳細</h2>
+                <h3>wasm-bindgenの使い方</h3>
+                <p>Rustコードをwasmにコンパイルし、JavaScriptから利用可能にするための設定：</p>
+                <pre><code>// Cargo.toml
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -387,9 +525,9 @@ web-sys = { version = "0.3", features = ["console"] }
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-Oz"]</code></pre>
 
-            <h3>型変換</h3>
-            <p>RustとJavaScript間の型変換方法：</p>
-            <pre><code>// 文字列の変換
+                <h3>型変換</h3>
+                <p>RustとJavaScript間の型変換方法：</p>
+                <pre><code>// 文字列の変換
 #[wasm_bindgen]
 pub fn to_uppercase(input: &str) -> String {
     input.to_uppercase()
@@ -407,9 +545,9 @@ pub fn get_machine_state(&self) -> JsValue {
     obj.into()
 }</code></pre>
 
-            <h3>非同期処理</h3>
-            <p>WebAssembly内での非同期処理の扱い方：</p>
-            <pre><code>#[wasm_bindgen]
+                <h3>非同期処理</h3>
+                <p>WebAssembly内での非同期処理の扱い方：</p>
+                <pre><code>#[wasm_bindgen]
 pub async fn async_operation() -> Result<JsValue, JsValue> {
     // 非同期処理の実装
     let result = perform_async_task().await?;
@@ -421,20 +559,20 @@ machine.asyncOperation().then(result => {
     console.log("Operation completed:", result);
 });</code></pre>
 
-            <h3>メモリ管理の最適化</h3>
-            <p>WebAssemblyとJavaScript間のメモリ共有と最適化テクニック：</p>
-            <ul>
-                <li>大きなデータ構造はJavaScript側で管理し、必要な部分のみwasmに渡す</li>
-                <li>頻繁に変更されるデータは適切にキャッシュする</li>
-                <li>大量のデータ転送が必要な場合はArrayBufferを使用する</li>
-            </ul>
-        </section>
+                <h3>メモリ管理の最適化</h3>
+                <p>WebAssemblyとJavaScript間のメモリ共有と最適化テクニック：</p>
+                <ul>
+                    <li>大きなデータ構造はJavaScript側で管理し、必要な部分のみwasmに渡す</li>
+                    <li>頻繁に変更されるデータは適切にキャッシュする</li>
+                    <li>大量のデータ転送が必要な場合はArrayBufferを使用する</li>
+                </ul>
+            </section>
 
-        <section id="patterns" class="doc-section">
-            <h2>実装パターン集</h2>
-            <h3>複数の状態機械の連携</h3>
-            <p>大規模アプリケーションでは、複数の小さな状態機械を組み合わせることが効果的です：</p>
-            <pre><code>pub struct AppService {
+            <section id="patterns" class="doc-section">
+                <h2>実装パターン集</h2>
+                <h3>複数の状態機械の連携</h3>
+                <p>大規模アプリケーションでは、複数の小さな状態機械を組み合わせることが効果的です：</p>
+                <pre><code>pub struct AppService {
     auth_machine: AuthMachine,
     form_machine: FormMachine,
     navigation_machine: NavigationMachine,
@@ -461,9 +599,9 @@ impl AppService {
     }
 }</code></pre>
 
-            <h3>Reactとの連携パターン</h3>
-            <p>React.jsでRuStateを利用する効果的な方法：</p>
-            <pre><code>// React Custom Hook
+                <h3>Reactとの連携パターン</h3>
+                <p>React.jsでRuStateを利用する効果的な方法：</p>
+                <pre><code>// React Custom Hook
 function useStateMachine(initialMachine) {
   const [state, setState] = useState(initialMachine.getState());
   const machineRef = useRef(initialMachine);
@@ -497,9 +635,9 @@ function TrafficLight() {
   );
 }</code></pre>
 
-            <h3>状態の永続化</h3>
-            <p>ステートマシンの状態を保存・復元する方法：</p>
-            <pre><code>#[wasm_bindgen]
+                <h3>状態の永続化</h3>
+                <p>ステートマシンの状態を保存・復元する方法：</p>
+                <pre><code>#[wasm_bindgen]
 impl MachineService {
     // 状態のシリアライズ
     pub fn serialize(&self) -> String {
@@ -524,12 +662,12 @@ const savedState = localStorage.getItem('machineState');
 if (savedState) {
     const machine = MachineService.deserialize(savedState);
 }</code></pre>
-        </section>
+            </section>
 
-        <section id="project-structure" class="doc-section">
-            <h2>プロジェクト構成</h2>
-            <p>RuStateを使ったプロジェクトの基本構成：</p>
-            <pre><code>rustate/
+            <section id="project-structure" class="doc-section">
+                <h2>プロジェクト構成</h2>
+                <p>RuStateを使ったプロジェクトの基本構成：</p>
+                <pre><code>rustate/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs        # メインライブラリコード
@@ -540,28 +678,28 @@ if (savedState) {
     ├── docs.html     # このドキュメント
     ├── style.css     # スタイルシート
     └── pkg/          # ビルドされたwasmモジュール</code></pre>
-        </section>
+            </section>
 
-        <section id="build-deploy" class="doc-section">
-            <h2>ビルドとデプロイ</h2>
-            <h3>環境設定</h3>
-            <p>必要なツール：</p>
-            <ul>
-                <li>Rust と Cargo</li>
-                <li>wasm-pack</li>
-                <li>Node.js (オプション)</li>
-            </ul>
+            <section id="build-deploy" class="doc-section">
+                <h2>ビルドとデプロイ</h2>
+                <h3>環境設定</h3>
+                <p>必要なツール：</p>
+                <ul>
+                    <li>Rust と Cargo</li>
+                    <li>wasm-pack</li>
+                    <li>Node.js (オプション)</li>
+                </ul>
 
-            <h3>ビルド手順</h3>
-            <pre><code># WebAssemblyとしてビルド
+                <h3>ビルド手順</h3>
+                <pre><code># WebAssemblyとしてビルド
 wasm-pack build --target web
 
 # 開発サーバーを起動（オプション）
 npx serve .</code></pre>
 
-            <h3>CI/CDパイプラインの例</h3>
-            <p>GitHub Actionsを使った継続的インテグレーション・デプロイメントの設定例：</p>
-            <pre><code>name: Build and Deploy
+                <h3>CI/CDパイプラインの例</h3>
+                <p>GitHub Actionsを使った継続的インテグレーション・デプロイメントの設定例：</p>
+                <pre><code>name: Build and Deploy
 
 on:
   push:
@@ -586,27 +724,27 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./web</code></pre>
-        </section>
+            </section>
 
-        <section id="performance" class="doc-section">
-            <h2>パフォーマンスとデバッグ</h2>
-            <h3>パフォーマンス考慮事項</h3>
-            <p>RuStateで効率的なアプリケーションを構築するためのヒント：</p>
-            <ul>
-                <li>状態機械は小さく保ち、責任を明確に分離する</li>
-                <li>頻繁に更新される大きなデータ構造は状態から分離する</li>
-                <li>デバッグビルドとリリースビルドでパフォーマンスが大きく異なることを認識する</li>
-                <li>メモリ使用量を監視し、不必要なクローンや変換を避ける</li>
-                <li>重い処理は Web Workers に委譲することを検討する</li>
-            </ul>
+            <section id="performance" class="doc-section">
+                <h2>パフォーマンスとデバッグ</h2>
+                <h3>パフォーマンス考慮事項</h3>
+                <p>RuStateで効率的なアプリケーションを構築するためのヒント：</p>
+                <ul>
+                    <li>状態機械は小さく保ち、責任を明確に分離する</li>
+                    <li>頻繁に更新される大きなデータ構造は状態から分離する</li>
+                    <li>デバッグビルドとリリースビルドでパフォーマンスが大きく異なることを認識する</li>
+                    <li>メモリ使用量を監視し、不必要なクローンや変換を避ける</li>
+                    <li>重い処理は Web Workers に委譲することを検討する</li>
+                </ul>
 
-            <h3>デバッグツール</h3>
-            <p>wasm-pack testコマンドを使用して、WebAssemblyコードのテストを実行できます。</p>
-            <p>開発時は、console.logでの状態出力や、chromeのWebAssemblyデバッグツールも活用してください。</p>
-            
-            <h3>状態遷移の可視化</h3>
-            <p>状態遷移をログとして出力し、デバッグを容易にする方法：</p>
-            <pre><code>#[wasm_bindgen]
+                <h3>デバッグツール</h3>
+                <p>wasm-pack testコマンドを使用して、WebAssemblyコードのテストを実行できます。</p>
+                <p>開発時は、console.logでの状態出力や、chromeのWebAssemblyデバッグツールも活用してください。</p>
+                
+                <h3>状態遷移の可視化</h3>
+                <p>状態遷移をログとして出力し、デバッグを容易にする方法：</p>
+                <pre><code>#[wasm_bindgen]
 impl MachineService {
     pub fn send_with_logging(&mut self, event: &str) -> Result<(), JsValue> {
         let prev_state = self.get_state();
@@ -624,32 +762,33 @@ impl MachineService {
         result
     }
 }</code></pre>
-        </section>
+            </section>
 
-        <section id="faq" class="doc-section">
-            <h2>よくある質問</h2>
-            <dl>
-                <dt>RuStateは他のステートマシンライブラリとどう違いますか？</dt>
-                <dd>RuStateは特にWebAssemblyとの連携に重点を置いており、Rustの型安全性を最大限に活用しています。</dd>
-                
-                <dt>大規模なアプリケーションでも利用できますか？</dt>
-                <dd>はい。複数の小さな状態機械を組み合わせることで、大規模なアプリケーションも構築できます。</dd>
-                
-                <dt>Redux/XStateなどのJavaScriptライブラリと併用できますか？</dt>
-                <dd>はい。WebAssemblyを通じて公開されるAPIを利用して、既存のJavaScriptフレームワークと統合できます。</dd>
-                
-                <dt>パフォーマンスはJavaScript実装と比べてどうですか？</dt>
-                <dd>一般的に、計算量の多い処理はWebAssembly版の方が高速ですが、DOM操作などJavaScriptとの頻繁なやり取りが必要な場合は、オーバーヘッドにより差が縮まることがあります。</dd>
+            <section id="faq" class="doc-section">
+                <h2>よくある質問</h2>
+                <dl>
+                    <dt>RuStateは他のステートマシンライブラリとどう違いますか？</dt>
+                    <dd>RuStateは特にWebAssemblyとの連携に重点を置いており、Rustの型安全性を最大限に活用しています。</dd>
+                    
+                    <dt>大規模なアプリケーションでも利用できますか？</dt>
+                    <dd>はい。複数の小さな状態機械を組み合わせることで、大規模なアプリケーションも構築できます。</dd>
+                    
+                    <dt>Redux/XStateなどのJavaScriptライブラリと併用できますか？</dt>
+                    <dd>はい。WebAssemblyを通じて公開されるAPIを利用して、既存のJavaScriptフレームワークと統合できます。</dd>
+                    
+                    <dt>パフォーマンスはJavaScript実装と比べてどうですか？</dt>
+                    <dd>一般的に、計算量の多い処理はWebAssembly版の方が高速ですが、DOM操作などJavaScriptとの頻繁なやり取りが必要な場合は、オーバーヘッドにより差が縮まることがあります。</dd>
 
-                <dt>どのようなユースケースに最適ですか？</dt>
-                <dd>複雑なビジネスロジック、計算集約型の処理、厳格な型安全性が求められるアプリケーションに最適です。特に、ユーザーインターフェース、ワークフロー管理、ゲームロジックなどに適しています。</dd>
+                    <dt>どのようなユースケースに最適ですか？</dt>
+                    <dd>複雑なビジネスロジック、計算集約型の処理、厳格な型安全性が求められるアプリケーションに最適です。特に、ユーザーインターフェース、ワークフロー管理、ゲームロジックなどに適しています。</dd>
 
-                <dt>テスト方法はどうすればよいですか？</dt>
-                <dd>Rustの単体テストとwasm-packのテスト機能を組み合わせることで、効率的にテストできます。状態機械の各遷移を個別にテストし、エッジケースも確認することをお勧めします。</dd>
-            </dl>
-        </section>
-    </main>
-    
+                    <dt>テスト方法はどうすればよいですか？</dt>
+                    <dd>Rustの単体テストとwasm-packのテスト機能を組み合わせることで、効率的にテストできます。状態機械の各遷移を個別にテストし、エッジケースも確認することをお勧めします。</dd>
+                </dl>
+            </section>
+        </main>
+    </div>
+
     <footer>
         <div class="container">
             <p>&copy; 2023 RuState プロジェクト</p>
