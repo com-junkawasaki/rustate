@@ -4,7 +4,7 @@ import {
     State,
     Transition,
     init,
-} from '../pkg/rustate.js';
+} from './../pkg/rustate.js';
 
 let currentTrack = 0;
 
