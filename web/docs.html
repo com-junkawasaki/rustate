@@ -271,6 +271,7 @@
                     <li><a href="#api-reference">API リファレンス</a></li>
                     <li><a href="#wasm-integration">WebAssembly 連携詳細</a></li>
                     <li><a href="#patterns">実装パターン集</a></li>
+                    <li><a href="#smd-intro">SMD入門</a></li>
                     <li><a href="#project-structure">プロジェクト構成</a></li>
                     <li><a href="#build-deploy">ビルドとデプロイ</a></li>
                     <li><a href="#performance">パフォーマンスとデバッグ</a></li>
@@ -662,6 +663,213 @@ const savedState = localStorage.getItem('machineState');
 if (savedState) {
     const machine = MachineService.deserialize(savedState);
 }</code></pre>
+            </section>
+
+            <section id="smd-intro" class="doc-section">
+                <h2>Webアプリ開発における State Machine Driven Development (SMD)</h2>
+                <p>Webアプリケーションの開発手法の一つに <strong>State Machine Driven Development (SMD)</strong> があります。これはアプリケーションの挙動を状態遷移図（ステートマシン）によって設計・実装するアプローチです。本記事では以下の内容を中級者向けに解説します。</p>
+                <ul>
+                    <li>SMD の基本概念と思想</li>
+                    <li>XState（JavaScript/TypeScript）や Rustate crate（Rust）など主要ライブラリの紹介</li>
+                    <li>SMD のメリット・デメリット</li>
+                    <li>TDD（Test Driven Development）および Reactive Programming との比較</li>
+                    <li>SMD が特に有効なユースケース</li>
+                    <li>実際のコード例や状態遷移図サンプル</li>
+                </ul>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>1. SMD の基本概念と思想</h3>
+                <p><strong>ステートマシン (State Machine)</strong> とは、システムが取り得る状態 (State) と、その状態間の遷移 (Transition) を定義したモデルです。</p>
+                <ul>
+                    <li><strong>状態 (State)</strong>：システムやコンポーネントがある特定の条件にあることを表す</li>
+                    <li><strong>遷移 (Transition)</strong>：あるイベントに応じて状態が変化するルール</li>
+                </ul>
+                <p><strong>ステートチャート (Statechart)</strong> は有限状態機械 (FSM) を拡張し、階層状態や並行状態など複雑な振る舞いを表現できる形式です。<br>SMD ではまず状態遷移図を描き、明示的に状態と遷移を定義した上で実装を進めます。<br>これにより、不整合な状態遷移を排除し、システムの挙動を予測可能に保ちます。</p>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>2. 実装ライブラリの紹介</h3>
+
+                <h4>2.1 XState (JavaScript/TypeScript)</h4>
+                <ul>
+                    <li>W3C 標準の SCXML 準拠のステートマシン／ステートチャート実装</li>
+                    <li>JSON ライクなオブジェクトや TypeScript で状態遷移図を定義</li>
+                    <li><code>@xstate/react</code> など公式プラグインで React との統合が容易</li>
+                    <li>インタラクティブなビジュアライザで状態遷移図を視覚化可能</li>
+                </ul>
+                <p><strong>簡単な例（TypeScript）</strong></p>
+                <pre><code>import { createMachine, interpret } from 'xstate';
+
+const lightMachine = createMachine({
+  id: 'trafficLight',
+  initial: 'green',
+  states: {
+    green:  { on: { TIMER: 'yellow' } },
+    yellow: { on: { TIMER: 'red' } },
+    red:    { on: { TIMER: 'green' } }
+  }
+});
+
+const service = interpret(lightMachine).start();
+service.send('TIMER'); // green → yellow</code></pre>
+
+                <h4>2.2 Rustate (Rust)</h4>
+                <ul>
+                    <li>Rust 向けステートチャートクレート</li>
+                    <li>型安全な FSM／ステートチャート定義、階層状態・並行状態・ガード条件・アクションをサポート</li>
+                    <li>XState の思想を Rust で再現</li>
+                </ul>
+                <pre><code>use rustate::{MachineBuilder, State, Transition, Action, ActionType};
+
+let green  = State::new("green");
+let yellow = State::new("yellow");
+let red    = State::new("red");
+
+let t1 = Transition::new("green",  "TIMER", "yellow");
+let t2 = Transition::new("yellow", "TIMER", "red");
+let t3 = Transition::new("red",    "TIMER", "green");
+
+let log_green = Action::new("logGreen", ActionType::Entry, |_ctx, _evt| {
+    println!("Entering GREEN state – Go!");
+});
+
+let mut machine = MachineBuilder::new("trafficLight")
+    .state(green).state(yellow).state(red)
+    .initial("green")
+    .transition(t1).transition(t2).transition(t3)
+    .on_entry("green", log_green)
+    .build()?;
+
+machine.send("TIMER")?; // green → yellow</code></pre>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>3. SMD のメリット</h3>
+                <ol>
+                    <li><strong>バグ削減</strong>
+                        <ul>
+                            <li>明示的に全状態と遷移を定義し、不可能な遷移を排除</li>
+                            <li>設計段階でモデル自体がバリデーションを担う</li>
+                        </ul>
+                    </li>
+                    <li><strong>ロジックの明確化</strong>
+                        <ul>
+                            <li>実装前に全体像を可視化し、要件抜け漏れを防止</li>
+                            <li>状態遷移図がチーム共通の設計ドキュメントに</li>
+                        </ul>
+                    </li>
+                    <li><strong>可読性・保守性向上</strong>
+                        <ul>
+                            <li>コンポーネントが「現在の状態を表示する」役割に集中</li>
+                            <li>コードが状態ごとに整理され、条件分岐のネストを回避</li>
+                        </ul>
+                    </li>
+                    <li><strong>複雑状態管理への対処</strong>
+                        <ul>
+                            <li>階層状態／並行状態でロジックを体系化</li>
+                            <li>機能が増えても拡張しやすい</li>
+                        </ul>
+                    </li>
+                    <li><strong>テスト容易性</strong>
+                        <ul>
+                            <li>状態遷移表がそのままテストケース一覧に</li>
+                            <li>モデルベーステストや自動テスト生成ツールとも相性良し</li>
+                        </ul>
+                    </li>
+                    <li><strong>視覚化とツール支援</strong>
+                        <ul>
+                            <li>XState Inspector など開発者ツールで実行時トレース可</li>
+                            <li>ビジュアライザで遷移図をインタラクティブに確認</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>4. SMD のデメリット</h3>
+                <ul>
+                    <li>学習コスト：ステートチャート概念やライブラリ習得の初期ハードル</li>
+                    <li>ボイラープレート：単純ロジックには定義の手間が増える</li>
+                    <li>ライブラリ依存：外部クレートのメンテナンス状況やバンドルサイズに注意</li>
+                    <li>誤った抽象化：無理に一つのマシンに詰め込むと状態爆発の恐れ</li>
+                    <li>デバッグ慣れ：従来のステップデバッガでは追いづらいが、専用ツールで補完可能</li>
+                </ul>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>5. 他の手法との比較</h3>
+
+                <h4>5.1 TDD (Test Driven Development)</h4>
+                <table class="api-section">
+                     <thead>
+                         <tr><th>観点</th><th>TDD</th><th>SMD</th></tr>
+                     </thead>
+                     <tbody>
+                         <tr><td>アプローチ</td><td>テストファースト（レッド→グリーン→リファクタ）</td><td>モデルファースト（状態遷移図を先に設計）</td></tr>
+                         <tr><td>テスト容易性</td><td>個別機能のユニットテスト中心</td><td>状態遷移表そのものがテストケースに</td></tr>
+                         <tr><td>可読性</td><td>テストコードが動作ドキュメントに</td><td>一枚の状態遷移図で挙動全体を俯瞰</td></tr>
+                         <tr><td>拡張性・保守性</td><td>テストがガード</td><td>モデル変更だけで影響範囲が明確</td></tr>
+                     </tbody>
+                </table>
+                <p><strong>補完関係：</strong>SMD で設計した状態モデルをベースに TDD を行うと、より堅牢で変更に強い実装が可能。</p>
+
+                <h4>5.2 Reactive Programming</h4>
+                 <table class="api-section">
+                     <thead>
+                         <tr><th>観点</th><th>Reactive Programming</th><th>SMD</th></tr>
+                     </thead>
+                     <tbody>
+                         <tr><td>発想の核</td><td>データ・イベントストリームの流れ</td><td>離散的な状態と遷移</td></tr>
+                         <tr><td>開発体験</td><td>非同期／イベント駆動が直感的</td><td>因果関係（イベント→遷移）が明示的</td></tr>
+                         <tr><td>テスト容易性</td><td>マーブルテストなど時間軸テストが必要</td><td>入力イベント→状態遷移の組み合わせテストが簡単</td></tr>
+                         <tr><td>可読性</td><td>ストリーム合成の複雑化がボトルネックになる場合あり</td><td>状態ごとにロジックを整理し直感的</td></tr>
+                         <tr><td>拡張性</td><td>ストリーム合成の修正が増える可能性</td><td>モデルの遷移追加でスケールしやすい</td></tr>
+                     </tbody>
+                </table>
+                <p><strong>併用例：</strong>React＋XState、Vue＋XState など、UI のリアクティブ性とステートマシンの明確さを両立。</p>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>6. SMD が特に有効なユースケース</h3>
+                <ol>
+                    <li><strong>複雑な UI コンポーネント</strong>
+                        <ul><li>ウィザード形式モーダル、アニメーションシーケンス管理など</li></ul>
+                    </li>
+                    <li><strong>マルチステップフォーム</strong>
+                        <ul><li>名前入力 → メール入力 → 送信 → 成功／失敗</li></ul>
+                        <pre><code>[NameForm] --Next--&gt; [EmailForm] --Submit--&gt; [Submitting]
+               &lt;--------Prev-------           |
+                                           Success→[Done]
+                                           Failure→[Error]--Retry--&gt;[EmailForm]</code></pre>
+                    </li>
+                    <li><strong>ワークフロー／業務プロセス</strong>
+                         <ul><li>注文受付 → 承認待ち → 決済 → 出荷 → 完了</li></ul>
+                    </li>
+                    <li><strong>非同期処理ライフサイクル</strong>
+                         <ul><li>idle → loading → success／error</li></ul>
+                    </li>
+                    <li><strong>長時間プロセス／タイムアウト</strong>
+                         <ul><li>オンライン → オフライン → 再接続中／セッションタイムアウト</li></ul>
+                    </li>
+                </ol>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>7. まとめ</h3>
+                <p>State Machine Driven Development は「状態遷移を明示的に設計し、そのモデルに基づいて実装・テストする」手法です。<br>複雑な UI ロジックや業務ワークフローを扱う際のバグ削減・可読性向上・テスト容易性など多くのメリットがあります。TDD や Reactive Programming とも補完的に利用できるため、まずは小さなコンポーネントから SMD を試してみましょう。</p>
+
+                <hr style="border-top: 1px solid var(--border-color); margin: 2rem 0;">
+
+                <h3>参考リンク</h3>
+                <ul>
+                    <li><a href="#" target="_blank" rel="noopener">XState 公式ドキュメント</a></li>
+                    <li><a href="https://github.com/jun784/rustate" target="_blank" rel="noopener">Rustate crate (GitHub)</a></li>
+                    <li><a href="#" target="_blank" rel="noopener">Tim Deschryver, "My love letter to XState and statecharts"</a></li>
+                    <li><a href="#" target="_blank" rel="noopener">wempe.dev, "Benefits and Downsides of Using Statecharts"</a></li>
+                    <li><a href="#" target="_blank" rel="noopener">Hitesh Singh Solanki, "State Machines Evolved: Building Resilient Web Apps with Reactive Patterns"</a></li>
+                    <li><a href="#" target="_blank" rel="noopener">Maya Shavin, "Managing Multi-Step Forms in Vue with XState"</a></li>
+                 </ul>
             </section>
 
             <section id="project-structure" class="doc-section">
