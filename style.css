@@ -1,0 +1,370 @@
+:root {
+    --primary-color: #3498db;
+    --secondary-color: #2c3e50;
+    --accent-color: #e74c3c;
+    --light-color: #ecf0f1;
+    --dark-color: #34495e;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+    background-color: #f5f5f5;
+}
+
+header, footer {
+    background-color: var(--secondary-color);
+    color: var(--light-color);
+    text-align: center;
+    padding: 2rem 0;
+}
+
+footer {
+    margin-top: 2rem;
+    padding: 1rem 0;
+}
+
+footer a {
+    color: var(--light-color);
+}
+
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+section {
+    margin-bottom: 3rem;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+}
+
+h1, h2, h3 {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+header {
+    text-align: center;
+    padding: 1rem 0 2rem;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 2rem;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    color: #333;
+}
+
+.subtitle {
+    color: #666;
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+}
+
+button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #2980b9;
+}
+
+.demo-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    margin-top: 1.5rem;
+}
+
+/* 交通信号機スタイル */
+.traffic-light {
+    width: 120px;
+    height: 300px;
+    background-color: #333;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-evenly;
+    padding: 15px 0;
+}
+
+.light {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background-color: #555;
+}
+
+.light.red {
+    background-color: #555;
+}
+
+.light.yellow {
+    background-color: #555;
+}
+
+.light.green {
+    background-color: #555;
+}
+
+.light.active.red {
+    background-color: #e74c3c;
+    box-shadow: 0 0 20px #e74c3c;
+}
+
+.light.active.yellow {
+    background-color: #f1c40f;
+    box-shadow: 0 0 20px #f1c40f;
+}
+
+.light.active.green {
+    background-color: #2ecc71;
+    box-shadow: 0 0 20px #2ecc71;
+}
+
+.controls {
+    flex: 1;
+    min-width: 300px;
+}
+
+.state-display {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    border-left: 4px solid var(--primary-color);
+}
+
+/* 音楽プレーヤースタイル */
+.music-player {
+    width: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.player-display {
+    background-color: var(--secondary-color);
+    padding: 1.5rem;
+}
+
+.player-screen {
+    background-color: #1a2530;
+    color: #4fc3f7;
+    font-family: 'Courier New', Courier, monospace;
+    padding: 1rem;
+    border-radius: 4px;
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.player-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 1rem;
+    background-color: #f1f1f1;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+#power-btn {
+    background-color: var(--accent-color);
+}
+
+#play-btn, #pause-btn, #stop-btn {
+    flex: 1;
+}
+
+#speed-up-btn, #speed-normal-btn {
+    background-color: var(--dark-color);
+}
+
+@media (max-width: 768px) {
+    .demo-container {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .traffic-light {
+        margin-bottom: 2rem;
+    }
+    
+    .controls {
+        width: 100%;
+    }
+}
+
+/* ナビゲーションバーのスタイル */
+nav {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.nav-link {
+    padding: 0.5rem 1rem;
+    background-color: #f0f0f0;
+    color: #333;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.nav-link:hover {
+    background-color: #e0e0e0;
+    text-decoration: none;
+}
+
+/* ドキュメントページのスタイル */
+.doc-section {
+    margin-bottom: 3rem;
+    padding: 2rem;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.doc-section h2 {
+    font-size: 1.8rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #f0f0f0;
+    color: #2c3e50;
+}
+
+.doc-section h3 {
+    font-size: 1.4rem;
+    margin: 1.5rem 0 1rem;
+    color: #3498db;
+}
+
+.doc-section p {
+    margin-bottom: 1rem;
+}
+
+.doc-section ul, .doc-section ol {
+    margin: 1rem 0;
+    padding-left: 2rem;
+}
+
+.doc-section li {
+    margin-bottom: 0.5rem;
+}
+
+/* Code Blocks */
+pre {
+    background-color: #f8f8f8;
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    border-left: 4px solid #3498db;
+}
+
+code {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: #333;
+    font-size: 0.9rem;
+}
+
+/* Demo Styles */
+.demo-container {
+    background-color: white;
+    border-radius: 8px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.demo-controls {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.demo-button {
+    padding: 0.5rem 1.5rem;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.demo-button:hover {
+    background-color: #2980b9;
+}
+
+.demo-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.traffic-light {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 2rem;
+    background-color: #333;
+    border-radius: 8px;
+    max-width: 200px;
+    margin: 0 auto;
+}
+
+.light {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background-color: #666;
+}
+
+.red.active { background-color: #e74c3c; }
+.yellow.active { background-color: #f1c40f; }
+.green.active { background-color: #2ecc71; }
+
+/* Footer Styles */
+footer {
+    text-align: center;
+    padding: 2rem 0 1rem;
+    color: #666;
+    font-size: 0.9rem;
+    border-top: 1px solid #e0e0e0;
+    margin-top: 2rem;
+} 

@@ -1,0 +1,31 @@
+{
+  "name": "rstate",
+  "type": "module",
+  "collaborators": [
+    "RState Contributors"
+  ],
+  "description": "A Rust implementation of statecharts inspired by XState",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rstate-org/rstate"
+  },
+  "files": [
+    "rstate_bg.wasm",
+    "rstate.js",
+    "rstate.d.ts"
+  ],
+  "main": "rstate.js",
+  "types": "rstate.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "statecharts",
+    "statemachine",
+    "fsm",
+    "xstate",
+    "actors"
+  ]
+}

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RuState Demo - Rust Statecharts</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>RuState Demos</h1>
+        <p>Interactive demos of statecharts implemented in Rust and compiled to WebAssembly</p>
+        <nav>
+            <a href="index.html" class="nav-link">デモ</a>
+            <a href="docs.html" class="nav-link">ドキュメント</a>
+        </nav>
+    </header>
+    
+    <main>
+        <section id="traffic-light">
+            <h2>交通信号機のデモ</h2>
+            <div class="demo-container">
+                <div class="traffic-light">
+                    <div class="light red" id="red-light"></div>
+                    <div class="light yellow" id="yellow-light"></div>
+                    <div class="light green" id="green-light"></div>
+                </div>
+                <div class="controls">
+                    <button id="traffic-timer-btn">タイマーイベント送信</button>
+                    <div class="state-display">
+                        現在の状態: <span id="traffic-state">初期化中...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="music-player">
+            <h2>音楽プレーヤーのデモ</h2>
+            <div class="demo-container">
+                <div class="music-player">
+                    <div class="player-display">
+                        <div class="player-screen" id="player-screen">
+                            <div id="player-track">トラック: 0</div>
+                            <div id="player-status">状態: 初期化中...</div>
+                        </div>
+                    </div>
+                    <div class="player-controls">
+                        <button id="power-btn">電源</button>
+                        <button id="play-btn">再生</button>
+                        <button id="pause-btn">一時停止</button>
+                        <button id="stop-btn">停止</button>
+                        <button id="prev-btn">前へ</button>
+                        <button id="next-btn">次へ</button>
+                        <button id="speed-up-btn">速く</button>
+                        <button id="speed-normal-btn">通常速度</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Powered by Rust + WebAssembly</p>
+        <p><a href="https://github.com/rstate-org/rustate" target="_blank" rel="noopener">GitHub</a></p>
+    </footer>
+
+    <script type="module" src="index.js"></script>
+</body>
+</html> 
