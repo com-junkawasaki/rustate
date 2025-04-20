@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 #[async_trait]
 pub trait Storage<S, E>: Send + Sync
 where
-    S: StateTrait + DeserializeOwned + Debug + 'static,
-    E: EventTrait + DeserializeOwned + Debug + Clone + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + for<'de> Deserialize<'de> + Debug + Clone + Send + Sync + 'static,
 {
     /// 観測データを保存します
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError>;
@@ -165,8 +165,8 @@ pub enum FilterOperator {
 /// インメモリストレージの実装
 pub struct MemoryStorage<S, E>
 where
-    S: StateTrait + Clone,
-    E: EventTrait + Clone,
+    S: StateTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     observations: Arc<Mutex<Vec<Observation<S, E>>>>,
     decisions: Arc<Mutex<Vec<Decision<E>>>>,
@@ -177,10 +177,10 @@ where
 
 impl<S, E> MemoryStorage<S, E>
 where
-    S: StateTrait + Clone,
-    E: EventTrait + Clone,
+    S: StateTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
 {
-    /// 新しいインメモリストレージを作成します
+    /// 新しいメモリベースのストレージを作成します
     pub fn new() -> Self {
         Self {
             observations: Arc::new(Mutex::new(Vec::new())),
@@ -195,8 +195,8 @@ where
 #[async_trait]
 impl<S, E> Storage<S, E> for MemoryStorage<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
-    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError> {
         let mut observations = self.observations.lock().map_err(|e| {
@@ -229,7 +229,7 @@ where
         let mut result: Vec<Observation<S, E>> = observations.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|obs| filter_fn(obs)).collect();
+            result = result.into_iter().filter(|obs| filter_fn(&obs)).collect();
         }
 
         if let Some(limit) = limit {
@@ -270,7 +270,7 @@ where
         let mut result: Vec<Decision<E>> = decisions.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|dec| filter_fn(dec)).collect();
+            result = result.into_iter().filter(|dec| filter_fn(&dec)).collect();
         }
 
         if let Some(limit) = limit {
@@ -311,7 +311,7 @@ where
         let mut result: Vec<Insight> = insights.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|ins| filter_fn(ins)).collect();
+            result = result.into_iter().filter(|ins| filter_fn(&ins)).collect();
         }
 
         if let Some(limit) = limit {
@@ -352,7 +352,7 @@ where
         let mut result: Vec<Episode<S, E>> = episodes.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|ep| filter_fn(ep)).collect();
+            result = result.into_iter().filter(|ep| filter_fn(&ep)).collect();
         }
 
         if let Some(limit) = limit {
@@ -393,7 +393,7 @@ where
         let mut result: Vec<Feedback<E>> = feedback.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|fb| filter_fn(fb)).collect();
+            result = result.into_iter().filter(|fb| filter_fn(&fb)).collect();
         }
 
         if let Some(limit) = limit {

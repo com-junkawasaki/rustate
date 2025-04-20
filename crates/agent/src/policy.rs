@@ -18,7 +18,7 @@ use crate::prelude::Result;
 pub trait Policy<S, E>
 where
     S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     /// ポリシーの名前を返します
     fn name(&self) -> &str {
@@ -42,7 +42,7 @@ where
 /// 利用可能なイベントからランダムに選択するシンプルなポリシー
 pub struct RandomPolicy<E>
 where
-    E: EventTrait + Clone,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     available_events: Vec<E>,
     name: String,
@@ -51,13 +51,13 @@ where
 
 impl<E> RandomPolicy<E>
 where
-    E: EventTrait + Clone,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     pub fn new(available_events: Vec<E>) -> Self {
         Self {
             available_events,
             name: "ランダムポリシー".to_string(),
-            description: "利用可能なイベントからランダムに選択するポリシー".to_string(),
+            description: "利用可能なイベントからランダムに選択する決定ポリシー".to_string(),
         }
     }
     
@@ -76,7 +76,7 @@ where
 impl<S, E> Policy<S, E> for RandomPolicy<E>
 where
     S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
+    E: EventTrait + for<'de> Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         &self.name
@@ -86,11 +86,11 @@ where
         &self.description
     }
     
-    fn decide(&self, context: DecisionContext<S, E>) -> Decision<E> {
-        let event = self.available_events
-            .choose(&mut rand::thread_rng())
-            .cloned()
-            .ok_or_else(|| Decision::new(context.current_state, 0.0))?;
+    fn decide(&self, _context: DecisionContext<S, E>) -> Decision<E> {
+        let event = match self.available_events.choose(&mut rand::thread_rng()) {
+            Some(e) => e.clone(),
+            None => panic!("ランダムポリシーにイベントが設定されていません"),
+        };
         
         // ランダムな信頼度（0.5〜1.0）
         let confidence = 0.5 + rand::random::<f64>() * 0.5;
@@ -144,8 +144,8 @@ where
 /// ヒューリスティックルールのトレイト
 pub trait HeuristicRule<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + 'static,
-    E: EventTrait + DeserializeOwned + Clone + Debug + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + for<'de> Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
 {
     /// ルールの名前
     fn name(&self) -> &str;
@@ -173,7 +173,7 @@ where
 impl<S, E> Policy<S, E> for HeuristicPolicy<S, E>
 where
     S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
+    E: EventTrait + for<'de> Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         &self.name
@@ -188,7 +188,7 @@ where
         let mut rule_matches = Vec::new();
         
         for rule in &self.rules {
-            if rule.matches(&context.current_state, context.goal_state, &context.observations, &context.insights) {
+            if rule.matches(&context.current_state, context.goal_state.as_ref(), &context.observations, &context.insights) {
                 rule_matches.push(rule);
             }
         }
@@ -204,7 +204,7 @@ where
             .unwrap();
         
         // 選択されたルールからイベントを取得
-        let event = best_rule.get_event(&context.current_state, context.goal_state);
+        let event = best_rule.get_event(&context.current_state, context.goal_state.as_ref());
         let confidence = best_rule.confidence();
         
         Decision::new(event, confidence)
