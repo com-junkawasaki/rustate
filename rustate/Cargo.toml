@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/rustate_core",
+    "crates/rustate_visualizer",
+]
+
+[workspace.dependencies]
+# ここに共通の依存関係を追加できます 

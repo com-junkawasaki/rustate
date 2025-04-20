@@ -23,7 +23,7 @@ npm install
 ### ビルド手順
 
 ```bash
-# rstate クレートを wasm にコンパイル
+# rustate クレートを wasm にコンパイル
 wasm-pack build --target web --features wasm
 
 # 開発サーバーの起動

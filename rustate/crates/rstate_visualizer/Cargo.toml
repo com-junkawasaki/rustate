@@ -1,0 +1,17 @@
+[package]
+name = "rustate_visualizer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rustate_core = { path = "../rustate_core" }
+yew = { version = "0.21.0", features = ["csr"] }
+wasm-bindgen = "0.2"
+
+# WASM ビルド時の最適化
+[profile.release]
+lto = true
+opt-level = 'z' # サイズ最適化 
