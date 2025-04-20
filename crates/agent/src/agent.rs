@@ -112,44 +112,15 @@ where
         Ok(None)
     }
 
-    /// エージェントの次の決定を取得します
+    /// 次の決定を生成します
     pub async fn next_decision(&self) -> Result<Decision<E>, AgentError> {
-        let current_state = self.machine.current_state();
-        
-        // 目標状態を取得
-        let goal_state = self.current_episode
-            .as_ref()
-            .and_then(|ep| ep.goal_state.as_ref());
-        
-        // 最近の観測データを取得
-        let observations = self.storage
-            .find_observations(None, self.config.max_observations)
-            .await?;
-        
-        // 洞察を取得
-        let insights = self.storage
-            .find_insights(None, None)
-            .await?;
-        
-        // ポリシーを使用して決定を作成
-        let decision = self.policy
-            .decide(current_state, goal_state, &observations, &insights)
-            .await?;
-        
-        // 決定を保存
-        self.storage.save_decision(&decision).await?;
-        
-        // エピソードに決定を追加
-        if let Some(episode) = &self.current_episode {
-            let mut episode = episode.clone();
-            episode.add_decision(decision.clone());
-            // 注: ここでは可変参照の問題を避けるために非効率的なクローンを使用していますが、
-            // 実際の実装ではより良い方法を検討すべきです
-            let this = unsafe { &mut *(self as *const Self as *mut Self) };
-            this.current_episode = Some(episode);
+        // 現在のエピソードがなければエラー
+        if self.current_episode.is_none() {
+            return Err(AgentError::Other("エピソードが開始されていません".to_string()));
         }
         
-        Ok(decision)
+        // make_decision メソッドを使用して次の決定を取得
+        self.make_decision().await
     }
 
     /// 決定に基づいてイベントを適用します
@@ -266,6 +237,31 @@ where
     /// 現在のエピソードを取得します
     pub fn current_episode(&self) -> Option<Episode<S, E>> {
         self.current_episode.clone()
+    }
+
+    /// 現在の状態に基づいて決定を行います
+    pub async fn make_decision(&self) -> Result<Decision<E>> {
+        let state = self.machine.current_state();
+        let goal_state = self.current_episode
+            .as_ref()
+            .and_then(|ep| ep.goal_state.as_ref());
+        let observations = self.storage.find_observations(None, None).await?;
+        let insights = self.storage.find_insights(None, None).await?;
+
+        // 現在の状態を基に新しい決定を生成
+        let context = DecisionContext::new(
+            state.clone(),
+            goal_state.cloned(),
+            &observations,
+            &insights,
+        );
+
+        let decision = self.policy
+            .decide(context);
+
+        // 決定を保存
+        self.storage.save_decision(&decision).await?;
+        Ok(decision)
     }
 }
 

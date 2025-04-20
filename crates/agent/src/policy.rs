@@ -20,7 +20,7 @@ use crate::prelude::Result;
 pub trait Policy<S, E>
 where
     S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// ポリシーの名前を返します
     fn name(&self) -> &str {
@@ -36,7 +36,7 @@ where
     fn decide(&self, context: DecisionContext<S, E>) -> Decision<E>;
 
     /// フィードバックに応じてポリシーを更新します
-    fn update(&self, _feedback: Feedback) {
+    fn update(&self, _feedback: Feedback<E>) {
         // デフォルトでは何もしません
     }
 }
@@ -44,7 +44,7 @@ where
 /// 利用可能なイベントからランダムに選択するシンプルなポリシー
 pub struct RandomPolicy<E>
 where
-    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     available_events: Vec<E>,
     name: String,
@@ -53,7 +53,7 @@ where
 
 impl<E> RandomPolicy<E>
 where
-    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     pub fn new(available_events: Vec<E>) -> Self {
         Self {
@@ -78,7 +78,7 @@ where
 impl<S, E> Policy<S, E> for RandomPolicy<E>
 where
     S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + for<'de> Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         &self.name
@@ -147,7 +147,7 @@ where
 pub trait HeuristicRule<S, E>
 where
     S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + for<'de> Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     /// ルールの名前
     fn name(&self) -> &str;
@@ -175,7 +175,7 @@ where
 impl<S, E> Policy<S, E> for HeuristicPolicy<S, E>
 where
     S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + for<'de> Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         &self.name

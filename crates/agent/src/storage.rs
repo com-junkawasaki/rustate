@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 pub trait Storage<S, E>: Send + Sync
 where
     S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + for<'de> Deserialize<'de> + Debug + Clone + Send + Sync + 'static,
+    E: EventTrait + for<'a> Deserialize<'a> + Debug + Clone + Send + Sync + 'static,
 {
     /// 観測データを保存します
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError>;
@@ -166,8 +166,8 @@ pub enum FilterOperator {
 /// インメモリストレージの実装
 pub struct MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     observations: Arc<Mutex<Vec<Observation<S, E>>>>,
     decisions: Arc<Mutex<Vec<Decision<E>>>>,
@@ -178,8 +178,8 @@ where
 
 impl<S, E> MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     /// 新しいメモリベースのストレージを作成します
     pub fn new() -> Self {
@@ -196,8 +196,8 @@ where
 #[async_trait]
 impl<S, E> Storage<S, E> for MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError> {
         let mut observations = self.observations.lock().map_err(|e| {
