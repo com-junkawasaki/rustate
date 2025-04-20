@@ -20,7 +20,7 @@ use crate::prelude::Result;
 pub trait Policy<S, E>
 where
     S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + Clone + 'static,
 {
     /// ポリシーの名前を返します
     fn name(&self) -> &str {

@@ -1,5 +1,6 @@
 use crate::editor::EditorState;
 use yew::prelude::*;
+use wasm_bindgen::JsCast;
 
 #[derive(Properties, PartialEq)]
 pub struct EditorPanelProps {

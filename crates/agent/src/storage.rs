@@ -232,8 +232,7 @@ where
 
         if let Some(filter_fn) = filter {
             result = result.into_iter().filter(|obs| {
-                let obs_clone = obs.clone();
-                filter_fn(&obs_clone)
+                filter_fn(obs)
             }).collect();
         }
 
@@ -276,8 +275,7 @@ where
 
         if let Some(filter_fn) = filter {
             result = result.into_iter().filter(|dec| {
-                let dec_clone = dec.clone();
-                filter_fn(&dec_clone)
+                filter_fn(dec)
             }).collect();
         }
 
@@ -320,8 +318,7 @@ where
 
         if let Some(filter_fn) = filter {
             result = result.into_iter().filter(|ins| {
-                let ins_clone = ins.clone();
-                filter_fn(&ins_clone)
+                filter_fn(ins)
             }).collect();
         }
 
@@ -370,8 +367,7 @@ where
 
         if let Some(filter_fn) = filter {
             result = result.into_iter().filter(|ep| {
-                let ep_clone = ep.clone();
-                filter_fn(&ep_clone)
+                filter_fn(ep)
             }).collect();
         }
 
@@ -414,8 +410,7 @@ where
 
         if let Some(filter_fn) = filter {
             result = result.into_iter().filter(|fb| {
-                let fb_clone = fb.clone();
-                filter_fn(&fb_clone)
+                filter_fn(fb)
             }).collect();
         }
 

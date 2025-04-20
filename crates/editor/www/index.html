@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Rustate Editor</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        #editor-container {
+            width: 100%;
+            height: 90vh;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>Rustate Editor</h1>
+    <div id="editor-container"></div>
+    
+    <script type="module">
+        import init, { init_editor, debug_log } from './pkg/rustate_editor.js';
+        
+        async function run() {
+            console.log("Starting WASM initialization...");
+            try {
+                await init();
+                console.log("WASM initialized successfully");
+                
+                // エディタの初期化
+                try {
+                    debug_log("Calling init_editor function");
+                    await init_editor("editor-container");
+                    console.log("Editor initialized successfully");
+                } catch (e) {
+                    console.error("Editor initialization error:", e);
+                    document.getElementById('editor-container').innerHTML = 
+                        `<p style="color:red">Error initializing editor: ${e}</p>`;
+                }
+            } catch (e) {
+                console.error("WASM initialization error:", e);
+                document.getElementById('editor-container').innerHTML = 
+                    `<p style="color:red">Error loading WASM: ${e}</p>`;
+            }
+        }
+        
+        run();
+    </script>
+</body>
+</html>

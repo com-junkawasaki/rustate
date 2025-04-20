@@ -1,5 +1,6 @@
 use crate::editor::EditorState;
 use yew::prelude::*;
+use wasm_bindgen::JsCast;
 
 #[derive(Properties, PartialEq)]
 pub struct PropertiesPanelProps {
@@ -25,7 +26,7 @@ pub fn properties_panel(props: &PropertiesPanelProps) -> Html {
                     Callback::from(move |e: Event| {
                         let target = e.target().unwrap();
                         let input = target.dyn_into::<web_sys::HtmlInputElement>().unwrap();
-                        let mut new_state = editor_state.clone();
+                        let mut new_state = (*editor_state).clone();
                         
                         if let Some(state) = new_state.machine.states.get_mut(&element_id) {
                             state.name = input.value();
@@ -41,7 +42,7 @@ pub fn properties_panel(props: &PropertiesPanelProps) -> Html {
                     Callback::from(move |e: Event| {
                         let target = e.target().unwrap();
                         let input = target.dyn_into::<web_sys::HtmlInputElement>().unwrap();
-                        let mut new_state = editor_state.clone();
+                        let mut new_state = (*editor_state).clone();
                         
                         if let Some(state) = new_state.machine.states.get_mut(&element_id) {
                             state.is_final = input.checked();
@@ -75,7 +76,7 @@ pub fn properties_panel(props: &PropertiesPanelProps) -> Html {
                     Callback::from(move |e: Event| {
                         let target = e.target().unwrap();
                         let input = target.dyn_into::<web_sys::HtmlInputElement>().unwrap();
-                        let mut new_state = editor_state.clone();
+                        let mut new_state = (*editor_state).clone();
                         
                         if let Some(transition) = new_state.machine.transitions.get_mut(&element_id) {
                             transition.event = Some(input.value());

@@ -3,9 +3,9 @@ mod context;
 mod error;
 mod event;
 mod guard;
-mod machine;
-mod state;
-mod transition;
+pub mod machine;
+pub mod state;
+pub mod transition;
 mod test;
 
 #[cfg(feature = "wasm")]

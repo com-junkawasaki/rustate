@@ -46,7 +46,7 @@ impl Default for AgentConfig {
 /// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, SM, P>
 where
-    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static,
+    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + PartialEq + 'static,
     E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static,
     SM: Storage<S, E>,
     P: Policy<S, E>,
@@ -244,14 +244,15 @@ where
         let state = self.machine.current_state();
         let goal_state = self.current_episode
             .as_ref()
-            .and_then(|ep| ep.goal_state.as_ref());
+            .and_then(|ep| ep.goal_state.as_ref())
+            .map(|s| s.clone());
         let observations = self.storage.find_observations(None, None).await?;
         let insights = self.storage.find_insights(None, None).await?;
 
         // 現在の状態を基に新しい決定を生成
         let context = DecisionContext::new(
             state.clone(),
-            goal_state.cloned(),
+            goal_state,
             &observations,
             &insights,
         );
