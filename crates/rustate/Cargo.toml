@@ -1,0 +1,43 @@
+[package]
+name = "rustate"
+version = "0.1.0"
+edition.workspace = true
+description = "A Rust implementation of statecharts inspired by XState"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["statecharts", "statemachine", "fsm", "xstate", "actors"]
+categories = ["data-structures", "concurrency"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = [
+  "console", "Document", "Element", "HtmlElement", 
+  "Node", "Window", "HtmlButtonElement", "Event"
+]}
+console_error_panic_hook = { workspace = true, optional = true }
+
+[features]
+default = ["uuid"]
+wasm = ["wasm-bindgen", "js-sys", "web-sys", "console_error_panic_hook", "uuid/js"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[example]]
+name = "traffic_light"
+path = "examples/traffic_light.rs"
+
+[[example]]
+name = "hierarchical"
+path = "examples/hierarchical.rs"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O3"]

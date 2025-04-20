@@ -1,43 +1,25 @@
-[package]
-name = "rustate"
-version = "0.1.0"
-edition = "2021"
-description = "A Rust implementation of statecharts inspired by XState"
-license = "MIT"
-authors = ["Jun Kawasaki"]
-repository = "https://github.com/jun784/rustate" 
-documentation = "https://docs.rs/rustate"
-readme = "README.md"
-keywords = ["statecharts", "statemachine", "fsm", "xstate", "actors"]
-categories = ["data-structures", "concurrency"]
+[workspace]
+resolver = "2"
+members = [
+    "crates/rustate",
+]
 
-[dependencies]
+[workspace.package]
+authors = ["Jun Kawasaki"]
+repository = "https://github.com/jun784/rustate"
+documentation = "https://docs.rs/rustate"
+license = "MIT"
+edition = "2021"
+
+[workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
-uuid = { version = "1.3", features = ["v4", "serde", "js"], optional = true }
-wasm-bindgen = { version = "0.2", optional = true }
-js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", optional = true, features = [
+uuid = { version = "1.3", features = ["v4", "serde", "js"] }
+wasm-bindgen = { version = "0.2" }
+js-sys = { version = "0.3" }
+web-sys = { version = "0.3", features = [
   "console", "Document", "Element", "HtmlElement", 
   "Node", "Window", "HtmlButtonElement", "Event"
 ]}
-console_error_panic_hook = { version = "0.1.7", optional = true }
-
-[features]
-default = ["uuid"]
-wasm = ["wasm-bindgen", "js-sys", "web-sys", "console_error_panic_hook", "uuid/js"]
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[[example]]
-name = "traffic_light"
-path = "examples/traffic_light.rs"
-
-[[example]]
-name = "hierarchical"
-path = "examples/hierarchical.rs"
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O3"]
+console_error_panic_hook = { version = "0.1.7" }
