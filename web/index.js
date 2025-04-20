@@ -4,7 +4,7 @@ import {
     State,
     Transition,
     init,
-} from '/rustate/pkg/rustate.js';
+} from '../pkg/rustate.js'; // Changed path to relative
 
 let currentTrack = 0;
 
@@ -176,4 +176,4 @@ function updateTrackDisplay(event) {
 }
 
 // Wasm初期化を実行
-initWasm().catch(console.error); 
+initWasm().catch(console.error);
