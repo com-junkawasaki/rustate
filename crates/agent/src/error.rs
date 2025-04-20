@@ -45,7 +45,7 @@ pub enum AgentError {
 }
 
 /// 結果型エイリアス
-pub type Result<T> = std::result::Result<T, AgentError>;
+pub type Result<T, E = AgentError> = std::result::Result<T, E>;
 
 impl From<serde_json::Error> for AgentError {
     fn from(error: serde_json::Error) -> Self {

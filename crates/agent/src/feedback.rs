@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
+use serde_json::Value;
 
 /// フィードバックの種類
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -114,7 +115,18 @@ mod tests {
         Action2,
     }
     
-    impl EventTrait for TestEvent {}
+    impl EventTrait for TestEvent {
+        fn event_type(&self) -> &str {
+            match self {
+                TestEvent::Action1 => "action1",
+                TestEvent::Action2 => "action2",
+            }
+        }
+        
+        fn payload(&self) -> Option<&Value> {
+            None
+        }
+    }
     
     #[test]
     fn test_feedback_creation() {

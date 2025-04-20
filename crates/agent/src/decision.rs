@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
+use serde_json::Value;
 
 /// エージェントの決定を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,13 +77,64 @@ mod tests {
     use rustate::{EventTrait, StateTrait};
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    enum TestState {
+        Initial,
+        Processing,
+        Final,
+    }
+
+    impl StateTrait for TestState {
+        fn id(&self) -> &str {
+            match self {
+                TestState::Initial => "initial",
+                TestState::Processing => "processing",
+                TestState::Final => "final",
+            }
+        }
+        
+        fn state_type(&self) -> &rustate::StateType {
+            static STATE_TYPE: rustate::StateType = rustate::StateType::Normal;
+            &STATE_TYPE
+        }
+        
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+        
+        fn children(&self) -> &[String] {
+            static EMPTY: [String; 0] = [];
+            &EMPTY
+        }
+        
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+        
+        fn data(&self) -> Option<&Value> {
+            None
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Process,
         Finish,
     }
 
-    impl EventTrait for TestEvent {}
+    impl EventTrait for TestEvent {
+        fn event_type(&self) -> &str {
+            match self {
+                TestEvent::Start => "start",
+                TestEvent::Process => "process",
+                TestEvent::Finish => "finish",
+            }
+        }
+        
+        fn payload(&self) -> Option<&Value> {
+            None
+        }
+    }
 
     #[test]
     fn test_decision_creation() {

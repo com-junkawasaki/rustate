@@ -1,8 +1,9 @@
 use crate::observation::Observation;
-use rustate::{EventTrait, StateTrait};
+use rustate::{EventTrait, StateTrait, StateType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+use serde_json::Value;
 
 /// 洞察は、観測データに基づく追加情報や解釈を提供します。
 /// 洞察はAIエージェントが状態遷移や観測データから抽出した
@@ -117,7 +118,8 @@ fn generate_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait};
+    use rustate::{EventTrait, StateTrait, StateType};
+    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {
@@ -126,7 +128,37 @@ mod tests {
         Final,
     }
 
-    impl StateTrait for TestState {}
+    impl StateTrait for TestState {
+        fn id(&self) -> &str {
+            match self {
+                TestState::Initial => "initial",
+                TestState::Processing => "processing",
+                TestState::Final => "final",
+            }
+        }
+        
+        fn state_type(&self) -> &StateType {
+            static STATE_TYPE: StateType = StateType::Normal;
+            &STATE_TYPE
+        }
+        
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+        
+        fn children(&self) -> &[String] {
+            static EMPTY: [String; 0] = [];
+            &EMPTY
+        }
+        
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+        
+        fn data(&self) -> Option<&Value> {
+            None
+        }
+    }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestEvent {
@@ -135,7 +167,19 @@ mod tests {
         Finish,
     }
 
-    impl EventTrait for TestEvent {}
+    impl EventTrait for TestEvent {
+        fn event_type(&self) -> &str {
+            match self {
+                TestEvent::Start => "start",
+                TestEvent::Process => "process",
+                TestEvent::Finish => "finish",
+            }
+        }
+        
+        fn payload(&self) -> Option<&Value> {
+            None
+        }
+    }
 
     #[test]
     fn test_insight_creation() {

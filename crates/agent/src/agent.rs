@@ -67,8 +67,8 @@ where
 
 impl<S, E, P, T> Agent<S, E, P, T>
 where
-    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
-    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static,
+    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static + rustate::IntoEvent,
     P: Policy<S, E> + 'static,
     T: Storage<S, E> + 'static,
 {
@@ -157,7 +157,7 @@ where
         let previous_state = self.machine.current_state().clone();
         
         // イベントを適用
-        match self.machine.transition(&decision.event, Context::default()) {
+        match self.machine.transition(decision.event.clone(), Context::default()) {
             Ok(next_state) => {
                 // 自動観測記録が有効な場合
                 if self.config.auto_record_observations {
@@ -274,7 +274,7 @@ mod tests {
     use super::*;
     use crate::policy::RandomPolicy;
     use crate::storage::MemoryStorage;
-    use rustate::{EventTrait, StateTrait, State, Event, StateType};
+    use rustate::{EventTrait, StateTrait, State, Event, StateType, IntoEvent};
     use serde::{Serialize, Deserialize};
     use serde_json::Value;
 
@@ -293,26 +293,25 @@ mod tests {
                 TestState::Final => "final",
             }
         }
-
+        
         fn state_type(&self) -> &StateType {
-            // Use a static StateType as this is just for tests
-            static STATE_TYPE: StateType = StateType::Normal;
-            &STATE_TYPE
+            static NORMAL: StateType = StateType::Normal;
+            &NORMAL
         }
-
+        
         fn parent(&self) -> Option<&str> {
             None
         }
-
+        
         fn children(&self) -> &[String] {
             static EMPTY: [String; 0] = [];
             &EMPTY
         }
-
+        
         fn initial(&self) -> Option<&str> {
             None
         }
-
+        
         fn data(&self) -> Option<&Value> {
             None
         }
@@ -333,9 +332,15 @@ mod tests {
                 TestEvent::Finish => "finish",
             }
         }
-
+        
         fn payload(&self) -> Option<&Value> {
             None
+        }
+    }
+    
+    impl IntoEvent for TestEvent {
+        fn into_event(self) -> Event {
+            Event::new(self.event_type())
         }
     }
 

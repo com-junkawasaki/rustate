@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_episode_creation() {
-        let episode = Episode::new(
+        let episode: Episode<TestState, TestEvent> = Episode::new(
             "テストエピソード",
             TestState::Initial,
             Some(TestState::Final),
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_episode_with_observations_and_decisions() {
-        let mut episode = Episode::new(
+        let mut episode: Episode<TestState, TestEvent> = Episode::new(
             "テストエピソード",
             TestState::Initial,
             Some(TestState::Final),

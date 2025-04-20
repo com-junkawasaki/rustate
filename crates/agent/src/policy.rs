@@ -15,8 +15,8 @@ use std::sync::Arc;
 #[async_trait]
 pub trait Policy<S, E>
 where
-    S: StateTrait + DeserializeOwned + 'static,
-    E: EventTrait + DeserializeOwned + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
 {
     /// ポリシーの名前を返します
     fn name(&self) -> &str {
