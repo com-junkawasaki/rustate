@@ -28,7 +28,7 @@ where
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
-        filter: Option<impl Fn(&Observation<S, E>) -> bool + Send>,
+        filter: Option<fn(&Observation<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError>;
 
@@ -41,7 +41,7 @@ where
     /// 条件に一致する決定を検索します
     async fn find_decisions(
         &self,
-        filter: Option<impl Fn(&Decision<E>) -> bool + Send>,
+        filter: Option<fn(&Decision<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError>;
 
@@ -54,7 +54,7 @@ where
     /// 条件に一致する洞察を検索します
     async fn find_insights(
         &self,
-        filter: Option<impl Fn(&Insight) -> bool + Send>,
+        filter: Option<fn(&Insight) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError>;
 
@@ -67,7 +67,7 @@ where
     /// 条件に一致するエピソードを検索します
     async fn find_episodes(
         &self,
-        filter: Option<impl Fn(&Episode<S, E>) -> bool + Send>,
+        filter: Option<fn(&Episode<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError>;
 
@@ -80,7 +80,7 @@ where
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
-        filter: Option<impl Fn(&Feedback<E>) -> bool + Send>,
+        filter: Option<fn(&Feedback<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError>;
 }
@@ -219,19 +219,14 @@ where
 
     async fn find_observations(
         &self,
-        filter: Option<impl Fn(&Observation<S, E>) -> bool + Send>,
+        filter: Option<fn(&Observation<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError> {
-        let observations = self.observations.lock().map_err(|e| {
-            AgentError::StorageError(format!("ロック取得エラー: {}", e))
-        })?;
-        
+        let observations = self.observations.lock().await;
         let mut result = observations.clone();
         
         if let Some(_filter) = filter {
-            result = result.into_iter()
-                .filter(_filter)
-                .collect();
+            result.retain(_filter);
         }
         
         if let Some(limit) = limit {
@@ -262,19 +257,14 @@ where
 
     async fn find_decisions(
         &self,
-        filter: Option<impl Fn(&Decision<E>) -> bool + Send>,
+        filter: Option<fn(&Decision<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError> {
-        let decisions = self.decisions.lock().map_err(|e| {
-            AgentError::StorageError(format!("ロック取得エラー: {}", e))
-        })?;
-        
+        let decisions = self.decisions.lock().await;
         let mut result = decisions.clone();
         
         if let Some(_filter) = filter {
-            result = result.into_iter()
-                .filter(_filter)
-                .collect();
+            result.retain(_filter);
         }
         
         if let Some(limit) = limit {
@@ -305,19 +295,14 @@ where
 
     async fn find_insights(
         &self,
-        filter: Option<impl Fn(&Insight) -> bool + Send>,
+        filter: Option<fn(&Insight) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError> {
-        let insights = self.insights.lock().map_err(|e| {
-            AgentError::StorageError(format!("ロック取得エラー: {}", e))
-        })?;
-        
+        let insights = self.insights.lock().await;
         let mut result = insights.clone();
         
         if let Some(_filter) = filter {
-            result = result.into_iter()
-                .filter(_filter)
-                .collect();
+            result.retain(_filter);
         }
         
         if let Some(limit) = limit {
@@ -348,19 +333,14 @@ where
 
     async fn find_episodes(
         &self,
-        filter: Option<impl Fn(&Episode<S, E>) -> bool + Send>,
+        filter: Option<fn(&Episode<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError> {
-        let episodes = self.episodes.lock().map_err(|e| {
-            AgentError::StorageError(format!("ロック取得エラー: {}", e))
-        })?;
-        
+        let episodes = self.episodes.lock().await;
         let mut result = episodes.clone();
         
         if let Some(_filter) = filter {
-            result = result.into_iter()
-                .filter(_filter)
-                .collect();
+            result.retain(_filter);
         }
         
         if let Some(limit) = limit {
@@ -391,19 +371,14 @@ where
     
     async fn find_feedback(
         &self,
-        filter: Option<impl Fn(&Feedback<E>) -> bool + Send>,
+        filter: Option<fn(&Feedback<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError> {
-        let feedbacks = self.feedback.lock().map_err(|e| {
-            AgentError::StorageError(format!("ロック取得エラー: {}", e))
-        })?;
-        
+        let feedbacks = self.feedback.lock().await;
         let mut result = feedbacks.clone();
         
         if let Some(_filter) = filter {
-            result = result.into_iter()
-                .filter(_filter)
-                .collect();
+            result.retain(_filter);
         }
         
         if let Some(limit) = limit {

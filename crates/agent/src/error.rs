@@ -31,6 +31,14 @@ pub enum AgentError {
     #[error("シリアライズエラー: {0}")]
     SerializationError(String),
 
+    /// ポリシーエラー
+    #[error("ポリシーエラー: {0}")]
+    PolicyError(String),
+
+    /// エピソードエラー
+    #[error("エピソードエラー: {0}")]
+    EpisodeError(String),
+
     /// その他のエラー
     #[error("その他のエラー: {0}")]
     Other(String),

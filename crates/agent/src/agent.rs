@@ -274,8 +274,9 @@ mod tests {
     use super::*;
     use crate::policy::RandomPolicy;
     use crate::storage::MemoryStorage;
-    use rustate::{EventTrait, StateTrait, State, Event};
+    use rustate::{EventTrait, StateTrait, State, Event, StateType};
     use serde::{Serialize, Deserialize};
+    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {
@@ -284,7 +285,6 @@ mod tests {
         Final,
     }
 
-    // StateTrait をテスト用の状態に実装
     impl StateTrait for TestState {
         fn id(&self) -> &str {
             match self {
@@ -293,26 +293,27 @@ mod tests {
                 TestState::Final => "final",
             }
         }
-        
-        fn state_type(&self) -> &rustate::StateType {
-            // テスト用にダミー実装
-            static NORMAL: rustate::StateType = rustate::StateType::Normal;
-            &NORMAL
+
+        fn state_type(&self) -> &StateType {
+            // Use a static StateType as this is just for tests
+            static STATE_TYPE: StateType = StateType::Atomic;
+            &STATE_TYPE
         }
-        
+
         fn parent(&self) -> Option<&str> {
             None
         }
-        
+
         fn children(&self) -> &[String] {
-            &[]
+            static EMPTY: [String; 0] = [];
+            &EMPTY
         }
-        
+
         fn initial(&self) -> Option<&str> {
             None
         }
-        
-        fn data(&self) -> Option<&serde_json::Value> {
+
+        fn data(&self) -> Option<&Value> {
             None
         }
     }
@@ -324,7 +325,6 @@ mod tests {
         Finish,
     }
 
-    // EventTrait をテスト用のイベントに実装
     impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
             match self {
@@ -333,8 +333,8 @@ mod tests {
                 TestEvent::Finish => "finish",
             }
         }
-        
-        fn payload(&self) -> Option<&serde_json::Value> {
+
+        fn payload(&self) -> Option<&Value> {
             None
         }
     }
