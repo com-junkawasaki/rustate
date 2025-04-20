@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Episode<S, E>
 where
     S: StateTrait,
-    E: EventTrait,
+    E: EventTrait + Clone,
 {
     /// エピソードの一意な識別子
     pub id: String,
@@ -62,7 +62,7 @@ where
 impl<S, E> Episode<S, E>
 where
     S: StateTrait,
-    E: EventTrait,
+    E: EventTrait + Clone,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal_state: Option<S>) -> Self {
@@ -136,20 +136,23 @@ where
 
     /// エピソードのすべての決定に関連するフィードバックを収集します
     pub fn collect_feedback(&self) -> Vec<&Feedback<E>> {
-        self.decisions
-            .iter()
-            .filter_map(|decision| decision.feedback.as_ref())
-            .collect()
+        self.feedback.iter().collect()
     }
 
     /// エピソードの平均フィードバックスコアを計算します
     pub fn average_feedback_score(&self) -> Option<f64> {
-        let feedback = self.collect_feedback();
+        let feedback = self.feedback.iter().collect::<Vec<_>>();
         if feedback.is_empty() {
             return None;
         }
 
-        let sum: f64 = feedback.iter().map(|f| f.score).sum();
+        let sum: f64 = feedback.iter()
+            .map(|f| match f.feedback_type {
+                crate::feedback::FeedbackType::Positive => 1.0,
+                crate::feedback::FeedbackType::Neutral => 0.5,
+                crate::feedback::FeedbackType::Negative => 0.0,
+            })
+            .sum();
         Some(sum / feedback.len() as f64)
     }
 }
@@ -175,8 +178,9 @@ fn generate_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::feedback::Feedback;
-    use rustate::{EventTrait, StateTrait};
+    use rustate::{EventTrait, StateTrait, StateType};
+    use serde::{Serialize, Deserialize};
+    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {
@@ -185,7 +189,38 @@ mod tests {
         Final,
     }
 
-    impl StateTrait for TestState {}
+    impl StateTrait for TestState {
+        fn id(&self) -> &str {
+            match self {
+                TestState::Initial => "initial",
+                TestState::Processing => "processing",
+                TestState::Final => "final",
+            }
+        }
+
+        fn state_type(&self) -> &StateType {
+            // Use a static StateType as this is just for tests
+            static STATE_TYPE: StateType = StateType::Atomic;
+            &STATE_TYPE
+        }
+
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+
+        fn children(&self) -> &[String] {
+            static EMPTY: [String; 0] = [];
+            &EMPTY
+        }
+
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+
+        fn data(&self) -> Option<&Value> {
+            None
+        }
+    }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestEvent {
@@ -194,7 +229,19 @@ mod tests {
         Finish,
     }
 
-    impl EventTrait for TestEvent {}
+    impl EventTrait for TestEvent {
+        fn event_type(&self) -> &str {
+            match self {
+                TestEvent::Start => "start",
+                TestEvent::Process => "process",
+                TestEvent::Finish => "finish",
+            }
+        }
+
+        fn payload(&self) -> Option<&Value> {
+            None
+        }
+    }
 
     #[test]
     fn test_episode_creation() {
@@ -210,7 +257,8 @@ mod tests {
         assert!(episode.observations.is_empty());
         assert!(episode.decisions.is_empty());
         assert!(episode.insights.is_empty());
-        assert!(!episode.is_completed());
+        assert!(episode.metadata.is_empty());
+        assert_eq!(episode.is_successful, None);
     }
 
     #[test]
@@ -226,9 +274,10 @@ mod tests {
             TestEvent::Start,
             TestState::Processing,
         );
-        episode.add_observation(observation);
 
-        let decision = Decision::new(TestEvent::Process, "処理を進めるため");
+        let decision = Decision::new(TestEvent::Process, 0.8);
+        
+        episode.add_observation(observation);
         episode.add_decision(decision);
 
         assert_eq!(episode.observations.len(), 1);
@@ -243,7 +292,11 @@ mod tests {
             Some(TestState::Final),
         );
 
+        assert!(!episode.is_completed());
+        assert_eq!(episode.is_successful, None);
+
         episode.complete(true);
+
         assert!(episode.is_completed());
         assert_eq!(episode.is_successful, Some(true));
         assert!(episode.duration_seconds().is_some());
@@ -252,24 +305,24 @@ mod tests {
     #[test]
     fn test_episode_feedback() {
         let mut episode = Episode::new(
-            "テストエピソード",
+            "テストエピソード", 
             TestState::Initial,
-            Some(TestState::Final),
+            Some(TestState::Final)
         );
 
-        let decision1 = Decision::new(TestEvent::Start, "開始するため")
-            .with_feedback(Feedback::new(0.8, "良い選択"));
+        let decision1 = Decision::new(TestEvent::Start, 0.8);
+        let decision2 = Decision::new(TestEvent::Process, 0.6);
 
-        let decision2 = Decision::new(TestEvent::Process, "処理を進めるため")
-            .with_feedback(Feedback::new(0.6, "普通の選択"));
+        let feedback1 = Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
+        let feedback2 = Feedback::new("普通の選択", crate::feedback::FeedbackType::Neutral, "user");
 
         episode.add_decision(decision1);
         episode.add_decision(decision2);
+        episode.add_feedback(feedback1);
+        episode.add_feedback(feedback2);
 
-        let feedback = episode.collect_feedback();
-        assert_eq!(feedback.len(), 2);
-        
-        let avg_score = episode.average_feedback_score().unwrap();
-        assert!((avg_score - 0.7).abs() < f64::EPSILON);
+        assert_eq!(episode.feedback.len(), 2);
+        assert!(episode.average_feedback_score().is_some());
+        assert_eq!(episode.average_feedback_score(), Some(0.75)); // (1.0 + 0.5) / 2 = 0.75
     }
 } 

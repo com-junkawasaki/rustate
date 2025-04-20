@@ -274,9 +274,10 @@ mod tests {
     use super::*;
     use crate::policy::RandomPolicy;
     use crate::storage::MemoryStorage;
+    use rustate::{EventTrait, StateTrait, State, Event};
+    use serde::{Serialize, Deserialize};
 
-    // テスト用の状態定義
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {
         Initial,
         Processing,
@@ -316,8 +317,7 @@ mod tests {
         }
     }
 
-    // テスト用のイベント定義
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Process,

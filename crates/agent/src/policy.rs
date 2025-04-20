@@ -1,35 +1,34 @@
 use crate::{
-    decision::{Decision, DecisionMaker},
+    decision::Decision,
     error::AgentError,
     insight::Insight,
     observation::Observation,
 };
 use async_trait::async_trait;
 use rand::seq::SliceRandom;
-use rustate::{StateTrait, EventTrait};
-use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
+use rustate::{EventTrait, StateTrait};
+use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// エージェントの決定ポリシーを定義するトレイト
 #[async_trait]
-pub trait Policy<S, E>: Send + Sync
+pub trait Policy<S, E>
 where
     S: StateTrait + DeserializeOwned + 'static,
     E: EventTrait + DeserializeOwned + 'static,
 {
-    /// 名前を返します
+    /// ポリシーの名前を返します
     fn name(&self) -> &str {
-        "汎用ポリシー"
+        "基本ポリシー"
     }
     
-    /// 説明を返します
+    /// ポリシーの説明を返します
     fn description(&self) -> &str {
-        "基本決定ポリシー"
+        "基本的な決定ポリシー"
     }
-
-    /// 現在の状態と目標状態から次の決定を行います
+    
+    /// 現在の状態とゴール状態から次のアクションを決定します
     async fn decide(
         &self,
         current_state: &S,
@@ -39,28 +38,33 @@ where
     ) -> std::result::Result<Decision<E>, AgentError>;
 }
 
-/// ランダムポリシー - 利用可能なイベントからランダムに選択します。
-/// テストと基本的なエージェント動作のデモに適しています。
-pub struct RandomPolicy<E: EventTrait> {
+/// 利用可能なイベントからランダムに選択するシンプルなポリシー
+pub struct RandomPolicy<E>
+where
+    E: EventTrait + Clone,
+{
+    available_events: Vec<E>,
     name: String,
     description: String,
-    available_events: Vec<E>,
 }
 
-impl<E: EventTrait> RandomPolicy<E> {
+impl<E> RandomPolicy<E>
+where
+    E: EventTrait + Clone,
+{
     pub fn new(available_events: Vec<E>) -> Self {
         Self {
-            name: "ランダムポリシー".to_string(),
-            description: "利用可能なイベントからランダムに選択するシンプルなポリシー".to_string(),
             available_events,
+            name: "ランダムポリシー".to_string(),
+            description: "利用可能なイベントからランダムに選択するポリシー".to_string(),
         }
     }
-
+    
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
-
+    
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
@@ -70,17 +74,17 @@ impl<E: EventTrait> RandomPolicy<E> {
 #[async_trait]
 impl<S, E> Policy<S, E> for RandomPolicy<E>
 where
-    S: StateTrait + DeserializeOwned + Debug + 'static,
-    E: EventTrait + DeserializeOwned + Clone + Debug + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         &self.name
     }
-
+    
     fn description(&self) -> &str {
         &self.description
     }
-
+    
     async fn decide(
         &self,
         _current_state: &S,
@@ -91,65 +95,99 @@ where
         let event = self.available_events
             .choose(&mut rand::thread_rng())
             .cloned()
-            .ok_or_else(|| AgentError::DecisionError("利用可能なイベントがありません".to_string()))?;
+            .ok_or_else(|| AgentError::PolicyError("利用可能なイベントがありません".to_string()))?;
         
-        // ランダムな信頼度 (0.1〜0.5)
-        let confidence = 0.1 + rand::random::<f64>() * 0.4;
+        // ランダムな信頼度（0.5〜1.0）
+        let confidence = 0.5 + rand::random::<f64>() * 0.5;
         
         Ok(Decision::new(event, confidence))
     }
 }
 
-/// ヒューリスティックポリシー - 事前定義されたルールに基づいて決定を行います。
-pub struct HeuristicPolicy<S, E> {
+/// ヒューリスティックルールによって決定を行うポリシー
+pub struct HeuristicPolicy<S, E>
+where
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
+{
+    rules: Vec<Box<dyn HeuristicRule<S, E> + Send + Sync>>,
+    fallback_policy: Box<dyn Policy<S, E> + Send + Sync>,
     name: String,
     description: String,
-    rules: Vec<Box<dyn HeuristicRule<S, E> + Send + Sync>>,
 }
 
 impl<S, E> HeuristicPolicy<S, E>
 where
-    S: StateTrait,
-    E: EventTrait,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
-    pub fn new() -> Self {
+    pub fn new(fallback_policy: impl Policy<S, E> + Send + Sync + 'static) -> Self {
         Self {
-            name: "ヒューリスティックポリシー".to_string(),
-            description: "事前定義されたルールに基づいて決定を行うポリシー".to_string(),
             rules: Vec::new(),
+            fallback_policy: Box::new(fallback_policy),
+            name: "ヒューリスティックポリシー".to_string(),
+            description: "ルールベースのヒューリスティックを使用する決定ポリシー".to_string(),
         }
     }
-
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name = name.into();
-        self
-    }
-
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.description = description.into();
-        self
-    }
-
+    
     pub fn add_rule(mut self, rule: impl HeuristicRule<S, E> + Send + Sync + 'static) -> Self {
         self.rules.push(Box::new(rule));
         self
     }
+    
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+    
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
+    }
+}
+
+/// ヒューリスティックルールのトレイト
+pub trait HeuristicRule<S, E>
+where
+    S: StateTrait + DeserializeOwned + Debug + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + 'static,
+{
+    /// ルールの名前
+    fn name(&self) -> &str;
+    
+    /// ルールの優先度（高いほど優先）
+    fn priority(&self) -> i32;
+    
+    /// 状態に対してこのルールが適用可能かどうかを判断
+    fn matches(
+        &self,
+        current_state: &S,
+        goal_state: Option<&S>,
+        observations: &[Observation<S, E>],
+        insights: &[Insight],
+    ) -> bool;
+    
+    /// ルールが生成する決定のイベント
+    fn get_event(&self, current_state: &S, goal_state: Option<&S>) -> E;
+    
+    /// ルールの信頼度
+    fn confidence(&self) -> f64;
 }
 
 #[async_trait]
 impl<S, E> Policy<S, E> for HeuristicPolicy<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + 'static,
-    E: EventTrait + DeserializeOwned + Clone + Debug + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
         &self.name
     }
-
+    
     fn description(&self) -> &str {
         &self.description
     }
-
+    
     async fn decide(
         &self,
         current_state: &S,
@@ -157,14 +195,7 @@ where
         observations: &[Observation<S, E>],
         insights: &[Insight],
     ) -> std::result::Result<Decision<E>, AgentError> {
-        // この実装は非常に単純なもので、実際のアプリケーションではより高度なロジックが必要です
-        
-        // ゴール状態が定義されていない場合は、ランダムな決定を返す
-        if goal_state.is_none() {
-            return Err(AgentError::DecisionError("目標状態が定義されていません".to_string()));
-        }
-        
-        // 観測データからルールを適用
+        // マッチするルールを探す
         let mut rule_matches = Vec::new();
         
         for rule in &self.rules {
@@ -173,43 +204,20 @@ where
             }
         }
         
-        // 合致するルールがない場合はエラー
         if rule_matches.is_empty() {
-            return Err(AgentError::DecisionError("適切なルールが見つかりません".to_string()));
+            // マッチするルールがない場合はフォールバックポリシーを使用
+            return self.fallback_policy.decide(current_state, goal_state, observations, insights).await;
         }
         
-        // 最も優先度の高いルールを選択
-        let best_rule = rule_matches.iter().max_by_key(|r| r.priority()).unwrap();
+        // 優先度が最も高いルールを選択
+        let best_rule = rule_matches.iter().max_by_key(|r| rule.priority()).unwrap();
         
-        // ルールから決定を作成
-        let event = best_rule.get_event(current_state, goal_state)?;
+        // 選択されたルールからイベントを取得
+        let event = best_rule.get_event(current_state, goal_state);
         let confidence = best_rule.confidence();
         
         Ok(Decision::new(event, confidence))
     }
-}
-
-/// ヒューリスティックルールのトレイト
-#[async_trait]
-pub trait HeuristicRule<S, E>
-where
-    S: StateTrait,
-    E: EventTrait,
-{
-    /// ルールの名前を返します
-    fn name(&self) -> &str;
-
-    /// 現在の状態、目標状態、観測データに基づいてルールを評価し、スコアを返します
-    fn evaluate(
-        &self,
-        current_state: &S,
-        goal_state: Option<&S>,
-        observations: &[Observation<S, E>],
-        insights: &[Insight],
-    ) -> f64;
-
-    /// 適用する実際のイベントを返します
-    fn get_event(&self, current_state: &S, goal_state: Option<&S>) -> E;
 }
 
 #[cfg(test)]
@@ -249,22 +257,29 @@ mod tests {
             &self.name
         }
 
-        fn evaluate(
+        fn priority(&self) -> i32 {
+            1
+        }
+
+        fn matches(
             &self,
             current_state: &TestState,
             goal_state: Option<&TestState>,
             _observations: &[Observation<TestState, TestEvent>],
             _insights: &[Insight],
-        ) -> f64 {
+        ) -> bool {
             match goal_state {
-                Some(goal) if *goal == self.target_state => 1.0,
-                _ if *current_state != self.target_state => 0.5,
-                _ => 0.0,
+                Some(goal) if *goal == self.target_state => true,
+                _ => false,
             }
         }
 
         fn get_event(&self, _current_state: &TestState, _goal_state: Option<&TestState>) -> TestEvent {
             self.output_event.clone()
+        }
+
+        fn confidence(&self) -> f64 {
+            1.0
         }
     }
 
@@ -295,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_heuristic_policy() {
-        let policy = HeuristicPolicy::new()
+        let policy = HeuristicPolicy::new(RandomPolicy::new(vec![TestEvent::Start]))
             .with_name("テストヒューリスティックポリシー")
             .add_rule(TestRule {
                 name: "初期状態ルール".to_string(),

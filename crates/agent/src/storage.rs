@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 pub trait Storage<S, E>: Send + Sync
 where
     S: StateTrait + DeserializeOwned + Debug + 'static,
-    E: EventTrait + DeserializeOwned + Debug + 'static,
+    E: EventTrait + DeserializeOwned + Debug + Clone + 'static,
 {
     /// 観測データを保存します
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError>;
@@ -28,7 +28,7 @@ where
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Observation<S, E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError>;
 
@@ -41,7 +41,7 @@ where
     /// 条件に一致する決定を検索します
     async fn find_decisions(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Decision<E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError>;
 
@@ -54,7 +54,7 @@ where
     /// 条件に一致する洞察を検索します
     async fn find_insights(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Insight) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError>;
 
@@ -67,7 +67,7 @@ where
     /// 条件に一致するエピソードを検索します
     async fn find_episodes(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Episode<S, E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError>;
 
@@ -80,7 +80,7 @@ where
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Feedback<E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError>;
 }
@@ -219,7 +219,7 @@ where
 
     async fn find_observations(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Observation<S, E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError> {
         let observations = self.observations.lock().map_err(|e| {
@@ -228,9 +228,10 @@ where
         
         let mut result = observations.clone();
         
-        if let Some(filter) = filter {
-            // フィルターの実装
-            // ここでは簡単のため省略していますが、実際には適切なフィルター処理を行う必要があります
+        if let Some(_filter) = filter {
+            result = result.into_iter()
+                .filter(_filter)
+                .collect();
         }
         
         if let Some(limit) = limit {
@@ -261,7 +262,7 @@ where
 
     async fn find_decisions(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Decision<E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError> {
         let decisions = self.decisions.lock().map_err(|e| {
@@ -270,9 +271,10 @@ where
         
         let mut result = decisions.clone();
         
-        if let Some(filter) = filter {
-            // フィルターの実装
-            // ここでは簡単のため省略していますが、実際には適切なフィルター処理を行う必要があります
+        if let Some(_filter) = filter {
+            result = result.into_iter()
+                .filter(_filter)
+                .collect();
         }
         
         if let Some(limit) = limit {
@@ -303,7 +305,7 @@ where
 
     async fn find_insights(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Insight) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError> {
         let insights = self.insights.lock().map_err(|e| {
@@ -312,9 +314,10 @@ where
         
         let mut result = insights.clone();
         
-        if let Some(filter) = filter {
-            // フィルターの実装
-            // ここでは簡単のため省略していますが、実際には適切なフィルター処理を行う必要があります
+        if let Some(_filter) = filter {
+            result = result.into_iter()
+                .filter(_filter)
+                .collect();
         }
         
         if let Some(limit) = limit {
@@ -345,7 +348,7 @@ where
 
     async fn find_episodes(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Episode<S, E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError> {
         let episodes = self.episodes.lock().map_err(|e| {
@@ -354,9 +357,10 @@ where
         
         let mut result = episodes.clone();
         
-        if let Some(filter) = filter {
-            // フィルターの実装
-            // ここでは簡単のため省略していますが、実際には適切なフィルター処理を行う必要があります
+        if let Some(_filter) = filter {
+            result = result.into_iter()
+                .filter(_filter)
+                .collect();
         }
         
         if let Some(limit) = limit {
@@ -387,7 +391,7 @@ where
     
     async fn find_feedback(
         &self,
-        filter: Option<StorageFilter>,
+        filter: Option<impl Fn(&Feedback<E>) -> bool + Send>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError> {
         let feedbacks = self.feedback.lock().map_err(|e| {
@@ -396,9 +400,10 @@ where
         
         let mut result = feedbacks.clone();
         
-        if let Some(filter) = filter {
-            // フィルターの実装
-            // ここでは実装を省略していますが、実際には適切なフィルター処理を行う必要があります
+        if let Some(_filter) = filter {
+            result = result.into_iter()
+                .filter(_filter)
+                .collect();
         }
         
         if let Some(limit) = limit {
@@ -474,5 +479,28 @@ mod tests {
         // 決定を取得
         let retrieved = storage.get_decision(&decision.id).await.unwrap();
         assert_eq!(retrieved.id, decision.id);
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage() {
+        let storage = MemoryStorage::<TestState, TestEvent>::new();
+        
+        // Create and store a decision
+        let decision = Decision::new(TestEvent::Start, 0.9);
+        storage.save_decision(&decision).await.unwrap();
+        
+        // Retrieve and verify
+        let decisions = storage.find_decisions(None, None).await.unwrap();
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(decisions[0].event, TestEvent::Start);
+        
+        // Create and store feedback
+        let feedback = Feedback::new("良いスタート", FeedbackType::Positive, "システム");
+        storage.save_feedback(&feedback).await.unwrap();
+        
+        // Retrieve and verify
+        let feedback_list = storage.find_feedback(None, None).await.unwrap();
+        assert_eq!(feedback_list.len(), 1);
+        assert_eq!(feedback_list[0].content, "良いスタート");
     }
 } 

@@ -106,10 +106,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use rustate::EventTrait;
+    
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum TestEvent {
+        Action1,
+        Action2,
+    }
+    
+    impl EventTrait for TestEvent {}
+    
     #[test]
     fn test_feedback_creation() {
-        let feedback = Feedback::new("優れた決定でした", FeedbackType::Positive, "user");
+        let feedback = Feedback::<TestEvent>::new("優れた決定でした", FeedbackType::Positive, "user");
 
         assert_eq!(feedback.content, "優れた決定でした");
         assert_eq!(feedback.source, "user");
@@ -121,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_feedback_with_metadata() {
-        let feedback = Feedback::new("改善の余地があります", FeedbackType::Negative, "user")
+        let feedback = Feedback::<TestEvent>::new("改善の余地があります", FeedbackType::Negative, "user")
             .with_metadata("reviewer", "system")
             .with_metadata("category", "efficiency");
 
@@ -132,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_neutral_feedback() {
-        let feedback = Feedback::new("中立的な決定", FeedbackType::Neutral, "user");
+        let feedback = Feedback::<TestEvent>::new("中立的な決定", FeedbackType::Neutral, "user");
         assert!(feedback.is_neutral());
         assert!(!feedback.is_positive());
         assert!(!feedback.is_negative());
