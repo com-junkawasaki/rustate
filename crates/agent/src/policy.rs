@@ -10,13 +10,15 @@ use rustate::{EventTrait, StateTrait};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::sync::Arc;
+use crate::decision::{DecisionContext};
+use crate::feedback::Feedback;
+use crate::prelude::Result;
 
-/// エージェントの決定ポリシーを定義するトレイト
-#[async_trait]
+/// エージェントの判断ポリシーを表すトレイト
 pub trait Policy<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// ポリシーの名前を返します
     fn name(&self) -> &str {
@@ -28,14 +30,13 @@ where
         "基本的な決定ポリシー"
     }
     
-    /// 現在の状態とゴール状態から次のアクションを決定します
-    async fn decide(
-        &self,
-        current_state: &S,
-        goal_state: Option<&S>,
-        observations: &[Observation<S, E>],
-        insights: &[Insight],
-    ) -> std::result::Result<Decision<E>, AgentError>;
+    /// 現在の状態と文脈に基づいて決定を行います
+    fn decide(&self, context: DecisionContext<S, E>) -> Decision<E>;
+
+    /// フィードバックに応じてポリシーを更新します
+    fn update(&self, _feedback: Feedback) {
+        // デフォルトでは何もしません
+    }
 }
 
 /// 利用可能なイベントからランダムに選択するシンプルなポリシー
@@ -85,22 +86,16 @@ where
         &self.description
     }
     
-    async fn decide(
-        &self,
-        _current_state: &S,
-        _goal_state: Option<&S>,
-        _observations: &[Observation<S, E>],
-        _insights: &[Insight],
-    ) -> std::result::Result<Decision<E>, AgentError> {
+    fn decide(&self, context: DecisionContext<S, E>) -> Decision<E> {
         let event = self.available_events
             .choose(&mut rand::thread_rng())
             .cloned()
-            .ok_or_else(|| AgentError::PolicyError("利用可能なイベントがありません".to_string()))?;
+            .ok_or_else(|| Decision::new(context.current_state, 0.0))?;
         
         // ランダムな信頼度（0.5〜1.0）
         let confidence = 0.5 + rand::random::<f64>() * 0.5;
         
-        Ok(Decision::new(event, confidence))
+        Decision::new(event, confidence)
     }
 }
 
@@ -188,25 +183,19 @@ where
         &self.description
     }
     
-    async fn decide(
-        &self,
-        current_state: &S,
-        goal_state: Option<&S>,
-        observations: &[Observation<S, E>],
-        insights: &[Insight],
-    ) -> std::result::Result<Decision<E>, AgentError> {
+    fn decide(&self, context: DecisionContext<S, E>) -> Decision<E> {
         // マッチするルールを探す
         let mut rule_matches = Vec::new();
         
         for rule in &self.rules {
-            if rule.matches(current_state, goal_state, observations, insights) {
+            if rule.matches(&context.current_state, context.goal_state, &context.observations, &context.insights) {
                 rule_matches.push(rule);
             }
         }
         
         if rule_matches.is_empty() {
             // マッチするルールがない場合はフォールバックポリシーを使用
-            return self.fallback_policy.decide(current_state, goal_state, observations, insights).await;
+            return self.fallback_policy.decide(context);
         }
         
         // 優先度が最も高いルールを選択
@@ -215,12 +204,15 @@ where
             .unwrap();
         
         // 選択されたルールからイベントを取得
-        let event = best_rule.get_event(current_state, goal_state);
+        let event = best_rule.get_event(&context.current_state, context.goal_state);
         let confidence = best_rule.confidence();
         
-        Ok(Decision::new(event, confidence))
+        Decision::new(event, confidence)
     }
 }
+
+/// Arcの中にPolicyトレイトを実装した型を格納するための型エイリアス
+pub type PolicyBox<S, E> = Arc<dyn Policy<S, E>>;
 
 #[cfg(test)]
 mod tests {
@@ -306,7 +298,7 @@ mod tests {
         assert_eq!(Policy::<TestState, TestEvent>::name(&policy), "テストランダムポリシー");
         
         let current_state = TestState::Initial;
-        let decision = policy.decide(&current_state, None, &[], &[]).await.unwrap();
+        let decision = policy.decide(DecisionContext::new(current_state, None, &[], &[])).await.unwrap();
         
         assert!(matches!(
             decision.event,

@@ -1,16 +1,57 @@
-use crate::{feedback::Feedback, observation::Observation, AgentError};
+use crate::{feedback::Feedback, observation::Observation, insight::Insight, AgentError};
 use crate::prelude::Result;
 use async_trait::async_trait;
-use rustate::{Event, State, StateTrait, EventTrait};
-use serde::{Deserialize, Serialize};
+use rustate::{EventTrait, StateTrait};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
+/// エージェントの決定の文脈を表す構造体
+#[derive(Clone, Debug)]
+pub struct DecisionContext<'a, S, E>
+where
+    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+{
+    /// 現在の状態
+    pub current_state: S,
+    /// 目標状態（オプション）
+    pub goal_state: Option<S>,
+    /// 観測データの参照
+    pub observations: &'a [Observation<S, E>],
+    /// インサイト（洞察）の参照
+    pub insights: &'a [Insight],
+}
+
+impl<'a, S, E> DecisionContext<'a, S, E>
+where
+    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+{
+    /// 新しい決定文脈を作成します
+    pub fn new(
+        current_state: S,
+        goal_state: Option<S>,
+        observations: &'a [Observation<S, E>],
+        insights: &'a [Insight],
+    ) -> Self {
+        Self {
+            current_state,
+            goal_state,
+            observations,
+            insights,
+        }
+    }
+}
+
 /// エージェントの決定を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Decision<E: EventTrait + Clone> {
+pub struct Decision<E>
+where
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+{
     /// 一意の決定ID
     pub id: String,
     /// 決定のタイムスタンプ
@@ -24,7 +65,10 @@ pub struct Decision<E: EventTrait + Clone> {
 }
 
 /// 決定の新規作成と管理のメソッド
-impl<E: EventTrait + Clone> Decision<E> {
+impl<E> Decision<E>
+where
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+{
     /// 新しい決定を作成します
     pub fn new(event: E, confidence: f64) -> Self {
         let timestamp = SystemTime::now()
@@ -58,16 +102,13 @@ impl<E: EventTrait + Clone> Decision<E> {
 #[async_trait]
 pub trait DecisionMaker<S, E>
 where
-    S: StateTrait + Clone,
-    E: EventTrait + Clone,
+    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// 現在の状態と目標状態から次の決定を行います
     async fn decide(
         &self,
-        current_state: &S,
-        goal_state: Option<&S>,
-        observations: &[Observation<S, E>],
-        insights: &[crate::insight::Insight],
+        context: DecisionContext<'_, S, E>,
     ) -> Result<Decision<E>>;
 }
 

@@ -44,12 +44,12 @@ impl Default for AgentConfig {
 }
 
 /// 状態機械に基づく知的エージェント
-pub struct Agent<S, E, P, T>
+pub struct Agent<S, E, SM, P>
 where
-    S: StateTrait + Clone,
-    E: EventTrait + Clone,
+    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static,
+    E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static,
+    SM: Storage<S, E>,
     P: Policy<S, E>,
-    T: Storage<S, E>,
 {
     /// エージェントの状態機械
     pub machine: Machine<S, E>,
@@ -58,22 +58,22 @@ where
     /// エージェントの決定ポリシー
     policy: Arc<P>,
     /// エージェントのストレージ
-    storage: Arc<T>,
+    storage: Arc<SM>,
     /// 現在のエピソード（ある場合）
     current_episode: Option<Episode<S, E>>,
     /// 型パラメータのマーカー
     _phantom: PhantomData<(S, E)>,
 }
 
-impl<S, E, P, T> Agent<S, E, P, T>
+impl<S, E, SM, P> Agent<S, E, SM, P>
 where
     S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static,
     E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static + rustate::IntoEvent,
+    SM: Storage<S, E> + 'static,
     P: Policy<S, E> + 'static,
-    T: Storage<S, E> + 'static,
 {
     /// 新しいエージェントを作成します
-    pub fn new(machine: Machine<S, E>, policy: P, storage: T) -> Self {
+    pub fn new(machine: Machine<S, E>, policy: P, storage: SM) -> Self {
         Self {
             machine,
             config: AgentConfig::default(),
