@@ -50,7 +50,7 @@ where
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Decision<E>
 where
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// 一意の決定ID
     pub id: String,
@@ -67,7 +67,7 @@ where
 /// 決定の新規作成と管理のメソッド
 impl<E> Decision<E>
 where
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// 新しい決定を作成します
     pub fn new(event: E, confidence: f64) -> Self {

@@ -96,9 +96,24 @@ where
         name: impl Into<String>,
         goal_state: Option<S>,
     ) -> Result<(), AgentError> {
+        // 初期状態を取得
         let initial_state = self.machine.current_state().clone();
-        let episode = Episode::new(name.into(), initial_state, goal_state);
+        
+        // 目標状態が指定されていない場合はエラー
+        let goal = match goal_state {
+            Some(state) => state,
+            None => return Err(AgentError::Other("目標状態が設定されていません".to_string())),
+        };
+        
+        // 新しいエピソードを作成
+        let episode = Episode::new(name.into(), initial_state, goal);
+        
+        // エピソードを保存
+        self.storage.save_episode(&episode).await?;
+        
+        // 現在のエピソードを設定
         self.current_episode = Some(episode);
+        
         Ok(())
     }
 
@@ -181,32 +196,55 @@ where
 
     /// エージェントを目標状態に到達するまで実行します
     pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool, AgentError> {
+        if self.current_episode.is_none() {
+            return Err(AgentError::Other("エピソードが開始されていません".to_string()));
+        }
+        
+        // 目標状態を取得
         let goal_state = match &self.current_episode {
-            Some(episode) => match &episode.goal_state {
-                Some(goal) => goal.clone(),
-                None => return Err(AgentError::Other("目標状態が設定されていません".to_string())),
-            },
-            None => return Err(AgentError::Other("エピソードが開始されていません".to_string())),
+            Some(episode) => episode.goal_state.clone(),
+            None => return Err(AgentError::Other("目標状態が設定されていません".to_string())),
         };
-
-        let mut steps = 0;
+        
+        let mut step_count = 0;
         let max_steps = max_steps.unwrap_or(100); // デフォルトの最大ステップ数
-
-        while steps < max_steps {
-            steps += 1;
-            
-            // 現在の状態をチェック
+        
+        while step_count < max_steps {
+            // 現在の状態が目標状態に達したかチェック
             if self.machine.current_state() == &goal_state {
-                self.complete_episode(true).await?;
+                // エピソードを完了としてマーク
+                if let Some(episode) = &mut self.current_episode {
+                    episode.complete(true);
+                    episode.set_overall_score(1.0);
+                    self.storage.save_episode(episode).await?;
+                }
                 return Ok(true);
             }
-
+            
             // 次のステップを実行
-            self.step().await?;
+            let result = self.step().await;
+            
+            match result {
+                Ok(_) => {
+                    step_count += 1;
+                }
+                Err(err) => {
+                    // エピソードを失敗としてマーク
+                    if let Some(episode) = &mut self.current_episode {
+                        episode.complete(false);
+                        self.storage.save_episode(episode).await?;
+                    }
+                    return Err(err);
+                }
+            }
         }
-
-        // 最大ステップ数に達しても目標に到達しなかった
-        self.complete_episode(false).await?;
+        
+        // 最大ステップ数に達した場合は失敗とする
+        if let Some(episode) = &mut self.current_episode {
+            episode.complete(false);
+            self.storage.save_episode(episode).await?;
+        }
+        
         Ok(false)
     }
 
@@ -244,8 +282,7 @@ where
         let state = self.machine.current_state();
         let goal_state = self.current_episode
             .as_ref()
-            .and_then(|ep| ep.goal_state.as_ref())
-            .map(|s| s.clone());
+            .map(|ep| ep.goal_state.clone());
         let observations = self.storage.find_observations(None, None).await?;
         let insights = self.storage.find_insights(None, None).await?;
 

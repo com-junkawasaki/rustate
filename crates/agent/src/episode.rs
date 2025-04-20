@@ -18,8 +18,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Episode<S, E>
 where
-    S: StateTrait + Send + Sync + DeserializeOwned + for<'de> Deserialize<'de> + 'static,
-    E: EventTrait + Send + Sync + Debug + DeserializeOwned + for<'de> Deserialize<'de> + 'static + Clone,
+    S: StateTrait + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static + Clone,
 {
     /// エピソードの一意な識別子
     pub id: Uuid,
@@ -63,8 +63,8 @@ where
 
 impl<S, E> Episode<S, E>
 where
-    S: StateTrait + Send + Sync + Debug + DeserializeOwned + for<'de> Deserialize<'de> + 'static,
-    E: EventTrait + Send + Sync + Debug + DeserializeOwned + for<'de> Deserialize<'de> + 'static + Clone,
+    S: StateTrait + Send + Sync + Debug + DeserializeOwned + 'static,
+    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static + Clone,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal_state: S) -> Self {
