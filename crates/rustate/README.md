@@ -159,10 +159,19 @@ rustate = "0.2.0"
 
 ## Future Directions
 
-- Additional model checking algorithms
+- Advanced model checking algorithms
 - Property-based testing integration
 - Test visualization tools
 - Fuzzing-based MBT
+- Temporal logic (LTL/CTL) property specification and verification
+- Performance optimizations for large state machines
+- Distributed system state machine coordination
+- Enhanced WebAssembly (WASM) support
+- Integration with visual state machine editors
+- Automatic state machine model generation from existing systems
+- Advanced concurrency model support
+- Domain-specific language (DSL) for state machine definition
+- Microcontroller-optimized version
 
 ## License
 
