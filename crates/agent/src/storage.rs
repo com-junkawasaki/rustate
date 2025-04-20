@@ -20,22 +20,22 @@ where
     E: EventTrait + DeserializeOwned + Debug + Clone + 'static,
 {
     /// 観測データを保存します
-    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError>;
+    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()>;
 
-    /// 観測データを取得します
-    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>, AgentError>;
+    /// IDで観測データを取得します
+    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>>;
 
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
         filter: Option<fn(&Observation<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Observation<S, E>>, AgentError>;
+    ) -> Result<Vec<Observation<S, E>>>;
 
     /// 決定を保存します
-    async fn save_decision(&self, decision: &Decision<E>) -> Result<(), AgentError>;
+    async fn save_decision(&self, decision: &Decision<E>) -> Result<()>;
 
-    /// 決定を取得します
+    /// IDで決定を取得します
     async fn get_decision(&self, id: &str) -> Result<Decision<E>>;
 
     /// 条件に一致する決定を検索します
@@ -43,12 +43,12 @@ where
         &self,
         filter: Option<fn(&Decision<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Decision<E>>, AgentError>;
+    ) -> Result<Vec<Decision<E>>>;
 
     /// 洞察を保存します
     async fn save_insight(&self, insight: &Insight) -> Result<()>;
 
-    /// 洞察を取得します
+    /// IDで洞察を取得します
     async fn get_insight(&self, id: &str) -> Result<Insight>;
 
     /// 条件に一致する洞察を検索します
@@ -56,12 +56,12 @@ where
         &self,
         filter: Option<fn(&Insight) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Insight>, AgentError>;
+    ) -> Result<Vec<Insight>>;
 
     /// エピソードを保存します
     async fn save_episode(&self, episode: &Episode<S, E>) -> Result<()>;
 
-    /// エピソードを取得します
+    /// IDでエピソードを取得します
     async fn get_episode(&self, id: &str) -> Result<Episode<S, E>>;
 
     /// 条件に一致するエピソードを検索します
@@ -69,20 +69,20 @@ where
         &self,
         filter: Option<fn(&Episode<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Episode<S, E>>, AgentError>;
+    ) -> Result<Vec<Episode<S, E>>>;
 
     /// フィードバックを保存します
-    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError>;
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<()>;
 
-    /// フィードバックを取得します
-    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>, AgentError>;
+    /// IDでフィードバックを取得します
+    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>>;
 
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
         filter: Option<fn(&Feedback<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Feedback<E>>, AgentError>;
+    ) -> Result<Vec<Feedback<E>>>;
 }
 
 /// ストレージのクエリパラメータ
@@ -198,7 +198,7 @@ where
     S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
     E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
 {
-    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError> {
+    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()> {
         let mut observations = self.observations.lock().map_err(|e| {
             AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
@@ -206,7 +206,7 @@ where
         Ok(())
     }
 
-    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>, AgentError> {
+    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>> {
         let observations = self.observations.lock().map_err(|e| {
             AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
@@ -221,8 +221,11 @@ where
         &self,
         filter: Option<fn(&Observation<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Observation<S, E>>, AgentError> {
-        let observations = self.observations.lock().await;
+    ) -> Result<Vec<Observation<S, E>>> {
+        let observations = self.observations.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+        
         let mut result = observations.clone();
         
         if let Some(_filter) = filter {
@@ -236,7 +239,7 @@ where
         Ok(result)
     }
 
-    async fn save_decision(&self, decision: &Decision<E>) -> Result<(), AgentError> {
+    async fn save_decision(&self, decision: &Decision<E>) -> Result<()> {
         let mut decisions = self.decisions.lock().map_err(|e| {
             AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
@@ -259,8 +262,11 @@ where
         &self,
         filter: Option<fn(&Decision<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Decision<E>>, AgentError> {
-        let decisions = self.decisions.lock().await;
+    ) -> Result<Vec<Decision<E>>> {
+        let decisions = self.decisions.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+        
         let mut result = decisions.clone();
         
         if let Some(_filter) = filter {
@@ -297,8 +303,11 @@ where
         &self,
         filter: Option<fn(&Insight) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Insight>, AgentError> {
-        let insights = self.insights.lock().await;
+    ) -> Result<Vec<Insight>> {
+        let insights = self.insights.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+        
         let mut result = insights.clone();
         
         if let Some(_filter) = filter {
@@ -335,19 +344,22 @@ where
         &self,
         filter: Option<fn(&Episode<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Episode<S, E>>, AgentError> {
-        let episodes = self.episodes.lock().await;
-        let mut result = episodes.clone();
-        
-        if let Some(_filter) = filter {
-            result.retain(_filter);
+    ) -> Result<Vec<Episode<S, E>>> {
+        let episodes = self.episodes.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+
+        let mut results: Vec<Episode<S, E>> = if let Some(filter_fn) = filter {
+            episodes.iter().filter(|e| filter_fn(e)).cloned().collect()
+        } else {
+            episodes.clone()
+        };
+
+        if let Some(limit_val) = limit {
+            results.truncate(limit_val);
         }
-        
-        if let Some(limit) = limit {
-            result.truncate(limit);
-        }
-        
-        Ok(result)
+
+        Ok(results)
     }
 
     async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError> {
@@ -373,27 +385,33 @@ where
         &self,
         filter: Option<fn(&Feedback<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Feedback<E>>, AgentError> {
-        let feedbacks = self.feedback.lock().await;
-        let mut result = feedbacks.clone();
-        
-        if let Some(_filter) = filter {
-            result.retain(_filter);
+    ) -> Result<Vec<Feedback<E>>> {
+        let feedback = self.feedback.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+
+        let mut results: Vec<Feedback<E>> = if let Some(filter_fn) = filter {
+            feedback.iter().filter(|f| filter_fn(f)).cloned().collect()
+        } else {
+            feedback.clone()
+        };
+
+        if let Some(limit_val) = limit {
+            results.truncate(limit_val);
         }
-        
-        if let Some(limit) = limit {
-            result.truncate(limit);
-        }
-        
-        Ok(result)
+
+        Ok(results)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait};
-    use serde::{Deserialize, Serialize};
+    use crate::decision::Decision;
+    use crate::feedback::{Feedback, FeedbackType};
+    use rustate::{EventTrait, StateTrait, StateType};
+    use serde::{Serialize, Deserialize};
+    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {
@@ -443,15 +461,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_memory_storage_decisions() {
+    async fn test_decision_storage() {
         let storage = MemoryStorage::<TestState, TestEvent>::new();
-
-        let decision = Decision::new(TestEvent::Start, "テスト決定");
-
-        // 決定を保存
+        let decision = Decision::new(TestEvent::Start, 0.9);
+        
         storage.save_decision(&decision).await.unwrap();
-
-        // 決定を取得
+        
         let retrieved = storage.get_decision(&decision.id).await.unwrap();
         assert_eq!(retrieved.id, decision.id);
     }

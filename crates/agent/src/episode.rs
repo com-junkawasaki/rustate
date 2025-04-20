@@ -200,7 +200,7 @@ mod tests {
 
         fn state_type(&self) -> &StateType {
             // Use a static StateType as this is just for tests
-            static STATE_TYPE: StateType = StateType::Atomic;
+            static STATE_TYPE: StateType = StateType::Normal;
             &STATE_TYPE
         }
 
