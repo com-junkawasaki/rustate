@@ -1,5 +1,5 @@
 use crate::{
-    decision::{Decision, DecisionMaker},
+    decision::{Decision, DecisionMaker, DecisionContext},
     error::AgentError,
     feedback::Feedback,
     insight::Insight,
@@ -240,7 +240,7 @@ where
     }
 
     /// 現在の状態に基づいて決定を行います
-    pub async fn make_decision(&self) -> Result<Decision<E>> {
+    pub async fn make_decision(&self) -> Result<Decision<E>, AgentError> {
         let state = self.machine.current_state();
         let goal_state = self.current_episode
             .as_ref()
@@ -393,7 +393,7 @@ mod tests {
         let episode = agent.current_episode.as_ref().unwrap();
         assert_eq!(episode.name, "テストエピソード");
         assert_eq!(episode.initial_state, TestState::Initial);
-        assert_eq!(episode.goal_state, Some(TestState::Final));
+        assert_eq!(&episode.goal_state, &TestState::Final);
     }
 
     #[tokio::test]

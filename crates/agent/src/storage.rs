@@ -12,6 +12,7 @@ use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
+use uuid;
 
 /// エージェントの経験（観測、決定、洞察、エピソード）を保存するためのトレイト
 #[async_trait]
@@ -230,7 +231,10 @@ where
         let mut result: Vec<Observation<S, E>> = observations.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|obs| filter_fn(&obs)).collect();
+            result = result.into_iter().filter(|obs| {
+                let obs_clone = obs.clone();
+                filter_fn(&obs_clone)
+            }).collect();
         }
 
         if let Some(limit) = limit {
@@ -271,7 +275,10 @@ where
         let mut result: Vec<Decision<E>> = decisions.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|dec| filter_fn(&dec)).collect();
+            result = result.into_iter().filter(|dec| {
+                let dec_clone = dec.clone();
+                filter_fn(&dec_clone)
+            }).collect();
         }
 
         if let Some(limit) = limit {
@@ -312,7 +319,10 @@ where
         let mut result: Vec<Insight> = insights.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|ins| filter_fn(&ins)).collect();
+            result = result.into_iter().filter(|ins| {
+                let ins_clone = ins.clone();
+                filter_fn(&ins_clone)
+            }).collect();
         }
 
         if let Some(limit) = limit {
@@ -334,9 +344,15 @@ where
         let episodes = self.episodes.lock().map_err(|e| {
             AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
+        
+        // Try to parse the ID string as UUID
+        let uuid = uuid::Uuid::parse_str(id).map_err(|_| {
+            AgentError::StorageError(format!("無効なUUID形式: {}", id))
+        })?;
+        
         episodes
             .iter()
-            .find(|ep| ep.id == id)
+            .find(|ep| ep.id == uuid)
             .cloned()
             .ok_or_else(|| AgentError::StorageError(format!("エピソード ID {} が見つかりません", id)))
     }
@@ -353,7 +369,10 @@ where
         let mut result: Vec<Episode<S, E>> = episodes.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|ep| filter_fn(&ep)).collect();
+            result = result.into_iter().filter(|ep| {
+                let ep_clone = ep.clone();
+                filter_fn(&ep_clone)
+            }).collect();
         }
 
         if let Some(limit) = limit {
@@ -394,7 +413,10 @@ where
         let mut result: Vec<Feedback<E>> = feedback.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|fb| filter_fn(&fb)).collect();
+            result = result.into_iter().filter(|fb| {
+                let fb_clone = fb.clone();
+                filter_fn(&fb_clone)
+            }).collect();
         }
 
         if let Some(limit) = limit {

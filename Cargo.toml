@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/rustate",
     "crates/agent",
+    "crates/editor",
 ]
 
 [workspace.package]

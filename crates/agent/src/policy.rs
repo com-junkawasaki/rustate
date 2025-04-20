@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(Policy::<TestState, TestEvent>::name(&policy), "テストランダムポリシー");
         
         let current_state = TestState::Initial;
-        let decision = policy.decide(DecisionContext::new(current_state, None, &[], &[])).await.unwrap();
+        let decision = policy.decide(DecisionContext::new(current_state, None, &[], &[]));
         
         assert!(matches!(
             decision.event,

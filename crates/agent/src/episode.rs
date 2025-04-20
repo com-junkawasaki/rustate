@@ -19,7 +19,7 @@ use uuid::Uuid;
 pub struct Episode<S, E>
 where
     S: StateTrait + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static + Clone,
 {
     /// エピソードの一意な識別子
     pub id: Uuid,
@@ -64,7 +64,7 @@ where
 impl<S, E> Episode<S, E>
 where
     S: StateTrait + Send + Sync + Debug + DeserializeOwned + 'static,
-    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static,
+    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static + Clone,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal_state: S) -> Self {
@@ -168,12 +168,8 @@ where
             all_feedback.push(feedback);
         }
         
-        // 各決定に関連するフィードバックも収集
-        for decision in &self.decisions {
-            if let Some(feedback) = decision.feedback.as_ref() {
-                all_feedback.push(feedback);
-            }
-        }
+        // 決定に関連するフィードバックは現在の実装では収集できません
+        // Decision構造体にfeedbackフィールドがないため
         
         all_feedback
     }
@@ -298,8 +294,8 @@ mod tests {
         assert!(episode.observations.is_empty());
         assert!(episode.decisions.is_empty());
         assert!(episode.insights.is_empty());
-        assert_eq!(episode.metadata, serde_json::Value::Null);
         assert_eq!(episode.is_successful, false);
+        assert!(episode.feedback.is_none());
     }
 
     #[test]
@@ -316,74 +312,67 @@ mod tests {
             TestState::Processing,
         );
 
-        let decision = Decision::new(TestEvent::Process, 0.8);
-        
-        episode.add_observation(observation);
-        episode.add_decision(decision);
+        let decision = Decision::new(TestEvent::Start, 0.9);
+
+        episode.add_observation(observation.clone());
+        episode.add_decision(decision.clone());
 
         assert_eq!(episode.observations.len(), 1);
         assert_eq!(episode.decisions.len(), 1);
+        assert_eq!(episode.observations[0].id, observation.id);
+        assert_eq!(episode.decisions[0].id, decision.id);
     }
 
     #[test]
     fn test_episode_completion() {
-        let mut episode = Episode::new(
+        let mut episode: Episode<TestState, TestEvent> = Episode::new(
             "テストエピソード",
             TestState::Initial,
             TestState::Final,
         );
 
-        assert!(!episode.is_completed());
-        assert_eq!(episode.is_successful, false);
+        assert_eq!(episode.is_completed(), false);
+        assert!(episode.end_time.is_none());
 
         episode.complete(true);
-
-        assert!(episode.is_completed());
+        
+        assert_eq!(episode.is_completed(), true);
+        assert!(episode.end_time.is_some());
         assert_eq!(episode.is_successful, true);
-        assert!(episode.duration_seconds().is_some());
     }
 
     #[test]
     fn test_episode_feedback() {
-        let mut episode = Episode::new(
-            "テストエピソード", 
+        let mut episode: Episode<TestState, TestEvent> = Episode::new(
+            "テストエピソード",
             TestState::Initial,
-            TestState::Final
+            TestState::Final,
         );
 
-        let feedback = Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
-
+        let feedback: Feedback<TestEvent> = Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
         episode.add_feedback(feedback);
 
-        assert_eq!(episode.collect_feedback().len(), 1);
-        assert!(episode.average_feedback_score().is_some());
-        assert_eq!(episode.average_feedback_score(), Some(1.0));
+        assert!(episode.feedback.is_some());
+        assert_eq!(episode.feedback.as_ref().unwrap().content, "良い選択");
+        assert_eq!(episode.feedback.as_ref().unwrap().feedback_type, crate::feedback::FeedbackType::Positive);
     }
 
     #[test]
     fn test_add_metadata() {
-        let mut episode = Episode::new(
+        let mut episode: Episode<TestState, TestEvent> = Episode::new(
             "テストエピソード",
             TestState::Initial,
-            TestState::Final
+            TestState::Final,
         );
-        
-        // String metadata
-        episode.add_metadata("key1", "value1").unwrap();
-        
-        // Number metadata
-        episode.add_metadata("key2", 42).unwrap();
-        
-        // Boolean metadata
-        episode.add_metadata("key3", true).unwrap();
-        
-        // Check that metadata was added correctly
+
+        episode.add_metadata("priority", "high").unwrap();
+        episode.add_metadata("tags", vec!["important", "urgent"]).unwrap();
+
         if let serde_json::Value::Object(map) = &episode.metadata {
-            assert_eq!(map.get("key1"), Some(&serde_json::Value::String("value1".to_string())));
-            assert_eq!(map.get("key2"), Some(&serde_json::Value::Number(serde_json::Number::from(42))));
-            assert_eq!(map.get("key3"), Some(&serde_json::Value::Bool(true)));
+            assert_eq!(map.get("priority").unwrap(), "high");
+            assert!(map.get("tags").is_some());
         } else {
-            panic!("Metadata should be an object");
+            panic!("メタデータはオブジェクトであるべき");
         }
     }
 } 

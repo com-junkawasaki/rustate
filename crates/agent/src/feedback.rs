@@ -1,7 +1,7 @@
 use crate::{decision::Decision, error::AgentError};
 use async_trait::async_trait;
 use rustate::EventTrait;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -98,7 +98,7 @@ where
 #[async_trait]
 pub trait FeedbackProvider<E>
 where
-    E: EventTrait + Clone,
+    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// 決定に対するフィードバックを提供します
     async fn provide_feedback(&self, decision: &Decision<E>) -> std::result::Result<Feedback<E>, AgentError>;
