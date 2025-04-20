@@ -1,4 +1,4 @@
-use crate::{Machine, Event, Result, Error};
+use crate::{Machine, Event, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
 use serde::{Serialize, Deserialize};
 

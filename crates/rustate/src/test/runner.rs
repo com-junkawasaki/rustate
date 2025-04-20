@@ -1,6 +1,6 @@
 use crate::{Machine, Result, Error};
 use super::generator::TestCase;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use serde::{Serialize, Deserialize};
 
 /// テスト実行結果を表す構造体
@@ -168,7 +168,7 @@ impl<'a> TestRunner<'a> {
             // 遷移を記録
             self.visited_states.insert(new_state.clone());
             self.visited_transitions.insert(format!("{} --{}--> {}", 
-                current_state, event.name, new_state));
+                current_state, event.event_type, new_state));
         }
         
         // 最終状態を確認
@@ -180,7 +180,7 @@ impl<'a> TestRunner<'a> {
         TestResult {
             test_name: test_case.name.clone(),
             success,
-            actual_state: final_state,
+            actual_state: final_state.clone(),
             expected_state: test_case.expected_state.clone(),
             error_message: if success { 
                 None 

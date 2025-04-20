@@ -1,5 +1,5 @@
-use crate::{Machine, Event, IntoEvent, Result, Error, state::StateType};
-use std::collections::{HashMap, HashSet, VecDeque};
+use crate::{Machine, Event};
+use std::collections::{HashSet, VecDeque};
 use serde::{Serialize, Deserialize};
 
 /// テストケースを表現する構造体
@@ -93,9 +93,9 @@ impl<'a> TestGenerator<'a> {
         if target_state == self.machine.initial {
             return Some(TestCase {
                 name: format!("Initial state: {}", target_state),
-                initial_state: target_state.clone(),
+                initial_state: target_state.to_string(),
                 events: Vec::new(),
-                expected_state: target_state.clone(),
+                expected_state: target_state.to_string(),
             });
         }
         
@@ -106,7 +106,7 @@ impl<'a> TestGenerator<'a> {
             name: format!("Path to state: {}", target_state),
             initial_state: self.machine.initial.clone(),
             events: path,
-            expected_state: target_state.clone(),
+            expected_state: target_state.to_string(),
         })
     }
     
