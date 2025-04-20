@@ -2,6 +2,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// Trait for state objects in a state machine
+pub trait StateTrait {
+    /// Get the unique identifier for this state
+    fn id(&self) -> &str;
+    
+    /// Get the state type
+    fn state_type(&self) -> &StateType;
+    
+    /// Get the parent state id, if any
+    fn parent(&self) -> Option<&str>;
+    
+    /// Get child states (for compound and parallel states)
+    fn children(&self) -> &[String];
+    
+    /// Get initial state id (for compound states)
+    fn initial(&self) -> Option<&str>;
+    
+    /// Get data associated with this state
+    fn data(&self) -> Option<&serde_json::Value>;
+}
+
 /// Represents a type of state
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StateType {
@@ -129,6 +150,32 @@ impl State {
     pub fn with_data(&mut self, data: impl Into<serde_json::Value>) -> &mut Self {
         self.data = Some(data.into());
         self
+    }
+}
+
+impl StateTrait for State {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    
+    fn state_type(&self) -> &StateType {
+        &self.state_type
+    }
+    
+    fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+    
+    fn children(&self) -> &[String] {
+        &self.children
+    }
+    
+    fn initial(&self) -> Option<&str> {
+        self.initial.as_deref()
+    }
+    
+    fn data(&self) -> Option<&serde_json::Value> {
+        self.data.as_ref()
     }
 }
 

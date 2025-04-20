@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Trait for event objects in a state machine
+pub trait EventTrait {
+    /// Get the event type
+    fn event_type(&self) -> &str;
+    
+    /// Get the payload data, if any
+    fn payload(&self) -> Option<&serde_json::Value>;
+}
+
 /// Represents an event that can trigger state transitions
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Event {
@@ -25,6 +34,16 @@ impl Event {
             event_type: event_type.into(),
             payload: Some(payload.into()),
         }
+    }
+}
+
+impl EventTrait for Event {
+    fn event_type(&self) -> &str {
+        &self.event_type
+    }
+    
+    fn payload(&self) -> Option<&serde_json::Value> {
+        self.payload.as_ref()
     }
 }
 

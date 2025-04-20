@@ -1,18 +1,20 @@
 use crate::{
     decision::{Decision, DecisionMaker},
-    episode::Episode,
-    error::{AgentError, Result},
+    error::AgentError,
+    feedback::Feedback,
     insight::Insight,
     observation::Observation,
     policy::Policy,
+    episode::Episode,
     storage::Storage,
 };
 use async_trait::async_trait;
-use rustate::{Context, Event, Machine, State};
+use rustate::{Machine, State, Event, StateTrait, EventTrait, Context};
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -32,20 +34,20 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            name: "Rustate Agent".to_string(),
-            description: "状態機械駆動のAIエージェント".to_string(),
-            max_observations: Some(1000),
+            name: "汎用エージェント".to_string(),
+            description: "状態機械に基づく汎用エージェント".to_string(),
+            max_observations: Some(100),
             auto_record_observations: true,
-            auto_generate_insights: false,
+            auto_generate_insights: true,
         }
     }
 }
 
-/// エージェントの構造体
+/// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, P, T>
 where
-    S: State,
-    E: Event,
+    S: StateTrait + Clone,
+    E: EventTrait + Clone,
     P: Policy<S, E>,
     T: Storage<S, E>,
 {
@@ -65,8 +67,8 @@ where
 
 impl<S, E, P, T> Agent<S, E, P, T>
 where
-    S: State + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
-    E: Event + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
     P: Policy<S, E> + 'static,
     T: Storage<S, E> + 'static,
 {
@@ -93,7 +95,7 @@ where
         &mut self,
         name: impl Into<String>,
         goal_state: Option<S>,
-    ) -> Result<()> {
+    ) -> Result<(), AgentError> {
         let initial_state = self.machine.current_state().clone();
         let episode = Episode::new(name.into(), initial_state, goal_state);
         self.current_episode = Some(episode);
@@ -101,7 +103,7 @@ where
     }
 
     /// 現在のエピソードを完了します
-    pub async fn complete_episode(&mut self, is_successful: bool) -> Result<Option<Episode<S, E>>> {
+    pub async fn complete_episode(&mut self, is_successful: bool) -> Result<Option<Episode<S, E>>, AgentError> {
         if let Some(mut episode) = self.current_episode.take() {
             episode.complete(is_successful);
             self.storage.save_episode(&episode).await?;
@@ -111,7 +113,7 @@ where
     }
 
     /// エージェントの次の決定を取得します
-    pub async fn next_decision(&self) -> Result<Decision<E>> {
+    pub async fn next_decision(&self) -> Result<Decision<E>, AgentError> {
         let current_state = self.machine.current_state();
         
         // 目標状態を取得
@@ -151,7 +153,7 @@ where
     }
 
     /// 決定に基づいてイベントを適用します
-    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S> {
+    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S, AgentError> {
         let previous_state = self.machine.current_state().clone();
         
         // イベントを適用
@@ -301,7 +303,7 @@ mod tests {
         let storage = MemoryStorage::new();
 
         let agent = Agent::new(machine, policy, storage);
-        assert_eq!(agent.config.name, "Rustate Agent");
+        assert_eq!(agent.config.name, "汎用エージェント");
         assert_eq!(agent.machine.current_state(), &TestState::Initial);
     }
 

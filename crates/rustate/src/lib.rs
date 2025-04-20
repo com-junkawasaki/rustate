@@ -17,10 +17,10 @@ pub use wasm::*;
 pub use action::{Action, ActionType, IntoAction};
 pub use context::Context;
 pub use error::{StateError as Error, Result};
-pub use event::{Event, IntoEvent};
+pub use event::{Event, IntoEvent, EventTrait};
 pub use guard::{Guard, IntoGuard};
 pub use machine::{Machine, MachineBuilder};
-pub use state::{State, StateType};
+pub use state::{State, StateType, StateTrait};
 pub use transition::Transition;
 
 // モデルベーステストの機能をエクスポート

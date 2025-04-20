@@ -8,7 +8,11 @@ use std::collections::{HashMap, HashSet};
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Machine {
+pub struct Machine<S = State, E = Event>
+where
+    S: Clone + 'static,
+    E: Clone + 'static,
+{
     /// Name of the machine
     pub name: String,
     /// Collection of states
@@ -29,11 +33,24 @@ pub struct Machine {
     pub(crate) exit_actions: HashMap<String, Vec<Action>>,
     /// History states mapping (state id -> last active child)
     pub(crate) history: HashMap<String, String>,
+    /// The type markers
+    #[serde(skip)]
+    _phantom_s: std::marker::PhantomData<S>,
+    #[serde(skip)]
+    _phantom_e: std::marker::PhantomData<E>,
 }
 
-impl Machine {
+impl<S, E> Machine<S, E>
+where
+    S: Clone + 'static,
+    E: Clone + 'static,
+{
     /// Create a new state machine instance from a builder
-    pub fn new(builder: MachineBuilder) -> Result<Self> {
+    pub fn new<BuilderS, BuilderE>(builder: MachineBuilder<BuilderS, BuilderE>) -> Result<Self>
+    where
+        BuilderS: Clone + 'static,
+        BuilderE: Clone + 'static,
+    {
         let MachineBuilder {
             name,
             states,
@@ -42,6 +59,8 @@ impl Machine {
             entry_actions,
             exit_actions,
             context,
+            _phantom_s: _,
+            _phantom_e: _,
         } = builder;
 
         if states.is_empty() {
@@ -62,6 +81,8 @@ impl Machine {
             entry_actions,
             exit_actions,
             history: HashMap::new(),
+            _phantom_s: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         };
 
         // Initialize by entering the initial state
@@ -78,7 +99,7 @@ impl Machine {
     }
 
     /// Send an event to the machine
-    pub fn send<E: IntoEvent>(&mut self, event: E) -> Result<bool> {
+    pub fn send<EV: IntoEvent>(&mut self, event: EV) -> Result<bool> {
         let event = event.into_event();
         let mut processed = false;
 
@@ -287,11 +308,30 @@ impl Machine {
         let machine: Self = serde_json::from_str(json)?;
         Ok(machine)
     }
+
+    /// Get the current state
+    pub fn current_state(&self) -> &S {
+        // Note: This implementation is simplified for the example
+        // In a real implementation, you would need to map from the internal state representation
+        // to the generic state type S
+        panic!("Not implemented - need to map from internal state to generic state type S")
+    }
+
+    /// Apply a transition with the given event
+    pub fn transition<EV: IntoEvent>(&mut self, event: EV, context: Context) -> Result<S> {
+        self.context = context;
+        let event = event.into_event();
+        self.send(event)?;
+        Ok(self.current_state().clone())
+    }
 }
 
-/// Builder for creating state machines
-#[derive(Default)]
-pub struct MachineBuilder {
+/// Builder for constructing state machines
+pub struct MachineBuilder<S = State, E = Event>
+where
+    S: Clone + 'static,
+    E: Clone + 'static,
+{
     /// Name of the machine
     pub name: String,
     /// Collection of states
@@ -306,9 +346,16 @@ pub struct MachineBuilder {
     pub(crate) entry_actions: HashMap<String, Vec<Action>>,
     /// Exit actions for states
     pub(crate) exit_actions: HashMap<String, Vec<Action>>,
+    /// Type markers
+    _phantom_s: std::marker::PhantomData<S>,
+    _phantom_e: std::marker::PhantomData<E>,
 }
 
-impl MachineBuilder {
+impl<S, E> MachineBuilder<S, E>
+where
+    S: Clone + 'static,
+    E: Clone + 'static,
+{
     /// Create a new state machine builder
     pub fn new(name: impl Into<String>) -> Self {
         Self {
@@ -319,6 +366,8 @@ impl MachineBuilder {
             context: None,
             entry_actions: HashMap::new(),
             exit_actions: HashMap::new(),
+            _phantom_s: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
@@ -372,7 +421,7 @@ impl MachineBuilder {
     }
 
     /// Build the state machine
-    pub fn build(self) -> Result<Machine> {
+    pub fn build(self) -> Result<Machine<S, E>> {
         Machine::new(self)
     }
 } 

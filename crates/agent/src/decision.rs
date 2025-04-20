@@ -1,9 +1,11 @@
-use crate::{feedback::Feedback, observation::Observation, AgentError, Result};
+use crate::{feedback::Feedback, observation::Observation, AgentError};
+use crate::prelude::Result;
 use async_trait::async_trait;
-use rustate::{Event, State};
+use rustate::{Event, State, StateTrait, EventTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::fmt::{self, Debug};
 
 /// エージェントの決定を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
