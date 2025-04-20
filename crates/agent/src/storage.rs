@@ -1,12 +1,13 @@
 use crate::{
     decision::Decision,
-    episode::Episode,
-    error::Result,
+    error::AgentError,
+    feedback::Feedback,
     insight::Insight,
     observation::Observation,
+    episode::Episode,
 };
 use async_trait::async_trait;
-use rustate::{Event, State};
+use rustate::{StateTrait, EventTrait};
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -15,8 +16,8 @@ use std::sync::{Arc, Mutex};
 #[async_trait]
 pub trait Storage<S, E>: Send + Sync
 where
-    S: State + DeserializeOwned + Debug + 'static,
-    E: Event + DeserializeOwned + Debug + 'static,
+    S: StateTrait + DeserializeOwned + Debug + 'static,
+    E: EventTrait + DeserializeOwned + Debug + 'static,
 {
     /// 観測データを保存します
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()>;
@@ -69,6 +70,19 @@ where
         query: Option<&StorageQuery>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>>;
+
+    /// フィードバックを保存します
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError>;
+
+    /// フィードバックを取得します
+    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>, AgentError>;
+
+    /// 条件に一致するフィードバックを検索します
+    async fn find_feedback(
+        &self,
+        filter: Option<StorageFilter>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Feedback<E>>, AgentError>;
 }
 
 /// ストレージのクエリパラメータ
@@ -123,19 +137,20 @@ impl StorageQuery {
 /// インメモリストレージの実装
 pub struct MemoryStorage<S, E>
 where
-    S: State + Clone,
-    E: Event + Clone,
+    S: StateTrait + Clone,
+    E: EventTrait + Clone,
 {
     observations: Arc<Mutex<Vec<Observation<S, E>>>>,
     decisions: Arc<Mutex<Vec<Decision<E>>>>,
     insights: Arc<Mutex<Vec<Insight>>>,
     episodes: Arc<Mutex<Vec<Episode<S, E>>>>,
+    feedback: Arc<Mutex<Vec<Feedback<E>>>>,
 }
 
 impl<S, E> MemoryStorage<S, E>
 where
-    S: State + Clone,
-    E: Event + Clone,
+    S: StateTrait + Clone,
+    E: EventTrait + Clone,
 {
     /// 新しいインメモリストレージを作成します
     pub fn new() -> Self {
@@ -144,6 +159,7 @@ where
             decisions: Arc::new(Mutex::new(Vec::new())),
             insights: Arc::new(Mutex::new(Vec::new())),
             episodes: Arc::new(Mutex::new(Vec::new())),
+            feedback: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -151,12 +167,12 @@ where
 #[async_trait]
 impl<S, E> Storage<S, E> for MemoryStorage<S, E>
 where
-    S: State + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
-    E: Event + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
+    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static,
 {
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()> {
         let mut observations = self.observations.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         observations.push(observation.clone());
         Ok(())
@@ -164,13 +180,13 @@ where
 
     async fn get_observation(&self, id: &str) -> Result<Observation<S, E>> {
         let observations = self.observations.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         observations
             .iter()
             .find(|obs| obs.id == id)
             .cloned()
-            .ok_or_else(|| crate::error::AgentError::StorageError(format!("観測 ID {} が見つかりません", id)))
+            .ok_or_else(|| AgentError::StorageError(format!("観測 ID {} が見つかりません", id)))
     }
 
     async fn find_observations(
@@ -179,7 +195,7 @@ where
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>> {
         let observations = self.observations.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         
         let mut results = observations.clone();
@@ -222,7 +238,7 @@ where
 
     async fn save_decision(&self, decision: &Decision<E>) -> Result<()> {
         let mut decisions = self.decisions.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         decisions.push(decision.clone());
         Ok(())
@@ -230,13 +246,13 @@ where
 
     async fn get_decision(&self, id: &str) -> Result<Decision<E>> {
         let decisions = self.decisions.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         decisions
             .iter()
             .find(|dec| dec.id == id)
             .cloned()
-            .ok_or_else(|| crate::error::AgentError::StorageError(format!("決定 ID {} が見つかりません", id)))
+            .ok_or_else(|| AgentError::StorageError(format!("決定 ID {} が見つかりません", id)))
     }
 
     async fn find_decisions(
@@ -245,7 +261,7 @@ where
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>> {
         let decisions = self.decisions.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         
         let mut results = decisions.clone();
@@ -279,7 +295,7 @@ where
 
     async fn save_insight(&self, insight: &Insight) -> Result<()> {
         let mut insights = self.insights.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         insights.push(insight.clone());
         Ok(())
@@ -287,13 +303,13 @@ where
 
     async fn get_insight(&self, id: &str) -> Result<Insight> {
         let insights = self.insights.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         insights
             .iter()
             .find(|ins| ins.id == id)
             .cloned()
-            .ok_or_else(|| crate::error::AgentError::StorageError(format!("洞察 ID {} が見つかりません", id)))
+            .ok_or_else(|| AgentError::StorageError(format!("洞察 ID {} が見つかりません", id)))
     }
 
     async fn find_insights(
@@ -302,7 +318,7 @@ where
         limit: Option<usize>,
     ) -> Result<Vec<Insight>> {
         let insights = self.insights.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         
         let mut results = insights.clone();
@@ -336,7 +352,7 @@ where
 
     async fn save_episode(&self, episode: &Episode<S, E>) -> Result<()> {
         let mut episodes = self.episodes.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         episodes.push(episode.clone());
         Ok(())
@@ -344,13 +360,13 @@ where
 
     async fn get_episode(&self, id: &str) -> Result<Episode<S, E>> {
         let episodes = self.episodes.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         episodes
             .iter()
             .find(|ep| ep.id == id)
             .cloned()
-            .ok_or_else(|| crate::error::AgentError::StorageError(format!("エピソード ID {} が見つかりません", id)))
+            .ok_or_else(|| AgentError::StorageError(format!("エピソード ID {} が見つかりません", id)))
     }
 
     async fn find_episodes(
@@ -359,7 +375,7 @@ where
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>> {
         let episodes = self.episodes.lock().map_err(|e| {
-            crate::error::AgentError::StorageError(format!("ロック取得エラー: {}", e))
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         
         let mut results = episodes.clone();
@@ -391,6 +407,48 @@ where
         }
 
         Ok(results)
+    }
+
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError> {
+        let mut feedbacks = self.feedback.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+        feedbacks.push(feedback.clone());
+        Ok(())
+    }
+    
+    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>, AgentError> {
+        let feedbacks = self.feedback.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+        feedbacks
+            .iter()
+            .find(|fb| fb.id == id)
+            .cloned()
+            .ok_or_else(|| AgentError::StorageError(format!("フィードバック ID {} が見つかりません", id)))
+    }
+    
+    async fn find_feedback(
+        &self,
+        filter: Option<StorageFilter>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Feedback<E>>, AgentError> {
+        let feedbacks = self.feedback.lock().map_err(|e| {
+            AgentError::StorageError(format!("ロック取得エラー: {}", e))
+        })?;
+        
+        let mut result = feedbacks.clone();
+        
+        if let Some(filter) = filter {
+            // フィルターの実装
+            // ここでは実装を省略していますが、実際には適切なフィルター処理を行う必要があります
+        }
+        
+        if let Some(limit) = limit {
+            result.truncate(limit);
+        }
+        
+        Ok(result)
     }
 }
 

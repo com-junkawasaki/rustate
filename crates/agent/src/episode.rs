@@ -4,7 +4,7 @@ use crate::{
     insight::Insight,
     observation::Observation,
 };
-use rustate::{Event, State};
+use rustate::{StateTrait, EventTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,8 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Episode<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait,
+    E: EventTrait,
 {
     /// エピソードの一意な識別子
     pub id: String,
@@ -54,12 +54,15 @@ where
 
     /// エピソードの総合評価（0.0〜1.0）
     pub overall_score: Option<f64>,
+
+    /// 受け取ったフィードバック
+    pub feedback: Vec<Feedback<E>>,
 }
 
 impl<S, E> Episode<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait,
+    E: EventTrait,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal_state: Option<S>) -> Self {
@@ -76,6 +79,7 @@ where
             metadata: HashMap::new(),
             is_successful: None,
             overall_score: None,
+            feedback: Vec::new(),
         }
     }
 
@@ -90,8 +94,15 @@ where
     }
 
     /// エピソードに洞察を追加します
-    pub fn add_insight(&mut self, insight: Insight) {
+    pub fn add_insight(&mut self, insight: Insight) -> &mut Self {
         self.insights.push(insight);
+        self
+    }
+
+    /// エピソードにフィードバックを追加します
+    pub fn add_feedback(&mut self, feedback: Feedback<E>) -> &mut Self {
+        self.feedback.push(feedback);
+        self
     }
 
     /// エピソードを完了としてマークし、成功または失敗を設定します
@@ -124,7 +135,7 @@ where
     }
 
     /// エピソードのすべての決定に関連するフィードバックを収集します
-    pub fn collect_feedback(&self) -> Vec<&Feedback> {
+    pub fn collect_feedback(&self) -> Vec<&Feedback<E>> {
         self.decisions
             .iter()
             .filter_map(|decision| decision.feedback.as_ref())

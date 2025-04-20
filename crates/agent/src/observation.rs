@@ -1,6 +1,8 @@
-use rustate::{Event, State};
+use crate::error::AgentError;
+use rustate::{StateTrait, EventTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 観測データは、状態遷移に関する情報を記録します。
@@ -8,52 +10,56 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Observation<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait,
+    E: EventTrait,
 {
     /// 観測の一意な識別子
     pub id: String,
 
-    /// 前の状態
+    /// 観測のタイムスタンプ (UNIXエポックからの秒数)
+    pub timestamp: u64,
+
+    /// 遷移前の状態
     pub previous_state: S,
 
-    /// 適用されたイベント
+    /// 遷移を引き起こしたイベント
     pub event: E,
 
-    /// 結果の状態
-    pub resulting_state: S,
-
-    /// この観測が記録された時間（UNIXタイムスタンプ）
-    pub timestamp: u64,
+    /// 遷移後の状態
+    pub next_state: S,
 
     /// この観測に関連する追加のメタデータ
     pub metadata: HashMap<String, String>,
 }
 
+/// 状態遷移の観測データに関するメソッド
 impl<S, E> Observation<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait,
+    E: EventTrait,
 {
     /// 新しい観測を作成します
-    pub fn new(previous_state: S, event: E, resulting_state: S) -> Self {
+    pub fn new(previous_state: S, event: E, next_state: S) -> Self {
         Self {
-            id: uuid(),
+            id: format!("obs-{}", uuid::Uuid::new_v4()),
             previous_state,
             event,
-            resulting_state,
-            timestamp: current_timestamp(),
+            next_state,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("時間が取得できませんでした")
+                .as_secs(),
             metadata: HashMap::new(),
         }
     }
-
-    /// 観測にメタデータを追加します
+    
+    /// メタデータを追加します
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
-
-    /// 観測に複数のメタデータを一度に追加します
+    
+    /// 複数のメタデータを一度に追加します
     pub fn with_metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
         self.metadata.extend(metadata);
         self
@@ -68,7 +74,7 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-/// シンプルなUUID v4互換の識別子を生成します
+/// 一意なIDを生成します
 fn uuid() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -81,25 +87,66 @@ fn uuid() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{StateTrait, EventTrait};
+    use rustate::{EventTrait, StateTrait};
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq)]
     enum TestState {
         Initial,
         Processing,
         Final,
     }
 
-    impl StateTrait for TestState {}
+    impl StateTrait for TestState {
+        fn id(&self) -> &str {
+            match self {
+                TestState::Initial => "initial",
+                TestState::Processing => "processing",
+                TestState::Final => "final",
+            }
+        }
+        
+        fn state_type(&self) -> &rustate::StateType {
+            static NORMAL: rustate::StateType = rustate::StateType::Normal;
+            &NORMAL
+        }
+        
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+        
+        fn children(&self) -> &[String] {
+            &[]
+        }
+        
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+        
+        fn data(&self) -> Option<&serde_json::Value> {
+            None
+        }
+    }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq)]
     enum TestEvent {
         Start,
         Process,
         Finish,
     }
 
-    impl EventTrait for TestEvent {}
+    impl EventTrait for TestEvent {
+        fn event_type(&self) -> &str {
+            match self {
+                TestEvent::Start => "start",
+                TestEvent::Process => "process",
+                TestEvent::Finish => "finish",
+            }
+        }
+        
+        fn payload(&self) -> Option<&serde_json::Value> {
+            None
+        }
+    }
 
     #[test]
     fn test_observation_creation() {
@@ -111,21 +158,25 @@ mod tests {
 
         assert_eq!(obs.previous_state, TestState::Initial);
         assert_eq!(obs.event, TestEvent::Start);
-        assert_eq!(obs.resulting_state, TestState::Processing);
+        assert_eq!(obs.next_state, TestState::Processing);
         assert!(obs.metadata.is_empty());
     }
 
     #[test]
     fn test_observation_with_metadata() {
         let obs = Observation::new(
-            TestState::Initial,
-            TestEvent::Start,
             TestState::Processing,
+            TestEvent::Finish,
+            TestState::Final,
         )
-        .with_metadata("reason", "user requested")
-        .with_metadata("confidence", "high");
+        .with_metadata("user", "test_user")
+        .with_metadata("source", "test_case");
 
-        assert_eq!(obs.metadata.get("reason"), Some(&"user requested".to_string()));
-        assert_eq!(obs.metadata.get("confidence"), Some(&"high".to_string()));
+        assert_eq!(obs.previous_state, TestState::Processing);
+        assert_eq!(obs.event, TestEvent::Finish);
+        assert_eq!(obs.next_state, TestState::Final);
+        assert_eq!(obs.metadata.len(), 2);
+        assert_eq!(obs.metadata.get("user"), Some(&"test_user".to_string()));
+        assert_eq!(obs.metadata.get("source"), Some(&"test_case".to_string()));
     }
 } 

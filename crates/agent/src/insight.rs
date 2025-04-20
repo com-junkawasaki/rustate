@@ -1,5 +1,5 @@
 use crate::observation::Observation;
-use rustate::{Event, State};
+use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -68,8 +68,8 @@ impl Insight {
     /// 洞察に関連する観測データを追加します
     pub fn with_related_observation<S, E>(mut self, observation: &Observation<S, E>) -> Self
     where
-        S: State,
-        E: Event,
+        S: StateTrait,
+        E: EventTrait,
     {
         self.related_observation_ids.push(observation.id.clone());
         self
@@ -81,8 +81,8 @@ impl Insight {
         observations: &[Observation<S, E>],
     ) -> Self
     where
-        S: State,
-        E: Event,
+        S: StateTrait,
+        E: EventTrait,
     {
         for observation in observations {
             self.related_observation_ids.push(observation.id.clone());

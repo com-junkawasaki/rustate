@@ -4,96 +4,70 @@ use async_trait::async_trait;
 use rustate::{Event, State, StateTrait, EventTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::fmt::{self, Debug};
 
 /// エージェントの決定を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Decision<E: Event> {
-    /// 決定の一意な識別子
+pub struct Decision<E: EventTrait + Clone> {
+    /// 一意の決定ID
     pub id: String,
-
-    /// 選択されたイベント
-    pub event: E,
-
-    /// 決定が行われた理由の説明
-    pub reasoning: String,
-
-    /// この決定に関連する追加のメタデータ
-    pub metadata: HashMap<String, String>,
-
-    /// この決定が作成された時間（UNIXタイムスタンプ）
+    /// 決定のタイムスタンプ
     pub timestamp: u64,
-
-    /// この決定に関連するフィードバック
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub feedback: Option<Feedback>,
+    /// 決定されたイベント
+    pub event: E,
+    /// 決定の信頼度 (0.0-1.0)
+    pub confidence: f64,
+    /// 追加のメタデータ
+    pub metadata: HashMap<String, String>,
 }
 
-impl<E: Event> Decision<E> {
+/// 決定の新規作成と管理のメソッド
+impl<E: EventTrait + Clone> Decision<E> {
     /// 新しい決定を作成します
-    pub fn new(event: E, reasoning: impl Into<String>) -> Self {
+    pub fn new(event: E, confidence: f64) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("時間が取得できませんでした")
+            .as_secs();
+        
         Self {
-            id: generate_id(),
+            id: format!("decision-{}", uuid::Uuid::new_v4()),
+            timestamp,
             event,
-            reasoning: reasoning.into(),
+            confidence,
             metadata: HashMap::new(),
-            timestamp: current_timestamp(),
-            feedback: None,
         }
     }
-
-    /// 決定にメタデータを追加します
+    
+    /// メタデータを追加します
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
-
-    /// 決定に複数のメタデータを一度に追加します
-    pub fn with_metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
-        self.metadata.extend(metadata);
-        self
-    }
-
-    /// 決定にフィードバックを追加します
-    pub fn with_feedback(mut self, feedback: Feedback) -> Self {
-        self.feedback = Some(feedback);
+    
+    /// 決定の信頼度を設定します
+    pub fn with_confidence(mut self, confidence: f64) -> Self {
+        self.confidence = confidence.max(0.0).min(1.0);
         self
     }
 }
 
-/// 決定を行うコンポーネントのトレイト
+/// 決定を作成するためのトレイト
 #[async_trait]
 pub trait DecisionMaker<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait + Clone,
+    E: EventTrait + Clone,
 {
-    /// 現在の状態、目標状態、過去の観測データに基づいて決定を行います
-    async fn make_decision(
+    /// 現在の状態と目標状態から次の決定を行います
+    async fn decide(
         &self,
         current_state: &S,
         goal_state: Option<&S>,
         observations: &[Observation<S, E>],
+        insights: &[crate::insight::Insight],
     ) -> Result<Decision<E>>;
-}
-
-/// 現在のUNIXタイムスタンプを返します
-fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
-}
-
-/// 決定用の一意な識別子を生成します
-fn generate_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
-    let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let timestamp = current_timestamp();
-    format!("dec-{}-{}", timestamp, counter)
 }
 
 #[cfg(test)]
@@ -112,17 +86,16 @@ mod tests {
 
     #[test]
     fn test_decision_creation() {
-        let decision = Decision::new(TestEvent::Start, "ユーザーがリクエストしたため");
+        let decision = Decision::new(TestEvent::Start, 0.8);
 
         assert_eq!(decision.event, TestEvent::Start);
-        assert_eq!(decision.reasoning, "ユーザーがリクエストしたため");
+        assert_eq!(decision.confidence, 0.8);
         assert!(decision.metadata.is_empty());
-        assert!(decision.feedback.is_none());
     }
 
     #[test]
     fn test_decision_with_metadata() {
-        let decision = Decision::new(TestEvent::Process, "処理を開始する必要があるため")
+        let decision = Decision::new(TestEvent::Process, 0.8)
             .with_metadata("priority", "high")
             .with_metadata("source", "user input");
 

@@ -1,30 +1,43 @@
 use crate::{decision::Decision, error::Result};
 use async_trait::async_trait;
-use rustate::Event;
+use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// エージェントの決定に対するフィードバックを表す構造体
+/// エージェントのフィードバックを表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Feedback {
+pub struct Feedback<E>
+where
+    E: EventTrait,
+{
     /// フィードバックの一意な識別子
     pub id: String,
-
-    /// フィードバックのスコア（通常は0.0から1.0の範囲）
-    pub score: f64,
-
-    /// フィードバックの理由または説明
-    pub reason: String,
-
-    /// このフィードバックに関連する追加のメタデータ
-    pub metadata: HashMap<String, String>,
-
-    /// このフィードバックが作成された時間（UNIXタイムスタンプ）
+    
+    /// フィードバックが作成された時間（UNIXタイムスタンプ）
     pub timestamp: u64,
+    
+    /// フィードバックに関連するイベント
+    pub event: Option<E>,
+    
+    /// フィードバックの内容
+    pub content: String,
+    
+    /// フィードバックのソース（ユーザー、システム、など）
+    pub source: String,
+    
+    /// フィードバックの種類（肯定的、否定的、中立）
+    pub feedback_type: FeedbackType,
+    
+    /// この決定に関連する追加のメタデータ
+    pub metadata: HashMap<String, String>,
 }
 
-impl Feedback {
+impl Feedback<E>
+where
+    E: EventTrait,
+{
     /// 新しいフィードバックを作成します
     pub fn new(score: f64, reason: impl Into<String>) -> Self {
         if !(0.0..=1.0).contains(&score) {
@@ -37,6 +50,10 @@ impl Feedback {
             reason: reason.into(),
             metadata: HashMap::new(),
             timestamp: current_timestamp(),
+            event: None,
+            content: String::new(),
+            source: String::new(),
+            feedback_type: FeedbackType::Neutral,
         }
     }
 
@@ -72,10 +89,10 @@ impl Feedback {
 #[async_trait]
 pub trait FeedbackProvider<E>
 where
-    E: Event,
+    E: EventTrait,
 {
     /// 決定に対するフィードバックを提供します
-    async fn provide_feedback(&self, decision: &Decision<E>) -> Result<Feedback>;
+    async fn provide_feedback(&self, decision: &Decision<E>) -> Result<Feedback<E>>;
 }
 
 /// 現在のUNIXタイムスタンプを返します

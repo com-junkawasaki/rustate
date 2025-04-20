@@ -1,48 +1,53 @@
 use crate::{
     decision::{Decision, DecisionMaker},
-    error::Result,
+    error::AgentError,
     insight::Insight,
     observation::Observation,
 };
 use async_trait::async_trait;
-use rustate::{Event, State};
+use rand::seq::SliceRandom;
+use rustate::{StateTrait, EventTrait};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
-/// エージェントの決定ポリシーのトレイト
-/// ポリシーは、エージェントが決定を行う際の戦略を定義します。
+/// エージェントの決定ポリシーを定義するトレイト
 #[async_trait]
 pub trait Policy<S, E>: Send + Sync
 where
-    S: State + DeserializeOwned + 'static,
-    E: Event + DeserializeOwned + 'static,
+    S: StateTrait + DeserializeOwned + 'static,
+    E: EventTrait + DeserializeOwned + 'static,
 {
     /// 名前を返します
-    fn name(&self) -> &str;
-
+    fn name(&self) -> &str {
+        "汎用ポリシー"
+    }
+    
     /// 説明を返します
-    fn description(&self) -> &str;
+    fn description(&self) -> &str {
+        "基本決定ポリシー"
+    }
 
-    /// 現在の状態と目標状態に基づいて決定を行います
+    /// 現在の状態と目標状態から次の決定を行います
     async fn decide(
         &self,
         current_state: &S,
         goal_state: Option<&S>,
         observations: &[Observation<S, E>],
         insights: &[Insight],
-    ) -> Result<Decision<E>>;
+    ) -> std::result::Result<Decision<E>, AgentError>;
 }
 
 /// ランダムポリシー - 利用可能なイベントからランダムに選択します。
 /// テストと基本的なエージェント動作のデモに適しています。
-pub struct RandomPolicy<E: Event> {
+pub struct RandomPolicy<E: EventTrait> {
     name: String,
     description: String,
     available_events: Vec<E>,
 }
 
-impl<E: Event> RandomPolicy<E> {
+impl<E: EventTrait> RandomPolicy<E> {
     pub fn new(available_events: Vec<E>) -> Self {
         Self {
             name: "ランダムポリシー".to_string(),
@@ -65,8 +70,8 @@ impl<E: Event> RandomPolicy<E> {
 #[async_trait]
 impl<S, E> Policy<S, E> for RandomPolicy<E>
 where
-    S: State + DeserializeOwned + Debug + 'static,
-    E: Event + DeserializeOwned + Clone + Debug + 'static,
+    S: StateTrait + DeserializeOwned + Debug + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + 'static,
 {
     fn name(&self) -> &str {
         &self.name
@@ -78,33 +83,20 @@ where
 
     async fn decide(
         &self,
-        current_state: &S,
-        goal_state: Option<&S>,
+        _current_state: &S,
+        _goal_state: Option<&S>,
         _observations: &[Observation<S, E>],
         _insights: &[Insight],
-    ) -> Result<Decision<E>> {
-        use crate::error::AgentError;
-        use rand::seq::SliceRandom;
-
-        if self.available_events.is_empty() {
-            return Err(AgentError::DecisionError(
-                "利用可能なイベントがありません".to_string(),
-            ));
-        }
-
-        let rng = &mut rand::thread_rng();
-        let selected_event = self
-            .available_events
-            .choose(rng)
-            .ok_or_else(|| AgentError::DecisionError("イベントの選択に失敗しました".to_string()))?
-            .clone();
-
-        let reasoning = format!(
-            "現在の状態: {:?}、目標状態: {:?}から、ランダムに選択しました",
-            current_state, goal_state
-        );
-
-        Ok(Decision::new(selected_event, reasoning))
+    ) -> std::result::Result<Decision<E>, AgentError> {
+        let event = self.available_events
+            .choose(&mut rand::thread_rng())
+            .cloned()
+            .ok_or_else(|| AgentError::DecisionError("利用可能なイベントがありません".to_string()))?;
+        
+        // ランダムな信頼度 (0.1〜0.5)
+        let confidence = 0.1 + rand::random::<f64>() * 0.4;
+        
+        Ok(Decision::new(event, confidence))
     }
 }
 
@@ -117,8 +109,8 @@ pub struct HeuristicPolicy<S, E> {
 
 impl<S, E> HeuristicPolicy<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait,
+    E: EventTrait,
 {
     pub fn new() -> Self {
         Self {
@@ -147,8 +139,8 @@ where
 #[async_trait]
 impl<S, E> Policy<S, E> for HeuristicPolicy<S, E>
 where
-    S: State + DeserializeOwned + Debug + 'static,
-    E: Event + DeserializeOwned + Clone + Debug + 'static,
+    S: StateTrait + DeserializeOwned + Debug + 'static,
+    E: EventTrait + DeserializeOwned + Clone + Debug + 'static,
 {
     fn name(&self) -> &str {
         &self.name
@@ -164,46 +156,36 @@ where
         goal_state: Option<&S>,
         observations: &[Observation<S, E>],
         insights: &[Insight],
-    ) -> Result<Decision<E>> {
-        use crate::error::AgentError;
-
-        if self.rules.is_empty() {
-            return Err(AgentError::DecisionError(
-                "ルールが定義されていません".to_string(),
-            ));
+    ) -> std::result::Result<Decision<E>, AgentError> {
+        // この実装は非常に単純なもので、実際のアプリケーションではより高度なロジックが必要です
+        
+        // ゴール状態が定義されていない場合は、ランダムな決定を返す
+        if goal_state.is_none() {
+            return Err(AgentError::DecisionError("目標状態が定義されていません".to_string()));
         }
-
-        // 最も高いスコアを持つルールを見つける
-        let mut best_rule: Option<(usize, f64)> = None;
-        let mut scores = Vec::new();
-
-        for (i, rule) in self.rules.iter().enumerate() {
-            let score = rule.evaluate(current_state, goal_state, observations, insights);
-            scores.push((i, score));
-
-            match best_rule {
-                None => best_rule = Some((i, score)),
-                Some((_, best_score)) if score > best_score => best_rule = Some((i, score)),
-                _ => {}
+        
+        // 観測データからルールを適用
+        let mut rule_matches = Vec::new();
+        
+        for rule in &self.rules {
+            if rule.matches(current_state, goal_state, observations, insights) {
+                rule_matches.push(rule);
             }
         }
-
-        // 適用するルールを決定
-        let (rule_index, score) = best_rule.ok_or_else(|| {
-            AgentError::DecisionError("ルールの評価に失敗しました".to_string())
-        })?;
-
-        let rule = &self.rules[rule_index];
-        let event = rule.get_event(current_state, goal_state);
-        let reasoning = format!(
-            "ルール「{}」が最高スコア({:.2})で選択されました。{:?} から {:?} への最適なイベントです。",
-            rule.name(),
-            score,
-            current_state,
-            goal_state
-        );
-
-        Ok(Decision::new(event, reasoning).with_metadata("rule_score", score.to_string()))
+        
+        // 合致するルールがない場合はエラー
+        if rule_matches.is_empty() {
+            return Err(AgentError::DecisionError("適切なルールが見つかりません".to_string()));
+        }
+        
+        // 最も優先度の高いルールを選択
+        let best_rule = rule_matches.iter().max_by_key(|r| r.priority()).unwrap();
+        
+        // ルールから決定を作成
+        let event = best_rule.get_event(current_state, goal_state)?;
+        let confidence = best_rule.confidence();
+        
+        Ok(Decision::new(event, confidence))
     }
 }
 
@@ -211,8 +193,8 @@ where
 #[async_trait]
 pub trait HeuristicRule<S, E>
 where
-    S: State,
-    E: Event,
+    S: StateTrait,
+    E: EventTrait,
 {
     /// ルールの名前を返します
     fn name(&self) -> &str;
@@ -338,4 +320,5 @@ mod tests {
 
         assert_eq!(decision.event, TestEvent::Start);
     }
+} 
 } 
