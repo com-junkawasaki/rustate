@@ -6,6 +6,7 @@ mod guard;
 mod machine;
 mod state;
 mod transition;
+mod test;
 
 #[cfg(feature = "wasm")]
 mod wasm;
@@ -21,6 +22,12 @@ pub use guard::{Guard, IntoGuard};
 pub use machine::{Machine, MachineBuilder};
 pub use state::{State, StateType};
 pub use transition::Transition;
+
+// モデルベーステストの機能をエクスポート
+pub use test::{
+    TestCase, TestGenerator, TestResult, TestResults, CoverageReport, TestRunner,
+    Property, PropertyType, VerificationResult, ModelChecker
+};
 
 #[cfg(test)]
 mod tests {

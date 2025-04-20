@@ -1,15 +1,15 @@
 [package]
 name = "rustate"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
-description = "A Rust implementation of statecharts inspired by XState"
+description = "A Rust implementation of statecharts with model-based testing support"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 documentation.workspace = true
 readme = "README.md"
-keywords = ["statecharts", "statemachine", "fsm", "xstate", "actors"]
-categories = ["data-structures", "concurrency"]
+keywords = ["statecharts", "statemachine", "fsm", "xstate", "model-based-testing"]
+categories = ["data-structures", "concurrency", "development-tools::testing"]
 
 [dependencies]
 serde.workspace = true
@@ -27,6 +27,8 @@ console_error_panic_hook = { workspace = true, optional = true }
 [features]
 default = ["uuid"]
 wasm = ["wasm-bindgen", "js-sys", "web-sys", "console_error_panic_hook", "uuid/js"]
+# モデルベーステスト機能を有効化（デフォルトで有効）
+mbt = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -38,6 +40,10 @@ path = "examples/traffic_light.rs"
 [[example]]
 name = "hierarchical"
 path = "examples/hierarchical.rs"
+
+[[example]]
+name = "model_based_testing"
+path = "examples/model_based_testing.rs"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]

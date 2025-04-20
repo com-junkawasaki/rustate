@@ -1,7 +1,7 @@
 # RuState
 
 A Rust implementation of statecharts inspired by XState. RuState provides a type-safe way to model and
-implement finite state machines and statecharts in Rust.
+implement finite state machines and statecharts in Rust, with full support for model-based testing (MBT).
 
 ## Features
 
@@ -13,6 +13,22 @@ implement finite state machines and statecharts in Rust.
 - ✅ Context (extended state)
 - ✅ Typesafe API
 - ✅ Serializable machines
+- ✅ Model-based testing support
+
+## Model-Based Testing Integration
+
+RuState now includes comprehensive model-based testing features:
+
+1. **Automated Test Generation**: Generate test cases from your state machine model
+2. **Test Execution**: Run tests directly against your state machine or export them
+3. **Coverage Analysis**: Measure state and transition coverage
+4. **Model Checking**: Verify properties like reachability, safety, and liveness
+
+### Key MBT Components:
+
+- **TestGenerator**: Creates test cases for states, transitions, and loop coverage
+- **TestRunner**: Executes test cases against your machine
+- **ModelChecker**: Verifies model properties and detects deadlocks and unreachable states
 
 ## Usage Example
 
@@ -55,42 +71,53 @@ let mut machine = MachineBuilder::new("trafficLight")
 machine.send("TIMER").unwrap();
 ```
 
-### Hierarchical State Machine
+### Model-Based Testing Example
 
 ```rust
-use rustate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
+use rustate::{Machine, TestGenerator, TestRunner, ModelChecker, Property, PropertyType};
 
-// Create hierarchical states
-let power_off = State::new("powerOff");
-let mut player = State::new_compound("player", "stopped");
-player.parent = Some("root".to_string());
+// Assuming you have a state machine defined as above...
+let machine = /* ... */;
 
-let mut stopped = State::new("stopped");
-stopped.parent = Some("player".to_string());
+// Generate test cases
+let mut generator = TestGenerator::new(&machine);
+let test_cases = generator.generate_all_transitions();
 
-let mut playing = State::new_compound("playing", "normal");
-playing.parent = Some("player".to_string());
+// Run tests
+let mut runner = TestRunner::new(&machine);
+let results = runner.run_tests(test_cases);
+println!("Test success rate: {}%", results.success_rate());
 
-// Create transitions
-let power_toggle = Transition::new("powerOff", "POWER", "player");
-let play = Transition::new("stopped", "PLAY", "playing");
+// Coverage analysis
+let coverage = results.get_coverage();
+println!("State coverage: {}%", coverage.state_coverage());
+println!("Transition coverage: {}%", coverage.transition_coverage());
 
-// Create context
-let mut context = Context::new();
-context.set("track", 0).unwrap();
+// Model checking
+let mut checker = ModelChecker::new(&machine);
 
-// Create a machine with hierarchical states
-let mut machine = MachineBuilder::new("musicPlayer")
-    .initial("powerOff")
-    .state(power_off)
-    .state(player)
-    .state(stopped)
-    .state(playing)
-    .transition(power_toggle)
-    .transition(play)
-    .context(context)
-    .build()
-    .unwrap();
+// Define property to check
+let property = Property {
+    name: "Can reach red state".to_string(),
+    property_type: PropertyType::Reachability,
+    target_states: vec!["red".to_string()],
+    description: None,
+};
+
+// Verify the property
+let verification = checker.verify_property(&property);
+if verification.satisfied {
+    println!("Property satisfied: {}", property.name);
+} else {
+    println!("Property not satisfied: {}", property.name);
+    if let Some(counterexample) = verification.counterexample {
+        println!("Counterexample found with {} events", counterexample.len());
+    }
+}
+
+// Detect deadlocks
+let deadlocks = checker.detect_deadlocks();
+println!("Deadlock states found: {}", deadlocks.len());
 ```
 
 See the `examples` directory for complete examples.
@@ -101,7 +128,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rustate = "0.1.0"
+rustate = "0.2.0"
 ```
 
 ## Documentation
@@ -113,6 +140,9 @@ rustate = "0.1.0"
 - **Guard**: Conditional logic that determines if a transition should occur
 - **Action**: Side effects that execute during state transitions
 - **Context**: Stores extended state for the machine
+- **TestGenerator**: Creates test cases from your state machine model
+- **TestRunner**: Executes test cases against your machine
+- **ModelChecker**: Verifies properties and analyzes your state machine
 
 ### API Overview
 
@@ -123,6 +153,16 @@ rustate = "0.1.0"
 - `Context`: Store and retrieve extended state data
 - `Machine`: The runtime state machine instance
 - `MachineBuilder`: Fluent API for creating state machines
+- `TestGenerator`: Generate test cases from a state machine model
+- `TestRunner`: Run tests against your state machine
+- `ModelChecker`: Verify properties and analyze your state machine model
+
+## Future Directions
+
+- Additional model checking algorithms
+- Property-based testing integration
+- Test visualization tools
+- Fuzzing-based MBT
 
 ## License
 
