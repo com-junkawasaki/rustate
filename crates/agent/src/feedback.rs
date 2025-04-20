@@ -1,16 +1,27 @@
-use crate::{decision::Decision, error::Result};
+use crate::{decision::Decision, error::AgentError};
 use async_trait::async_trait;
-use rustate::{EventTrait, StateTrait};
+use rustate::EventTrait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// フィードバックの種類
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum FeedbackType {
+    /// 肯定的なフィードバック
+    Positive,
+    /// 否定的なフィードバック
+    Negative,
+    /// 中立的なフィードバック
+    Neutral,
+}
+
 /// エージェントのフィードバックを表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Feedback<E>
 where
-    E: EventTrait,
+    E: EventTrait + Clone,
 {
     /// フィードバックの一意な識別子
     pub id: String,
@@ -34,54 +45,51 @@ where
     pub metadata: HashMap<String, String>,
 }
 
-impl Feedback<E>
+impl<E> Feedback<E>
 where
-    E: EventTrait,
+    E: EventTrait + Clone,
 {
     /// 新しいフィードバックを作成します
-    pub fn new(score: f64, reason: impl Into<String>) -> Self {
-        if !(0.0..=1.0).contains(&score) {
-            eprintln!("警告: フィードバックスコアは通常0.0から1.0の範囲です。与えられた値: {}", score);
-        }
-
+    pub fn new(content: impl Into<String>, feedback_type: FeedbackType, source: impl Into<String>) -> Self {
         Self {
-            id: generate_id(),
-            score,
-            reason: reason.into(),
-            metadata: HashMap::new(),
-            timestamp: current_timestamp(),
+            id: format!("feedback-{}", uuid::Uuid::new_v4()),
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("時間が取得できませんでした")
+                .as_secs(),
             event: None,
-            content: String::new(),
-            source: String::new(),
-            feedback_type: FeedbackType::Neutral,
+            content: content.into(),
+            source: source.into(),
+            feedback_type,
+            metadata: HashMap::new(),
         }
     }
-
-    /// フィードバックにメタデータを追加します
+    
+    /// メタデータを追加します
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
-
-    /// フィードバックに複数のメタデータを一度に追加します
-    pub fn with_metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
-        self.metadata.extend(metadata);
+    
+    /// イベントを関連付けます
+    pub fn with_event(mut self, event: E) -> Self {
+        self.event = Some(event);
         self
     }
-
-    /// このフィードバックが肯定的かどうかを返します（スコアが0.5より大きい場合）
+    
+    /// このフィードバックが肯定的かどうかを返します
     pub fn is_positive(&self) -> bool {
-        self.score > 0.5
+        self.feedback_type == FeedbackType::Positive
     }
 
-    /// このフィードバックが否定的かどうかを返します（スコアが0.5未満の場合）
+    /// このフィードバックが否定的かどうかを返します
     pub fn is_negative(&self) -> bool {
-        self.score < 0.5
+        self.feedback_type == FeedbackType::Negative
     }
 
-    /// このフィードバックが中立的かどうかを返します（スコアがちょうど0.5の場合）
+    /// このフィードバックが中立的かどうかを返します
     pub fn is_neutral(&self) -> bool {
-        (self.score - 0.5).abs() < f64::EPSILON
+        self.feedback_type == FeedbackType::Neutral
     }
 }
 
@@ -89,28 +97,10 @@ where
 #[async_trait]
 pub trait FeedbackProvider<E>
 where
-    E: EventTrait,
+    E: EventTrait + Clone,
 {
     /// 決定に対するフィードバックを提供します
-    async fn provide_feedback(&self, decision: &Decision<E>) -> Result<Feedback<E>>;
-}
-
-/// 現在のUNIXタイムスタンプを返します
-fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
-}
-
-/// フィードバック用の一意な識別子を生成します
-fn generate_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
-    let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let timestamp = current_timestamp();
-    format!("fb-{}-{}", timestamp, counter)
+    async fn provide_feedback(&self, decision: &Decision<E>) -> std::result::Result<Feedback<E>, AgentError>;
 }
 
 #[cfg(test)]
@@ -119,10 +109,10 @@ mod tests {
 
     #[test]
     fn test_feedback_creation() {
-        let feedback = Feedback::new(0.8, "優れた決定でした");
+        let feedback = Feedback::new("優れた決定でした", FeedbackType::Positive, "user");
 
-        assert_eq!(feedback.score, 0.8);
-        assert_eq!(feedback.reason, "優れた決定でした");
+        assert_eq!(feedback.content, "優れた決定でした");
+        assert_eq!(feedback.source, "user");
         assert!(feedback.metadata.is_empty());
         assert!(feedback.is_positive());
         assert!(!feedback.is_negative());
@@ -131,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_feedback_with_metadata() {
-        let feedback = Feedback::new(0.3, "改善の余地があります")
+        let feedback = Feedback::new("改善の余地があります", FeedbackType::Negative, "user")
             .with_metadata("reviewer", "system")
             .with_metadata("category", "efficiency");
 
@@ -142,9 +132,9 @@ mod tests {
 
     #[test]
     fn test_neutral_feedback() {
-        let feedback = Feedback::new(0.5, "中立的な決定");
+        let feedback = Feedback::new("中立的な決定", FeedbackType::Neutral, "user");
         assert!(feedback.is_neutral());
         assert!(!feedback.is_positive());
         assert!(!feedback.is_negative());
     }
-} 
+}
