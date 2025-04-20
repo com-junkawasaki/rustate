@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rustate",
+    "crates/agent",
 ]
 
 [workspace.package]
@@ -23,3 +24,7 @@ web-sys = { version = "0.3", features = [
   "Node", "Window", "HtmlButtonElement", "Event"
 ]}
 console_error_panic_hook = { version = "0.1.7" }
+async-trait = "0.1"
+tokio = { version = "1.34", features = ["full"] }
+rand = "0.8"
+tracing = "0.1"
