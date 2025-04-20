@@ -12,8 +12,8 @@ use serde_json::Value;
 #[derive(Clone, Debug)]
 pub struct DecisionContext<'a, S, E>
 where
-    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    S: StateTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     /// 現在の状態
     pub current_state: S,
@@ -27,8 +27,8 @@ where
 
 impl<'a, S, E> DecisionContext<'a, S, E>
 where
-    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    S: StateTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     /// 新しい決定文脈を作成します
     pub fn new(
@@ -50,7 +50,7 @@ where
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Decision<E>
 where
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     /// 一意の決定ID
     pub id: String,
@@ -67,7 +67,7 @@ where
 /// 決定の新規作成と管理のメソッド
 impl<E> Decision<E>
 where
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     /// 新しい決定を作成します
     pub fn new(event: E, confidence: f64) -> Self {
@@ -102,8 +102,8 @@ where
 #[async_trait]
 pub trait DecisionMaker<S, E>
 where
-    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    S: StateTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Debug + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     /// 現在の状態と目標状態から次の決定を行います
     async fn decide(

@@ -5,7 +5,7 @@ use crate::{
     observation::Observation,
 };
 use rustate::{StateTrait, EventTrait};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Episode<S, E>
 where
     S: StateTrait,
-    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     /// エピソードの一意な識別子
     pub id: String,
@@ -63,7 +63,7 @@ where
 impl<S, E> Episode<S, E>
 where
     S: StateTrait,
-    E: EventTrait + Clone + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal_state: Option<S>) -> Self {

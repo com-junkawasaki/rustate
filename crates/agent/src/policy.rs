@@ -1,17 +1,19 @@
 use crate::{
-    decision::Decision,
+    decision::{Decision, DecisionContext},
+    feedback::Feedback,
     error::AgentError,
+    episode::Episode,
     insight::Insight,
     observation::Observation,
 };
-use async_trait::async_trait;
-use rand::seq::SliceRandom;
 use rustate::{EventTrait, StateTrait};
-use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::sync::Arc;
-use crate::decision::{DecisionContext};
-use crate::feedback::Feedback;
+use rand::seq::SliceRandom;
+use async_trait::async_trait;
+use serde::{Deserialize, de::DeserializeOwned};
+use std::marker::Send;
+use std::marker::Sync;
 use crate::prelude::Result;
 
 /// エージェントの判断ポリシーを表すトレイト
