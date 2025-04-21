@@ -31,7 +31,7 @@ fn main() -> rustate_integration::Result<()> {
     let process_b_controller_ref = SharedMachineRef::new(process_b_controller);
     
     // ワークフローからプロセスAへの接続（イベント転送パターン）
-    connect_workflow_to_process_a(workflow.clone(), process_a_ref)?;
+    connect_workflow_to_process_a(workflow.clone(), process_a_ref.clone())?;
     
     // ワークフローからプロセスBコントローラへの接続（イベント転送パターン）
     connect_workflow_to_process_b(workflow.clone(), process_b_controller_ref)?;
@@ -42,7 +42,7 @@ fn main() -> rustate_integration::Result<()> {
     
     // 状態を表示するスレッド
     thread::spawn(move || {
-        for i in 0..5 {
+        for i in 0..8 {
             thread::sleep(Duration::from_secs(1));
             
             println!("\n--- システム状態（{}秒後） ---", i + 1);
@@ -83,11 +83,33 @@ fn main() -> rustate_integration::Result<()> {
             }
             
             if i == 1 {
+                println!("\n>>> プロセスAにSTARTイベントを送信");
+                // プロセスAを開始
+                let _ = process_a_ref.send_event("START");
+            }
+            
+            if i == 2 {
+                println!("\n>>> プロセスAにNEXTイベントを送信");
                 // プロセスAを進める
                 let _ = process_a_ref.send_event("NEXT");
             }
             
             if i == 3 {
+                println!("\n>>> ワークフローにNEXTイベントを送信");
+                // ワークフローを次のステップに進める
+                let _ = workflow.send_event("NEXT");
+            }
+            
+            if i == 5 {
+                println!("\n>>> プロセスBにSTARTイベントを送信");
+                // プロセスBを開始
+                if let Ok(mut child) = child_machine.lock() {
+                    let _ = child.handle_parent_event("START");
+                }
+            }
+            
+            if i == 6 {
+                println!("\n>>> プロセスBにCOMPLETEイベントを送信");
                 // プロセスBを完了させる
                 if let Ok(mut child) = child_machine.lock() {
                     let _ = child.handle_parent_event("COMPLETE");
@@ -97,7 +119,7 @@ fn main() -> rustate_integration::Result<()> {
     });
     
     // メインスレッドは少し待ってから終了
-    thread::sleep(Duration::from_secs(6));
+    thread::sleep(Duration::from_secs(9));
     println!("\nデモ完了");
     
     Ok(())
@@ -198,9 +220,10 @@ fn create_process_b_controller(
     let monitoring = State::new("monitoring");
     let completed = State::new("completed");
     
-    // 遷移
-    let complete = Transition::new("monitoring", "COMPLETE", "completed");
-    
+    // ガード用のクローン
+    let child_for_guard = child.clone();
+    // アクション用のクローン
+    let child_for_action = child.clone();
     // 子マシンの状態を監視するアクション
     let monitor_child = coordination::create_child_monitor_action(
         "monitorChild",
@@ -215,12 +238,21 @@ fn create_process_b_controller(
         "START",
     );
     
+    // 子マシンが完了したことを確認するガード
+    let child_completed = ("childCompleted", move |_: &rustate::Context, _: &Event| {
+        if let Ok(child) = child_for_guard.lock() {
+            child.is_in_final_state()
+        } else {
+            false
+        }
+    });
+    
     // 進捗状況を更新するアクション
     let update_progress = Action::new(
         "updateProgress",
         ActionType::Transition,
         move |_ctx, _evt| {
-            if let Ok(child) = child.lock() {
+            if let Ok(child) = child_for_action.lock() {
                 if child.is_in("processing") {
                     let _ = context.set("processB.progress", 50);
                 } else if child.is_in_final_state() {
@@ -232,14 +264,9 @@ fn create_process_b_controller(
         },
     );
     
-    // 子マシンが完了したことを確認するガード
-    let child_completed = ("childCompleted", move |_: &rustate::Context, _: &Event| {
-        if let Ok(child) = child.lock() {
-            child.is_in_final_state()
-        } else {
-            false
-        }
-    });
+    // トランジションを作成
+    let mut complete_transition = Transition::new("monitoring", "COMPLETE", "completed");
+    complete_transition.with_guard(child_completed);
     
     MachineBuilder::new("processBController")
         .state(monitoring)
@@ -248,7 +275,7 @@ fn create_process_b_controller(
         .on_entry("monitoring", monitor_child)
         .on_entry("monitoring", start_child)
         .on_entry("monitoring", update_progress.clone())
-        .transition(complete.with_guard(child_completed))
+        .transition(complete_transition)
         .build()
         .unwrap()
 }
