@@ -48,9 +48,10 @@ where
 
 /// エージェントの決定を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "E: Serialize + for<'deserialize> Deserialize<'deserialize>")]
 pub struct Decision<E>
 where
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + 'static,
 {
     /// 一意の決定ID
     pub id: String,
@@ -67,7 +68,7 @@ where
 /// 決定の新規作成と管理のメソッド
 impl<E> Decision<E>
 where
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Debug + Send + Sync + 'static,
 {
     /// 新しい決定を作成します
     pub fn new(event: E, confidence: f64) -> Self {

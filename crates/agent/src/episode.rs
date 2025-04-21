@@ -16,10 +16,11 @@ use uuid::Uuid;
 /// 
 /// 強化学習におけるエピソードと同様に、エージェントの学習と評価の単位となります。
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "S: Serialize + for<'deserialize> Deserialize<'deserialize>, E: Serialize + for<'deserialize> Deserialize<'deserialize>")]
 pub struct Episode<S, E>
 where
-    S: StateTrait + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static + Clone,
+    S: StateTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + Debug + 'static + Clone,
 {
     /// エピソードの一意な識別子
     pub id: Uuid,
@@ -63,8 +64,8 @@ where
 
 impl<S, E> Episode<S, E>
 where
-    S: StateTrait + Send + Sync + Debug + DeserializeOwned + 'static,
-    E: EventTrait + Send + Sync + Debug + DeserializeOwned + 'static + Clone,
+    S: StateTrait + Send + Sync + Debug + 'static,
+    E: EventTrait + Send + Sync + Debug + 'static + Clone,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal_state: S) -> Self {

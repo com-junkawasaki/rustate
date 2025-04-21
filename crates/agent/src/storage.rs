@@ -18,8 +18,8 @@ use uuid;
 #[async_trait]
 pub trait Storage<S, E>: Send + Sync
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
-    E: EventTrait + for<'a> Deserialize<'a> + Debug + Clone + Send + Sync + 'static,
+    S: StateTrait + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
+    E: EventTrait + Debug + Clone + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
 {
     /// 観測データを保存します
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError>;
@@ -30,7 +30,7 @@ where
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
-        filter: Option<fn(Observation<S, E>) -> bool>,
+        filter: Option<fn(&Observation<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError>;
 
@@ -43,7 +43,7 @@ where
     /// 条件に一致する決定を検索します
     async fn find_decisions(
         &self,
-        filter: Option<fn(Decision<E>) -> bool>,
+        filter: Option<fn(&Decision<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError>;
 
@@ -56,7 +56,7 @@ where
     /// 条件に一致する洞察を検索します
     async fn find_insights(
         &self,
-        filter: Option<fn(Insight) -> bool>,
+        filter: Option<fn(&Insight) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError>;
 
@@ -69,7 +69,7 @@ where
     /// 条件に一致するエピソードを検索します
     async fn find_episodes(
         &self,
-        filter: Option<fn(Episode<S, E>) -> bool>,
+        filter: Option<fn(&Episode<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError>;
 
@@ -82,7 +82,7 @@ where
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
-        filter: Option<fn(Feedback<E>) -> bool>,
+        filter: Option<fn(&Feedback<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError>;
 }
@@ -167,8 +167,8 @@ pub enum FilterOperator {
 /// インメモリストレージの実装
 pub struct MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
 {
     observations: Arc<Mutex<Vec<Observation<S, E>>>>,
     decisions: Arc<Mutex<Vec<Decision<E>>>>,
@@ -179,8 +179,8 @@ where
 
 impl<S, E> MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
 {
     /// 新しいメモリベースのストレージを作成します
     pub fn new() -> Self {
@@ -197,8 +197,8 @@ where
 #[async_trait]
 impl<S, E> Storage<S, E> for MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + for<'a> Deserialize<'a> + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
 {
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError> {
         let mut observations = self.observations.lock().map_err(|e| {
@@ -221,7 +221,7 @@ where
 
     async fn find_observations(
         &self,
-        filter: Option<fn(Observation<S, E>) -> bool>,
+        filter: Option<fn(&Observation<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError> {
         let observations = self.observations.lock().map_err(|e| {
@@ -231,7 +231,7 @@ where
         let mut result: Vec<Observation<S, E>> = observations.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(filter_fn).collect();
+            result = result.into_iter().filter(|obs| filter_fn(obs)).collect();
         }
 
         if let Some(limit) = limit {
@@ -262,7 +262,7 @@ where
 
     async fn find_decisions(
         &self,
-        filter: Option<fn(Decision<E>) -> bool>,
+        filter: Option<fn(&Decision<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError> {
         let decisions = self.decisions.lock().map_err(|e| {
@@ -272,7 +272,7 @@ where
         let mut result: Vec<Decision<E>> = decisions.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(filter_fn).collect();
+            result = result.into_iter().filter(|dec| filter_fn(dec)).collect();
         }
 
         if let Some(limit) = limit {
@@ -303,7 +303,7 @@ where
 
     async fn find_insights(
         &self,
-        filter: Option<fn(Insight) -> bool>,
+        filter: Option<fn(&Insight) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError> {
         let insights = self.insights.lock().map_err(|e| {
@@ -313,7 +313,7 @@ where
         let mut result: Vec<Insight> = insights.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(filter_fn).collect();
+            result = result.into_iter().filter(|insight| filter_fn(insight)).collect();
         }
 
         if let Some(limit) = limit {
@@ -336,21 +336,18 @@ where
             AgentError::StorageError(format!("ロック取得エラー: {}", e))
         })?;
         
-        // Try to parse the ID string as UUID
-        let uuid = uuid::Uuid::parse_str(id).map_err(|_| {
-            AgentError::StorageError(format!("無効なUUID形式: {}", id))
-        })?;
+        for episode in episodes.iter() {
+            if episode.id.to_string() == id {
+                return Ok(episode.clone());
+            }
+        }
         
-        episodes
-            .iter()
-            .find(|ep| ep.id == uuid)
-            .cloned()
-            .ok_or_else(|| AgentError::StorageError(format!("エピソード ID {} が見つかりません", id)))
+        Err(AgentError::StorageError(format!("エピソード ID {} が見つかりません", id)))
     }
 
     async fn find_episodes(
         &self,
-        filter: Option<fn(Episode<S, E>) -> bool>,
+        filter: Option<fn(&Episode<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError> {
         let episodes = self.episodes.lock().map_err(|e| {
@@ -360,7 +357,7 @@ where
         let mut result: Vec<Episode<S, E>> = episodes.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(filter_fn).collect();
+            result = result.into_iter().filter(|ep| filter_fn(ep)).collect();
         }
 
         if let Some(limit) = limit {
@@ -384,14 +381,14 @@ where
         })?;
         feedbacks
             .iter()
-            .find(|fb| fb.id == id)
+            .find(|f| f.id == id)
             .cloned()
             .ok_or_else(|| AgentError::StorageError(format!("フィードバック ID {} が見つかりません", id)))
     }
     
     async fn find_feedback(
         &self,
-        filter: Option<fn(Feedback<E>) -> bool>,
+        filter: Option<fn(&Feedback<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError> {
         let feedback = self.feedback.lock().map_err(|e| {
@@ -401,7 +398,7 @@ where
         let mut result: Vec<Feedback<E>> = feedback.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(filter_fn).collect();
+            result = result.into_iter().filter(|fb| filter_fn(fb)).collect();
         }
 
         if let Some(limit) = limit {
