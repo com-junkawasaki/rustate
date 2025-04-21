@@ -2,6 +2,8 @@ pub mod checker;
 pub mod generator;
 pub mod property;
 pub mod runner;
+#[cfg(feature = "xstate-compat")]
+pub mod xstate;
 
 pub use checker::{ModelChecker, Property, PropertyType, VerificationResult};
 pub use generator::{TestCase, TestGenerator};
@@ -11,6 +13,13 @@ pub use runner::{CoverageReport, TestResult, TestResults, TestRunner};
 #[cfg(feature = "property-testing")]
 pub use property::{
     EventSequenceStrategyBuilder, PropertyTestResult, PropertyTestRunner, StateMachineProperty,
+};
+
+// XState v5 互換モジュールをexport
+#[cfg(feature = "xstate-compat")]
+pub use xstate::{
+    XStateTestModel, XStateTestPlan, XStateTestPath, XStatePathSegment,
+    create_test_model, execute_test_plan,
 };
 
 #[cfg(test)]

@@ -41,6 +41,8 @@ integration = []
 integration_async = ["integration", "tokio", "async-trait"]
 # Property-basedテスト機能を有効化
 property-testing = ["proptest"]
+# XState v5互換のテスト機能
+xstate-compat = ["mbt"]
 proptest = ["dep:proptest"]
 
 [lib]
@@ -62,6 +64,11 @@ path = "examples/model_based_testing.rs"
 name = "property_based_testing"
 path = "examples/property_based_testing.rs"
 required-features = ["property-testing"]
+
+[[example]]
+name = "xstate_test_example"
+path = "examples/xstate_test_example.rs"
+required-features = ["xstate-compat"]
 
 [[example]]
 name = "integration_demo"

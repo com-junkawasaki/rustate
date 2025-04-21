@@ -351,3 +351,104 @@ rustate = "0.2.4"
 ## License
 
 MIT 
+
+## テスト機能
+
+RuStateには複数のテスト支援機能があります：
+
+### モデルベーステスト (MBT)
+
+状態マシンのモデルに基づいて自動的にテストケースを生成します。
+
+```rust
+let machine = create_test_machine();
+let mut generator = TestGenerator::new(&machine);
+
+// 状態カバレッジのテストケースを生成
+let state_tests = generator.generate_all_states();
+
+// 遷移カバレッジのテストケースを生成
+let transition_tests = generator.generate_all_transitions();
+```
+
+### プロパティベーステスト
+
+proptest との統合により、ランダムなイベントシーケンスでプロパティを検証します。
+
+```rust
+let property = Machine::property("state property")
+    .given(|m| m.is_in("idle"))
+    .when(|m| {
+        let _ = m.send("START");
+        Ok(m.current_state().clone())
+    })
+    .then(|m| m.is_in("running"));
+
+let runner = PropertyTestRunner::new(machine);
+let result = runner.verify_property(property, Config::default());
+```
+
+### XState互換モデルベーステスト (新機能)
+
+XState v5互換のモデルベーステストインターフェースを提供します。
+
+```rust
+// ステートマシンからテストモデルを作成
+let mut model = create_test_model(machine);
+
+// アサーションを追加
+model.assert("conditionName", |m| {
+    // 条件をチェック
+    true
+});
+
+// アクターの実装を提供
+model.provide("actorName", |ctx, evt| {
+    // アクターの実装
+    Ok(())
+});
+
+// テストプランを作成（手動または自動生成）
+let plan = XStateTestPlan {
+    name: "Test Plan",
+    paths: vec![
+        XStateTestPath {
+            name: "Path 1",
+            segments: vec![
+                XStatePathSegment {
+                    state: "idle",
+                    event: Some("START"),
+                    assertions: None,
+                },
+                // ...
+            ],
+            description: Some("Test path description"),
+        },
+    ],
+    // ...
+};
+
+// または自動生成
+let generated_plan = model.generate_paths(max_depth);
+
+// プランを実行
+let results = execute_test_plan(&mut model, &plan)?;
+```
+
+### モデル検査
+
+状態マシンの性質（到達可能性、安全性など）を検証します。
+
+```rust
+let mut checker = ModelChecker::new(&machine);
+
+// 到達可能性プロパティの検証
+let reachability = Property {
+    name: "Can reach completed".to_string(),
+    property_type: PropertyType::Reachability,
+    target_states: vec!["completed".to_string()],
+    description: None,
+};
+
+let result = checker.verify_property(&reachability);
+``` 
