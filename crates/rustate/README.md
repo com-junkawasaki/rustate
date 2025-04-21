@@ -283,7 +283,7 @@ See the `examples` directory for complete examples.
 
 ## Network and Remote Integration
 
-For network-based state machine control and monitoring, check out [rustate-grpc](https://github.com/jun784/rustate/tree/main/crates/rustate-grpc), which provides:
+For network-based state machine control and monitoring, check out [rustate-grpc](https://github.com/jun784/rustate/tree/main/crates/grpc), which provides:
 
 - Remote state machine creation and control via gRPC
 - Real-time state change monitoring via streaming
