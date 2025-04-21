@@ -14,29 +14,53 @@ pub use property::{PropertyTestResult, PropertyTestRunner, StateMachineProperty,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Machine, MachineBuilder, State, Transition};
+    use crate::{Action, ActionType, Context, Event, Machine, MachineBuilder, State, Transition};
 
-    // テスト用の簡単な状態マシンを作成
+    #[test]
+    fn it_works() {
+        // シンプルなステートマシンを作成
+        let mut machine = create_test_machine();
+        
+        // 初期状態を確認
+        assert!(machine.is_in("idle"));
+        
+        // イベントを送信
+        let result = machine.send("START");
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        
+        // 状態が遷移したことを確認
+        assert!(machine.is_in("running"));
+        
+        // コンテキストの値を確認
+        assert_eq!(machine.context.get::<i32>("counter").unwrap_or(0), 1);
+    }
+    
     fn create_test_machine() -> Machine {
-        // 状態の作成
-        let green = State::new("green");
-        let yellow = State::new("yellow");
-        let red = State::new("red");
-
-        // 遷移の作成
-        let green_to_yellow = Transition::new("green", "TIMER", "yellow");
-        let yellow_to_red = Transition::new("yellow", "TIMER", "red");
-        let red_to_green = Transition::new("red", "TIMER", "green");
-
-        // マシンの構築
-        MachineBuilder::new("trafficLight")
-            .state(green)
-            .state(yellow)
-            .state(red)
-            .initial("green")
-            .transition(green_to_yellow)
-            .transition(yellow_to_red)
-            .transition(red_to_green)
+        // 状態定義
+        let idle_state = State::new("idle");
+        let running_state = State::new("running");
+        
+        // カウンターをインクリメントするアクション
+        let increment_action = Action::new(
+            "incrementCounter",
+            ActionType::Transition,
+            |ctx, _evt| {
+                let counter = ctx.get::<i32>("counter").unwrap_or(0);
+                let _ = ctx.set("counter", counter + 1);
+            },
+        );
+        
+        // 遷移を定義
+        let mut start_transition = Transition::new("idle", "START", "running");
+        start_transition.with_action(increment_action);
+        
+        // マシンを構築
+        MachineBuilder::new("testMachine")
+            .state(idle_state)
+            .state(running_state)
+            .initial("idle")
+            .transition(start_transition)
             .build()
             .unwrap()
     }
