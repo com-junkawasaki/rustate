@@ -82,6 +82,7 @@ impl EditorState {
 
 // エディタの操作モード
 #[derive(Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum EditorMode {
     Select,
     AddState,

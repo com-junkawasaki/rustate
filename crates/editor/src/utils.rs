@@ -13,6 +13,7 @@ pub fn error(s: &str) {
 }
 
 // ステートマシンをRustコードに変換するヘルパー関数
+#[allow(dead_code)]
 pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
     let mut code = String::new();
 

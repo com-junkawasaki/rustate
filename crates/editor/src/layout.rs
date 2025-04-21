@@ -3,6 +3,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 // ステートマシンのレイアウトを自動生成するためのユーティリティ
+#[allow(dead_code)]
 pub fn auto_layout(machine: &mut Machine) {
     let mut x = 100.0;
     let mut y = 100.0;

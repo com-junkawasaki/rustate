@@ -27,7 +27,7 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
     };
 
     let on_add_transition = {
-        let editor_state = props.editor_state.clone();
+        let _editor_state = props.editor_state.clone();
         let mode = mode.clone();
 
         Callback::from(move |_: MouseEvent| {
