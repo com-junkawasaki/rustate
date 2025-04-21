@@ -272,14 +272,22 @@ fn create_process_b_controller(
         },
     );
     
+    // モニタリング遷移
+    let mut monitoring_transition = Transition::new("monitoring", "MONITOR", "monitoring");
+    monitoring_transition.with_action(update_progress.clone());
+    
+    // 完了遷移
+    let mut complete_transition = Transition::new("monitoring", "COMPLETE", "completed");
+    complete_transition.with_guard(child_completed);
+    
     MachineBuilder::new("processBController")
         .state(monitoring)
         .state(completed)
         .initial("monitoring")
         .on_entry("monitoring", monitor_child)
         .on_entry("monitoring", start_child)
-        .on_transition("monitoring", update_progress.clone())
-        .transition(Transition::new("monitoring", "COMPLETE", "completed").with_guard(child_completed))
+        .transition(monitoring_transition)
+        .transition(complete_transition)
         .on_entry("completed", update_progress)
         .build()
         .unwrap()
@@ -309,13 +317,13 @@ fn connect_workflow_to_process_a(
     );
     
     // 内部遷移を使って定期的にモニタリング
-    let monitor = Transition::internal_transition("connector", "MONITOR");
+    let mut monitor_transition = Transition::internal_transition("connector", "MONITOR");
+    monitor_transition.with_action(forward_action);
     
-    let machine = MachineBuilder::new("workflowToProcessAConnector")
+    let mut machine = MachineBuilder::new("workflowToProcessAConnector")
         .state(connector_state)
         .initial("connector")
-        .transition(monitor)
-        .on_transition("connector", forward_action)
+        .transition(monitor_transition)
         .build()?;
     
     // モニタリングイベントを送信して開始
@@ -348,13 +356,13 @@ fn connect_workflow_to_process_b(
     );
     
     // 内部遷移を使って定期的にモニタリング
-    let monitor = Transition::internal_transition("connector", "MONITOR");
+    let mut monitor_transition = Transition::internal_transition("connector", "MONITOR");
+    monitor_transition.with_action(forward_action);
     
-    let machine = MachineBuilder::new("workflowToProcessBConnector")
+    let mut machine = MachineBuilder::new("workflowToProcessBConnector")
         .state(connector_state)
         .initial("connector")
-        .transition(monitor)
-        .on_transition("connector", forward_action)
+        .transition(monitor_transition)
         .build()?;
     
     // モニタリングイベントを送信して開始
