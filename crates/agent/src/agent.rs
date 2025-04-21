@@ -1,20 +1,18 @@
 use crate::{
-    decision::{Decision, DecisionMaker, DecisionContext},
+    decision::{Decision, DecisionContext, DecisionMaker},
+    episode::Episode,
     error::AgentError,
     feedback::Feedback,
     insight::Insight,
     observation::Observation,
     policy::Policy,
-    episode::Episode,
     storage::Storage,
 };
-use async_trait::async_trait;
-use rustate::{Machine, State, Event, StateTrait, EventTrait, Context};
-use serde::{de::DeserializeOwned, Serialize};
+use rustate::{Context, EventTrait, Machine, StateTrait, Transition};
+use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -98,27 +96,34 @@ where
     ) -> Result<(), AgentError> {
         // 初期状態を取得
         let initial_state = self.machine.current_state().clone();
-        
+
         // 目標状態が指定されていない場合はエラー
         let goal = match goal_state {
             Some(state) => state,
-            None => return Err(AgentError::Other("目標状態が設定されていません".to_string())),
+            None => {
+                return Err(AgentError::Other(
+                    "目標状態が設定されていません".to_string(),
+                ))
+            }
         };
-        
+
         // 新しいエピソードを作成
         let episode = Episode::new(name.into(), initial_state, goal);
-        
+
         // エピソードを保存
         self.storage.save_episode(&episode).await?;
-        
+
         // 現在のエピソードを設定
         self.current_episode = Some(episode);
-        
+
         Ok(())
     }
 
     /// 現在のエピソードを完了します
-    pub async fn complete_episode(&mut self, is_successful: bool) -> Result<Option<Episode<S, E>>, AgentError> {
+    pub async fn complete_episode(
+        &mut self,
+        is_successful: bool,
+    ) -> Result<Option<Episode<S, E>>, AgentError> {
         if let Some(mut episode) = self.current_episode.take() {
             episode.complete(is_successful);
             self.storage.save_episode(&episode).await?;
@@ -131,9 +136,11 @@ where
     pub async fn next_decision(&self) -> Result<Decision<E>, AgentError> {
         // 現在のエピソードがなければエラー
         if self.current_episode.is_none() {
-            return Err(AgentError::Other("エピソードが開始されていません".to_string()));
+            return Err(AgentError::Other(
+                "エピソードが開始されていません".to_string(),
+            ));
         }
-        
+
         // make_decision メソッドを使用して次の決定を取得
         self.make_decision().await
     }
@@ -141,9 +148,12 @@ where
     /// 決定に基づいてイベントを適用します
     pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S, AgentError> {
         let previous_state = self.machine.current_state().clone();
-        
+
         // イベントを適用
-        match self.machine.transition(decision.event.clone(), Context::default()) {
+        match self
+            .machine
+            .transition(decision.event.clone(), Context::default())
+        {
             Ok(next_state) => {
                 // 自動観測記録が有効な場合
                 if self.config.auto_record_observations {
@@ -153,15 +163,15 @@ where
                         next_state.clone(),
                     )
                     .with_metadata("decision_id", &decision.id);
-                    
+
                     self.storage.save_observation(&observation).await?;
-                    
+
                     // エピソードに観測を追加
                     if let Some(episode) = &mut self.current_episode {
                         episode.add_observation(observation);
                     }
                 }
-                
+
                 // 自動洞察生成が有効な場合
                 if self.config.auto_generate_insights {
                     // ここでは簡単な洞察生成の例を示します
@@ -169,19 +179,22 @@ where
                     if previous_state != next_state {
                         let insight = Insight::new(
                             "状態遷移",
-                            format!("{:?}から{:?}への遷移が観測されました", previous_state, next_state),
+                            format!(
+                                "{:?}から{:?}への遷移が観測されました",
+                                previous_state, next_state
+                            ),
                             0.9,
                         );
-                        
+
                         self.storage.save_insight(&insight).await?;
-                        
+
                         // エピソードに洞察を追加
                         if let Some(episode) = &mut self.current_episode {
                             episode.add_insight(insight);
                         }
                     }
                 }
-                
+
                 Ok(next_state)
             }
             Err(e) => Err(AgentError::MachineError(e)),
@@ -197,18 +210,24 @@ where
     /// エージェントを目標状態に到達するまで実行します
     pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool, AgentError> {
         if self.current_episode.is_none() {
-            return Err(AgentError::Other("エピソードが開始されていません".to_string()));
+            return Err(AgentError::Other(
+                "エピソードが開始されていません".to_string(),
+            ));
         }
-        
+
         // 目標状態を取得
         let goal_state = match &self.current_episode {
             Some(episode) => episode.goal_state.clone(),
-            None => return Err(AgentError::Other("目標状態が設定されていません".to_string())),
+            None => {
+                return Err(AgentError::Other(
+                    "目標状態が設定されていません".to_string(),
+                ))
+            }
         };
-        
+
         let mut step_count = 0;
         let max_steps = max_steps.unwrap_or(100); // デフォルトの最大ステップ数
-        
+
         while step_count < max_steps {
             // 現在の状態が目標状態に達したかチェック
             if self.machine.current_state() == &goal_state {
@@ -220,10 +239,10 @@ where
                 }
                 return Ok(true);
             }
-            
+
             // 次のステップを実行
             let result = self.step().await;
-            
+
             match result {
                 Ok(_) => {
                     step_count += 1;
@@ -238,37 +257,37 @@ where
                 }
             }
         }
-        
+
         // 最大ステップ数に達した場合は失敗とする
         if let Some(episode) = &mut self.current_episode {
             episode.complete(false);
             self.storage.save_episode(episode).await?;
         }
-        
+
         Ok(false)
     }
 
     /// 新しい洞察を追加します
     pub async fn add_insight(&mut self, insight: Insight) -> Result<(), AgentError> {
         self.storage.save_insight(&insight).await?;
-        
+
         // エピソードに洞察を追加
         if let Some(episode) = &mut self.current_episode {
             episode.add_insight(insight);
         }
-        
+
         Ok(())
     }
 
     /// 新しいフィードバックを追加します
     pub async fn add_feedback(&mut self, feedback: Feedback<E>) -> Result<(), AgentError> {
         self.storage.save_feedback(&feedback).await?;
-        
+
         // エピソードにフィードバックを追加
         if let Some(episode) = &mut self.current_episode {
             episode.add_feedback(feedback);
         }
-        
+
         Ok(())
     }
 
@@ -280,22 +299,17 @@ where
     /// 現在の状態に基づいて決定を行います
     pub async fn make_decision(&self) -> Result<Decision<E>, AgentError> {
         let state = self.machine.current_state();
-        let goal_state = self.current_episode
+        let goal_state = self
+            .current_episode
             .as_ref()
             .map(|ep| ep.goal_state.clone());
         let observations = self.storage.find_observations(None, None).await?;
         let insights = self.storage.find_insights(None, None).await?;
 
         // 現在の状態を基に新しい決定を生成
-        let context = DecisionContext::new(
-            state.clone(),
-            goal_state,
-            &observations,
-            &insights,
-        );
+        let context = DecisionContext::new(state.clone(), goal_state, &observations, &insights);
 
-        let decision = self.policy
-            .decide(context);
+        let decision = self.policy.decide(context);
 
         // 決定を保存
         self.storage.save_decision(&decision).await?;
@@ -308,8 +322,8 @@ mod tests {
     use super::*;
     use crate::policy::RandomPolicy;
     use crate::storage::MemoryStorage;
-    use rustate::{EventTrait, StateTrait, State, Event, StateType, IntoEvent};
-    use serde::{Serialize, Deserialize};
+    use rustate::{Event, EventTrait, IntoEvent, State, StateTrait, StateType};
+    use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,25 +341,25 @@ mod tests {
                 TestState::Final => "final",
             }
         }
-        
+
         fn state_type(&self) -> &StateType {
             static NORMAL: StateType = StateType::Normal;
             &NORMAL
         }
-        
+
         fn parent(&self) -> Option<&str> {
             None
         }
-        
+
         fn children(&self) -> &[String] {
             static EMPTY: [String; 0] = [];
             &EMPTY
         }
-        
+
         fn initial(&self) -> Option<&str> {
             None
         }
-        
+
         fn data(&self) -> Option<&Value> {
             None
         }
@@ -366,12 +380,12 @@ mod tests {
                 TestEvent::Finish => "finish",
             }
         }
-        
+
         fn payload(&self) -> Option<&Value> {
             None
         }
     }
-    
+
     impl IntoEvent for TestEvent {
         fn into_event(self) -> Event {
             Event::new(self.event_type())
@@ -379,22 +393,25 @@ mod tests {
     }
 
     fn create_test_machine() -> Machine<TestState, TestEvent> {
-        // 注: この実装は実際には正しくなく、テストのためのモックです
-        // 本番実装ではMachine::newを使用して正しくビルドする必要があります
-        let machine = Machine {
-            name: "TestMachine".to_string(),
-            states: Default::default(),
-            transitions: Vec::new(),
-            initial: "initial".to_string(),
-            current_states: Default::default(),
-            context: Default::default(),
-            entry_actions: Default::default(),
-            exit_actions: Default::default(),
-            history: Default::default(),
-            _phantom_s: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
-        };
-        machine
+        // 正しい実装に変更: MachineBuilderを使用
+        let initial = TestState::Initial;
+        let processing = TestState::Processing;
+        let final_state = TestState::Final;
+        
+        let start_transition = Transition::new(initial.id(), "start", processing.id());
+        let process_transition = Transition::new(processing.id(), "process", processing.id());
+        let finish_transition = Transition::new(processing.id(), "finish", final_state.id());
+        
+        rustate::MachineBuilder::new("TestMachine")
+            .state(initial)
+            .state(processing)
+            .state(final_state)
+            .initial(initial.id())
+            .transition(start_transition)
+            .transition(process_transition)
+            .transition(finish_transition)
+            .build()
+            .unwrap()
     }
 
     #[tokio::test]
@@ -423,10 +440,13 @@ mod tests {
         let storage = MemoryStorage::new();
 
         let mut agent = Agent::new(machine, policy, storage);
-        
+
         // エピソードを開始
-        agent.start_episode("テストエピソード", Some(TestState::Final)).await.unwrap();
-        
+        agent
+            .start_episode("テストエピソード", Some(TestState::Final))
+            .await
+            .unwrap();
+
         assert!(agent.current_episode.is_some());
         let episode = agent.current_episode.as_ref().unwrap();
         assert_eq!(episode.name, "テストエピソード");
@@ -441,11 +461,11 @@ mod tests {
         let storage = MemoryStorage::new();
 
         let mut agent = Agent::new(machine, policy, storage);
-        
+
         // 決定を取得して適用
         let decision = agent.next_decision().await.unwrap();
         assert_eq!(decision.event, TestEvent::Start);
-        
+
         let next_state = agent.apply_decision(&decision).await.unwrap();
         assert_eq!(next_state, TestState::Processing);
         assert_eq!(agent.machine.current_state(), &TestState::Processing);
@@ -458,9 +478,9 @@ mod tests {
         let storage = MemoryStorage::new();
 
         let mut agent = Agent::new(machine, policy, storage);
-        
+
         // ステップを実行
         let next_state = agent.step().await.unwrap();
         assert_eq!(next_state, TestState::Processing);
     }
-} 
+}

@@ -24,4 +24,4 @@ pub enum StateError {
 }
 
 /// Result type for operations that can fail
-pub type Result<T> = std::result::Result<T, StateError>; 
+pub type Result<T> = std::result::Result<T, StateError>;

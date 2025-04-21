@@ -7,10 +7,10 @@ pub fn auto_layout(machine: &mut Machine) {
     let mut x = 100.0;
     let mut y = 100.0;
     let padding = 150.0;
-    
+
     let mut visited = HashMap::new();
     let mut queue = Vec::new();
-    
+
     // 初期ステートを見つける
     if !machine.initial.is_empty() {
         queue.push(machine.initial.clone());
@@ -18,13 +18,13 @@ pub fn auto_layout(machine: &mut Machine) {
         // 初期ステートがなければ、最初のステートを使う
         queue.push(machine.states.keys().next().unwrap().clone());
     }
-    
+
     // 幅優先探索でレイアウト
     while let Some(state_id) = queue.pop() {
         if visited.contains_key(&state_id) {
             continue;
         }
-        
+
         // このステートの位置を設定
         if let Some(state) = machine.states.get_mut(&state_id) {
             // Set position in data field
@@ -32,10 +32,10 @@ pub fn auto_layout(machine: &mut Machine) {
                 "x": x,
                 "y": y
             });
-            
+
             state.with_data(position_data);
             visited.insert(state_id.clone(), (x, y));
-            
+
             // 次の位置を計算
             x += padding;
             if x > 600.0 {
@@ -43,13 +43,15 @@ pub fn auto_layout(machine: &mut Machine) {
                 y += padding;
             }
         }
-        
+
         // このステートからの遷移先を取得
-        let targets: Vec<String> = machine.transitions.iter()
+        let targets: Vec<String> = machine
+            .transitions
+            .iter()
             .filter(|t| t.source == state_id)
             .filter_map(|t| t.target.clone())
             .collect();
-        
+
         // 遷移先をキューに追加
         for target in targets {
             if !visited.contains_key(&target) {
@@ -57,7 +59,7 @@ pub fn auto_layout(machine: &mut Machine) {
             }
         }
     }
-    
+
     // 残ったステートを処理（孤立したステート）
     for (id, state) in &mut machine.states {
         if !visited.contains_key(id) {
@@ -66,9 +68,9 @@ pub fn auto_layout(machine: &mut Machine) {
                 "x": x,
                 "y": y
             });
-            
+
             state.with_data(position_data);
-            
+
             x += padding;
             if x > 600.0 {
                 x = 100.0;

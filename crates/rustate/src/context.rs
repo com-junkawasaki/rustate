@@ -18,9 +18,7 @@ impl Context {
 
     /// Create a new context with data
     pub fn with_data(data: impl Into<serde_json::Value>) -> Self {
-        Self {
-            data: data.into(),
-        }
+        Self { data: data.into() }
     }
 
     /// Set a value in the context
@@ -40,9 +38,9 @@ impl Context {
     /// Get a value from the context
     pub fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<T> {
         match &self.data {
-            serde_json::Value::Object(map) => {
-                map.get(key).and_then(|val| serde_json::from_value(val.clone()).ok())
-            }
+            serde_json::Value::Object(map) => map
+                .get(key)
+                .and_then(|val| serde_json::from_value(val.clone()).ok()),
             _ => None,
         }
     }
@@ -68,4 +66,4 @@ impl fmt::Display for Context {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.data)
     }
-} 
+}

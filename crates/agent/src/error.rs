@@ -62,4 +62,4 @@ mod tests {
         let err = AgentError::DecisionError("テストエラー".to_string());
         assert_eq!(err.to_string(), "決定エラー: テストエラー");
     }
-} 
+}

@@ -1,9 +1,8 @@
 use crate::observation::Observation;
-use rustate::{EventTrait, StateTrait, StateType};
+use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json::Value;
 
 /// 洞察は、観測データに基づく追加情報や解釈を提供します。
 /// 洞察はAIエージェントが状態遷移や観測データから抽出した
@@ -40,7 +39,10 @@ impl Insight {
         confidence: f64,
     ) -> Self {
         if !(0.0..=1.0).contains(&confidence) {
-            eprintln!("警告: 洞察の信頼度は通常0.0から1.0の範囲です。与えられた値: {}", confidence);
+            eprintln!(
+                "警告: 洞察の信頼度は通常0.0から1.0の範囲です。与えられた値: {}",
+                confidence
+            );
         }
 
         Self {
@@ -77,10 +79,7 @@ impl Insight {
     }
 
     /// 洞察に複数の関連観測データを一度に追加します
-    pub fn with_related_observations<S, E>(
-        mut self,
-        observations: &[Observation<S, E>],
-    ) -> Self
+    pub fn with_related_observations<S, E>(mut self, observations: &[Observation<S, E>]) -> Self
     where
         S: StateTrait,
         E: EventTrait,
@@ -109,7 +108,7 @@ fn current_timestamp() -> u64 {
 fn generate_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
     let timestamp = current_timestamp();
     format!("ins-{}-{}", timestamp, counter)
@@ -136,25 +135,25 @@ mod tests {
                 TestState::Final => "final",
             }
         }
-        
+
         fn state_type(&self) -> &StateType {
             static STATE_TYPE: StateType = StateType::Normal;
             &STATE_TYPE
         }
-        
+
         fn parent(&self) -> Option<&str> {
             None
         }
-        
+
         fn children(&self) -> &[String] {
             static EMPTY: [String; 0] = [];
             &EMPTY
         }
-        
+
         fn initial(&self) -> Option<&str> {
             None
         }
-        
+
         fn data(&self) -> Option<&Value> {
             None
         }
@@ -175,7 +174,7 @@ mod tests {
                 TestEvent::Finish => "finish",
             }
         }
-        
+
         fn payload(&self) -> Option<&Value> {
             None
         }
@@ -190,7 +189,10 @@ mod tests {
         );
 
         assert_eq!(insight.insight_type, "パターン検出");
-        assert_eq!(insight.content, "ユーザーは通常、朝に最初のリクエストを行います");
+        assert_eq!(
+            insight.content,
+            "ユーザーは通常、朝に最初のリクエストを行います"
+        );
         assert_eq!(insight.confidence, 0.85);
         assert!(insight.metadata.is_empty());
         assert!(insight.related_observation_ids.is_empty());
@@ -204,18 +206,20 @@ mod tests {
             .with_metadata("model", "heuristic");
 
         assert!(!insight.is_reliable());
-        assert_eq!(insight.metadata.get("source"), Some(&"historical data".to_string()));
-        assert_eq!(insight.metadata.get("model"), Some(&"heuristic".to_string()));
+        assert_eq!(
+            insight.metadata.get("source"),
+            Some(&"historical data".to_string())
+        );
+        assert_eq!(
+            insight.metadata.get("model"),
+            Some(&"heuristic".to_string())
+        );
     }
 
     #[test]
     fn test_insight_with_related_observations() {
-        let obs1 = Observation::new(
-            TestState::Initial,
-            TestEvent::Start,
-            TestState::Processing,
-        );
-        
+        let obs1 = Observation::new(TestState::Initial, TestEvent::Start, TestState::Processing);
+
         let obs2 = Observation::new(
             TestState::Processing,
             TestEvent::Process,
@@ -230,4 +234,4 @@ mod tests {
         assert_eq!(insight.related_observation_ids[0], obs1.id);
         assert_eq!(insight.related_observation_ids[1], obs2.id);
     }
-} 
+}

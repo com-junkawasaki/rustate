@@ -1,5 +1,4 @@
-use crate::error::AgentError;
-use rustate::{StateTrait, EventTrait};
+use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -52,13 +51,13 @@ where
             metadata: HashMap::new(),
         }
     }
-    
+
     /// メタデータを追加します
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
-    
+
     /// 複数のメタデータを一度に追加します
     pub fn with_metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
         self.metadata.extend(metadata);
@@ -78,7 +77,7 @@ fn current_timestamp() -> u64 {
 fn uuid() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
     let timestamp = current_timestamp();
     format!("obs-{}-{}", timestamp, counter)
@@ -104,24 +103,24 @@ mod tests {
                 TestState::Final => "final",
             }
         }
-        
+
         fn state_type(&self) -> &rustate::StateType {
             static NORMAL: rustate::StateType = rustate::StateType::Normal;
             &NORMAL
         }
-        
+
         fn parent(&self) -> Option<&str> {
             None
         }
-        
+
         fn children(&self) -> &[String] {
             &[]
         }
-        
+
         fn initial(&self) -> Option<&str> {
             None
         }
-        
+
         fn data(&self) -> Option<&serde_json::Value> {
             None
         }
@@ -142,7 +141,7 @@ mod tests {
                 TestEvent::Finish => "finish",
             }
         }
-        
+
         fn payload(&self) -> Option<&serde_json::Value> {
             None
         }
@@ -150,11 +149,7 @@ mod tests {
 
     #[test]
     fn test_observation_creation() {
-        let obs = Observation::new(
-            TestState::Initial,
-            TestEvent::Start,
-            TestState::Processing,
-        );
+        let obs = Observation::new(TestState::Initial, TestEvent::Start, TestState::Processing);
 
         assert_eq!(obs.previous_state, TestState::Initial);
         assert_eq!(obs.event, TestEvent::Start);
@@ -164,13 +159,9 @@ mod tests {
 
     #[test]
     fn test_observation_with_metadata() {
-        let obs = Observation::new(
-            TestState::Processing,
-            TestEvent::Finish,
-            TestState::Final,
-        )
-        .with_metadata("user", "test_user")
-        .with_metadata("source", "test_case");
+        let obs = Observation::new(TestState::Processing, TestEvent::Finish, TestState::Final)
+            .with_metadata("user", "test_user")
+            .with_metadata("source", "test_case");
 
         assert_eq!(obs.previous_state, TestState::Processing);
         assert_eq!(obs.event, TestEvent::Finish);
@@ -179,4 +170,4 @@ mod tests {
         assert_eq!(obs.metadata.get("user"), Some(&"test_user".to_string()));
         assert_eq!(obs.metadata.get("source"), Some(&"test_case".to_string()));
     }
-} 
+}

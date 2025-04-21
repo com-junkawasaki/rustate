@@ -1,5 +1,5 @@
 use rustate::{
-    Action, ActionType, Context, Event, Guard, Machine, MachineBuilder, State, Transition,
+    Action, ActionType, Context, Machine, MachineBuilder, State, Transition,
 };
 
 fn main() -> rustate::Result<()> {
@@ -71,69 +71,51 @@ fn create_player() -> rustate::Result<Machine> {
     let prev_track = Transition::internal_transition("playing", "PREV");
 
     // Create guards and actions
-    let log_power_on = Action::new(
-        "logPowerOn",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Power ON - Player ready"),
-    );
+    let log_power_on = Action::new("logPowerOn", ActionType::Entry, |_ctx, _evt| {
+        println!("Power ON - Player ready")
+    });
 
-    let log_power_off = Action::new(
-        "logPowerOff",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Power OFF"),
-    );
+    let log_power_off = Action::new("logPowerOff", ActionType::Entry, |_ctx, _evt| {
+        println!("Power OFF")
+    });
 
-    let log_playing = Action::new(
-        "logPlaying",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Playing track"),
-    );
+    let log_playing = Action::new("logPlaying", ActionType::Entry, |_ctx, _evt| {
+        println!("Playing track")
+    });
 
-    let log_stopped = Action::new(
-        "logStopped",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Stopped"),
-    );
+    let log_stopped = Action::new("logStopped", ActionType::Entry, |_ctx, _evt| {
+        println!("Stopped")
+    });
 
-    let log_paused = Action::new(
-        "logPaused",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Paused"),
-    );
+    let log_paused = Action::new("logPaused", ActionType::Entry, |_ctx, _evt| {
+        println!("Paused")
+    });
 
-    let log_double_speed = Action::new(
-        "logDoubleSpeed",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Playing at double speed"),
-    );
+    let log_double_speed = Action::new("logDoubleSpeed", ActionType::Entry, |_ctx, _evt| {
+        println!("Playing at double speed")
+    });
 
-    let log_normal_speed = Action::new(
-        "logNormalSpeed",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Playing at normal speed"),
-    );
+    let log_normal_speed = Action::new("logNormalSpeed", ActionType::Entry, |_ctx, _evt| {
+        println!("Playing at normal speed")
+    });
 
-    let next_track_action = Action::new(
-        "nextTrack",
-        ActionType::Transition,
-        |ctx, _evt| {
-            let current_track = ctx.get::<usize>("track").unwrap_or(0);
-            let next_track = current_track + 1;
-            println!("Changing to track {}", next_track);
-            let _ = ctx.set("track", next_track);
-        },
-    );
+    let next_track_action = Action::new("nextTrack", ActionType::Transition, |ctx, _evt| {
+        let current_track = ctx.get::<usize>("track").unwrap_or(0);
+        let next_track = current_track + 1;
+        println!("Changing to track {}", next_track);
+        let _ = ctx.set("track", next_track);
+    });
 
-    let prev_track_action = Action::new(
-        "prevTrack",
-        ActionType::Transition,
-        |ctx, _evt| {
-            let current_track = ctx.get::<usize>("track").unwrap_or(0);
-            let prev_track = if current_track > 0 { current_track - 1 } else { 0 };
-            println!("Changing to track {}", prev_track);
-            let _ = ctx.set("track", prev_track);
-        },
-    );
+    let prev_track_action = Action::new("prevTrack", ActionType::Transition, |ctx, _evt| {
+        let current_track = ctx.get::<usize>("track").unwrap_or(0);
+        let prev_track = if current_track > 0 {
+            current_track - 1
+        } else {
+            0
+        };
+        println!("Changing to track {}", prev_track);
+        let _ = ctx.set("track", prev_track);
+    });
 
     // Create context with initial track
     let mut context = Context::new();
@@ -176,4 +158,4 @@ fn create_player() -> rustate::Result<Machine> {
         .build()?;
 
     Ok(machine)
-} 
+}

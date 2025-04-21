@@ -1,7 +1,7 @@
 use crate::editor::EditorState;
-use yew::prelude::*;
-use wasm_bindgen::JsCast;
 use rustate::machine::Machine;
+use wasm_bindgen::JsCast;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct EditorPanelProps {
@@ -11,7 +11,7 @@ pub struct EditorPanelProps {
 #[function_component(EditorPanel)]
 pub fn editor_panel(props: &EditorPanelProps) -> Html {
     let json_text = use_state(|| String::new());
-    
+
     let on_json_change = {
         let json_text = json_text.clone();
         Callback::from(move |e: Event| {
@@ -20,13 +20,13 @@ pub fn editor_panel(props: &EditorPanelProps) -> Html {
             json_text.set(input.value());
         })
     };
-    
+
     let on_load_json = {
         let json_text = json_text.clone();
         let editor_state = props.editor_state.clone();
-        
-        Callback::from(move |_: MouseEvent| {
-            match serde_json::from_str::<Machine>(&json_text) {
+
+        Callback::from(
+            move |_: MouseEvent| match serde_json::from_str::<Machine>(&json_text) {
                 Ok(machine) => {
                     editor_state.set(EditorState {
                         machine,
@@ -37,14 +37,14 @@ pub fn editor_panel(props: &EditorPanelProps) -> Html {
                 Err(err) => {
                     web_sys::console::error_1(&format!("JSON解析エラー: {}", err).into());
                 }
-            }
-        })
+            },
+        )
     };
-    
+
     let on_export_json = {
         let editor_state = props.editor_state.clone();
         let json_text = json_text.clone();
-        
+
         Callback::from(move |_: MouseEvent| {
             match serde_json::to_string_pretty(&editor_state.machine) {
                 Ok(json) => {

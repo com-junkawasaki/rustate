@@ -1,7 +1,7 @@
-use crate::{Machine, Result, Error};
 use super::generator::TestCase;
+use crate::{Error, Machine, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use serde::{Serialize, Deserialize};
 
 /// テスト実行結果を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,16 +37,16 @@ impl CoverageReport {
         if self.total_states == 0 {
             return 0.0;
         }
-        
+
         (self.visited_states.len() as f64 / self.total_states as f64) * 100.0
     }
-    
+
     /// 遷移カバレッジの割合（%）を計算
     pub fn transition_coverage(&self) -> f64 {
         if self.total_transitions == 0 {
             return 0.0;
         }
-        
+
         (self.visited_transitions.len() as f64 / self.total_transitions as f64) * 100.0
     }
 }
@@ -65,28 +65,28 @@ impl TestResults {
     pub fn get_coverage(&self) -> &CoverageReport {
         &self.coverage
     }
-    
+
     /// 成功したテストの数を取得
     pub fn success_count(&self) -> usize {
         self.results.iter().filter(|r| r.success).count()
     }
-    
+
     /// 失敗したテストの数を取得
     pub fn failure_count(&self) -> usize {
         self.results.iter().filter(|r| !r.success).count()
     }
-    
+
     /// 総テスト数を取得
     pub fn total_count(&self) -> usize {
         self.results.len()
     }
-    
+
     /// 成功率を計算（%）
     pub fn success_rate(&self) -> f64 {
         if self.total_count() == 0 {
             return 0.0;
         }
-        
+
         (self.success_count() as f64 / self.total_count() as f64) * 100.0
     }
 }
@@ -111,45 +111,59 @@ impl<'a> TestRunner<'a> {
             visited_transitions: HashSet::new(),
         }
     }
-    
+
     /// テストケースを実行
     pub fn run_test(&mut self, test_case: &TestCase) -> TestResult {
         // マシンのコピーを作成して変更を追跡
         let mut machine_clone = self.machine.clone();
-        
+
         // 必要に応じてマシンを初期状態に設定
         if test_case.initial_state != self.machine.initial {
             // 適切な初期状態を持つ新しいマシンを作成することは難しいので、
             // ここではシンプルに初期状態からテストケースの初期状態まで
             // 移動するために必要なイベントを送る（実際のケースでは複雑になる可能性がある）
             match self.initialize_to_state(&mut machine_clone, &test_case.initial_state) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(err) => {
                     return TestResult {
                         test_name: test_case.name.clone(),
                         success: false,
-                        actual_state: machine_clone.current_states.iter().next()
-                            .unwrap_or(&"unknown".to_string()).clone(),
+                        actual_state: machine_clone
+                            .current_states
+                            .iter()
+                            .next()
+                            .unwrap_or(&"unknown".to_string())
+                            .clone(),
                         expected_state: test_case.initial_state.clone(),
                         error_message: Some(format!("Failed to initialize to state: {}", err)),
                     };
                 }
             }
         }
-        
+
         // テスト中の状態追跡を開始
-        self.visited_states.insert(machine_clone.current_states.iter().next()
-            .unwrap_or(&"unknown".to_string()).clone());
-        
+        self.visited_states.insert(
+            machine_clone
+                .current_states
+                .iter()
+                .next()
+                .unwrap_or(&"unknown".to_string())
+                .clone(),
+        );
+
         // イベントを順番に送信
         for event in &test_case.events {
             // 遷移を記録
-            let current_state = machine_clone.current_states.iter().next()
-                .unwrap_or(&"unknown".to_string()).clone();
-            
+            let current_state = machine_clone
+                .current_states
+                .iter()
+                .next()
+                .unwrap_or(&"unknown".to_string())
+                .clone();
+
             // イベント送信
             match machine_clone.send(event.clone()) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(err) => {
                     return TestResult {
                         test_name: test_case.name.clone(),
@@ -160,46 +174,58 @@ impl<'a> TestRunner<'a> {
                     };
                 }
             }
-            
+
             // 新しい状態を記録
-            let new_state = machine_clone.current_states.iter().next()
-                .unwrap_or(&"unknown".to_string()).clone();
-            
+            let new_state = machine_clone
+                .current_states
+                .iter()
+                .next()
+                .unwrap_or(&"unknown".to_string())
+                .clone();
+
             // 遷移を記録
             self.visited_states.insert(new_state.clone());
-            self.visited_transitions.insert(format!("{} --{}--> {}", 
-                current_state, event.event_type, new_state));
+            self.visited_transitions.insert(format!(
+                "{} --{}--> {}",
+                current_state, event.event_type, new_state
+            ));
         }
-        
+
         // 最終状態を確認
-        let final_state = machine_clone.current_states.iter().next()
-            .unwrap_or(&"unknown".to_string()).clone();
-        
+        let final_state = machine_clone
+            .current_states
+            .iter()
+            .next()
+            .unwrap_or(&"unknown".to_string())
+            .clone();
+
         let success = final_state == test_case.expected_state;
-        
+
         TestResult {
             test_name: test_case.name.clone(),
             success,
             actual_state: final_state.clone(),
             expected_state: test_case.expected_state.clone(),
-            error_message: if success { 
-                None 
-            } else { 
-                Some(format!("Expected state: {}, but got: {}", 
-                    test_case.expected_state, final_state)) 
+            error_message: if success {
+                None
+            } else {
+                Some(format!(
+                    "Expected state: {}, but got: {}",
+                    test_case.expected_state, final_state
+                ))
             },
         }
     }
-    
+
     /// 複数のテストケースを実行
     pub fn run_tests(&mut self, test_cases: Vec<TestCase>) -> TestResults {
         let mut results = Vec::new();
-        
+
         for test_case in test_cases {
             let result = self.run_test(&test_case);
             results.push(result);
         }
-        
+
         // カバレッジレポートを作成
         let coverage = CoverageReport {
             visited_states: self.visited_states.clone(),
@@ -207,24 +233,21 @@ impl<'a> TestRunner<'a> {
             total_states: self.machine.states.len(),
             total_transitions: self.machine.transitions.len(),
         };
-        
-        TestResults {
-            results,
-            coverage,
-        }
+
+        TestResults { results, coverage }
     }
-    
+
     /// マシンを特定の状態に初期化する（シンプルな実装）
     fn initialize_to_state(&self, machine: &mut Machine, target_state: &str) -> Result<()> {
         // 最もシンプルなケース: 既に目的の状態にいる
         if machine.is_in(target_state) {
             return Ok(());
         }
-        
+
         // target_stateに到達するためのパスを探す（この実装は簡略化されています）
         Err(Error::InvalidConfiguration(format!(
             "Cannot initialize to state: {}. This is a limitation of the current implementation.",
             target_state
         )))
     }
-} 
+}

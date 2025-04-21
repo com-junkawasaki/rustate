@@ -42,18 +42,24 @@ impl fmt::Debug for Action {
         f.debug_struct("Action")
             .field("name", &self.name)
             .field("action_type", &self.action_type)
-            .field("executor", &format_args!("{}", if self.executor.is_some() { "Some(Fn)" } else { "None" }))
+            .field(
+                "executor",
+                &format_args!(
+                    "{}",
+                    if self.executor.is_some() {
+                        "Some(Fn)"
+                    } else {
+                        "None"
+                    }
+                ),
+            )
             .finish()
     }
 }
 
 impl Action {
     /// Create a new action with a name and executor function
-    pub fn new<F>(
-        name: impl Into<String>,
-        action_type: ActionType,
-        executor: F,
-    ) -> Self 
+    pub fn new<F>(name: impl Into<String>, action_type: ActionType, executor: F) -> Self
     where
         F: Fn(&mut Context, &Event) + Send + Sync + 'static,
     {
@@ -65,7 +71,7 @@ impl Action {
     }
 
     /// Create a new entry action
-    pub fn entry<F>(name: impl Into<String>, executor: F) -> Self 
+    pub fn entry<F>(name: impl Into<String>, executor: F) -> Self
     where
         F: Fn(&mut Context, &Event) + Send + Sync + 'static,
     {
@@ -73,7 +79,7 @@ impl Action {
     }
 
     /// Create a new exit action
-    pub fn exit<F>(name: impl Into<String>, executor: F) -> Self 
+    pub fn exit<F>(name: impl Into<String>, executor: F) -> Self
     where
         F: Fn(&mut Context, &Event) + Send + Sync + 'static,
     {
@@ -81,7 +87,7 @@ impl Action {
     }
 
     /// Create a new transition action
-    pub fn transition<F>(name: impl Into<String>, executor: F) -> Self 
+    pub fn transition<F>(name: impl Into<String>, executor: F) -> Self
     where
         F: Fn(&mut Context, &Event) + Send + Sync + 'static,
     {
@@ -133,4 +139,4 @@ where
     fn into_action(self, action_type: ActionType) -> Action {
         Action::new(self.0, action_type, self.1)
     }
-} 
+}

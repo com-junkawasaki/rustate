@@ -1,22 +1,18 @@
-use crate::{
-    decision::Decision,
-    feedback::Feedback,
-    insight::Insight,
-    observation::Observation,
-};
-use rustate::{StateTrait, EventTrait};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::collections::HashMap;
+use crate::{decision::Decision, feedback::Feedback, insight::Insight, observation::Observation};
+use rustate::{EventTrait, StateTrait};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 /// エピソードは、初期状態から目標状態までの一連の観測、決定、フィードバック、洞察を含む
 /// 完全なシーケンスを表します。
-/// 
+///
 /// 強化学習におけるエピソードと同様に、エージェントの学習と評価の単位となります。
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "S: Serialize + for<'deserialize> Deserialize<'deserialize>, E: Serialize + for<'deserialize> Deserialize<'deserialize>")]
+#[serde(
+    bound = "S: Serialize + for<'deserialize> Deserialize<'deserialize>, E: Serialize + for<'deserialize> Deserialize<'deserialize>"
+)]
 pub struct Episode<S, E>
 where
     S: StateTrait + Send + Sync + 'static,
@@ -117,41 +113,50 @@ where
     /// エピソードに総合評価を設定します
     pub fn set_overall_score(&mut self, score: f64) {
         if !(0.0..=1.0).contains(&score) {
-            eprintln!("警告: エピソードスコアは通常0.0から1.0の範囲です。与えられた値: {}", score);
+            eprintln!(
+                "警告: エピソードスコアは通常0.0から1.0の範囲です。与えられた値: {}",
+                score
+            );
         }
         self.overall_score = score;
     }
 
     /// エピソードにメタデータを追加します
-    pub fn add_metadata(&mut self, key: impl Into<String>, value: impl Serialize) -> Result<&mut Self, serde_json::Error> {
+    pub fn add_metadata(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Serialize,
+    ) -> Result<&mut Self, serde_json::Error> {
         // Convert existing metadata to object if it's not already
         let metadata_obj = match &self.metadata {
             serde_json::Value::Object(obj) => obj.clone(),
             _ => serde_json::Map::new(),
         };
-        
+
         // Convert the value to a JSON value
         let json_value = serde_json::to_value(value)?;
-        
+
         // Create a new map and insert the value
         let mut new_metadata = metadata_obj;
         new_metadata.insert(key.into(), json_value);
-        
+
         // Update the metadata field
         self.metadata = serde_json::Value::Object(new_metadata);
-        
+
         Ok(self)
     }
 
     /// エピソードの期間を秒単位で返します
     pub fn duration_seconds(&self) -> Option<u64> {
         match self.end_time {
-            Some(end) => end.duration_since(self.start_time)
+            Some(end) => end
+                .duration_since(self.start_time)
                 .ok()
                 .map(|d| d.as_secs()),
-            None => SystemTime::now().duration_since(self.start_time)
+            None => SystemTime::now()
+                .duration_since(self.start_time)
                 .ok()
-                .map(|d| d.as_secs())
+                .map(|d| d.as_secs()),
         }
     }
 
@@ -163,34 +168,35 @@ where
     /// エピソードのすべての決定に関連するフィードバックを収集します
     pub fn collect_feedback(&self) -> Vec<&Feedback<E>> {
         let mut all_feedback = Vec::new();
-        
+
         // エピソード全体のフィードバックがあれば追加
         if let Some(feedback) = &self.feedback {
             all_feedback.push(feedback);
         }
-        
+
         // 決定に関連するフィードバックは現在の実装では収集できません
         // Decision構造体にfeedbackフィールドがないため
-        
+
         all_feedback
     }
 
     /// エピソードの平均フィードバックスコアを計算します
     pub fn average_feedback_score(&self) -> Option<f64> {
         let all_feedback = self.collect_feedback();
-        
+
         if all_feedback.is_empty() {
             return None;
         }
-        
-        let total_score: f64 = all_feedback.iter()
+
+        let total_score: f64 = all_feedback
+            .iter()
             .map(|f| match f.feedback_type {
                 crate::feedback::FeedbackType::Positive => 1.0,
                 crate::feedback::FeedbackType::Neutral => 0.5,
                 crate::feedback::FeedbackType::Negative => 0.0,
             })
             .sum();
-            
+
         Some(total_score / all_feedback.len() as f64)
     }
 }
@@ -207,7 +213,7 @@ fn current_timestamp() -> u64 {
 fn generate_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
     let timestamp = current_timestamp();
     format!("ep-{}-{}", timestamp, counter)
@@ -217,7 +223,7 @@ fn generate_id() -> String {
 mod tests {
     use super::*;
     use rustate::{EventTrait, StateTrait, StateType};
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,11 +289,8 @@ mod tests {
 
     #[test]
     fn test_episode_creation() {
-        let episode: Episode<TestState, TestEvent> = Episode::new(
-            "テストエピソード",
-            TestState::Initial,
-            TestState::Final,
-        );
+        let episode: Episode<TestState, TestEvent> =
+            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
 
         assert_eq!(episode.name, "テストエピソード");
         assert_eq!(episode.initial_state, TestState::Initial);
@@ -301,17 +304,11 @@ mod tests {
 
     #[test]
     fn test_episode_with_observations_and_decisions() {
-        let mut episode: Episode<TestState, TestEvent> = Episode::new(
-            "テストエピソード",
-            TestState::Initial,
-            TestState::Final,
-        );
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
 
-        let observation = Observation::new(
-            TestState::Initial,
-            TestEvent::Start,
-            TestState::Processing,
-        );
+        let observation =
+            Observation::new(TestState::Initial, TestEvent::Start, TestState::Processing);
 
         let decision = Decision::new(TestEvent::Start, 0.9);
 
@@ -326,17 +323,14 @@ mod tests {
 
     #[test]
     fn test_episode_completion() {
-        let mut episode: Episode<TestState, TestEvent> = Episode::new(
-            "テストエピソード",
-            TestState::Initial,
-            TestState::Final,
-        );
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
 
         assert_eq!(episode.is_completed(), false);
         assert!(episode.end_time.is_none());
 
         episode.complete(true);
-        
+
         assert_eq!(episode.is_completed(), true);
         assert!(episode.end_time.is_some());
         assert_eq!(episode.is_successful, true);
@@ -344,30 +338,30 @@ mod tests {
 
     #[test]
     fn test_episode_feedback() {
-        let mut episode: Episode<TestState, TestEvent> = Episode::new(
-            "テストエピソード",
-            TestState::Initial,
-            TestState::Final,
-        );
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
 
-        let feedback: Feedback<TestEvent> = Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
+        let feedback: Feedback<TestEvent> =
+            Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
         episode.add_feedback(feedback);
 
         assert!(episode.feedback.is_some());
         assert_eq!(episode.feedback.as_ref().unwrap().content, "良い選択");
-        assert_eq!(episode.feedback.as_ref().unwrap().feedback_type, crate::feedback::FeedbackType::Positive);
+        assert_eq!(
+            episode.feedback.as_ref().unwrap().feedback_type,
+            crate::feedback::FeedbackType::Positive
+        );
     }
 
     #[test]
     fn test_add_metadata() {
-        let mut episode: Episode<TestState, TestEvent> = Episode::new(
-            "テストエピソード",
-            TestState::Initial,
-            TestState::Final,
-        );
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
 
         episode.add_metadata("priority", "high").unwrap();
-        episode.add_metadata("tags", vec!["important", "urgent"]).unwrap();
+        episode
+            .add_metadata("tags", vec!["important", "urgent"])
+            .unwrap();
 
         if let serde_json::Value::Object(map) = &episode.metadata {
             assert_eq!(map.get("priority").unwrap(), "high");
@@ -376,4 +370,4 @@ mod tests {
             panic!("メタデータはオブジェクトであるべき");
         }
     }
-} 
+}

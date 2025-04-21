@@ -35,16 +35,22 @@ pub fn start() -> Result<(), JsValue> {
 
 #[wasm_bindgen]
 pub fn init_editor(container_id: &str) -> Result<(), JsValue> {
-    web_sys::console::log_1(&JsValue::from_str(&format!("Initializing editor in container: {}", container_id)));
-    
+    web_sys::console::log_1(&JsValue::from_str(&format!(
+        "Initializing editor in container: {}",
+        container_id
+    )));
+
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("Window not found"))?;
-    let document = window.document().ok_or_else(|| JsValue::from_str("Document not found"))?;
-    let container = document.get_element_by_id(container_id)
-        .ok_or_else(|| JsValue::from_str(&format!("Container element not found: {}", container_id)))?;
-    
+    let document = window
+        .document()
+        .ok_or_else(|| JsValue::from_str("Document not found"))?;
+    let container = document.get_element_by_id(container_id).ok_or_else(|| {
+        JsValue::from_str(&format!("Container element not found: {}", container_id))
+    })?;
+
     web_sys::console::log_1(&JsValue::from_str("Rendering Yew app"));
     yew::Renderer::<components::App>::with_root(container).render();
-    
+
     web_sys::console::log_1(&JsValue::from_str("Editor initialized successfully"));
     Ok(())
 }

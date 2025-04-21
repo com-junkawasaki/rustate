@@ -15,38 +15,36 @@ pub fn error(s: &str) {
 // ステートマシンをRustコードに変換するヘルパー関数
 pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
     let mut code = String::new();
-    
+
     code.push_str("use rustate::prelude::*;\n\n");
-    code.push_str(&format!("fn create_state_machine() -> rustate::Machine {{\n"));
-    code.push_str(&format!("    let mut builder = rustate::MachineBuilder::new(\"{}\");\n\n", 
-        machine.name));
-    
+    code.push_str(&format!(
+        "fn create_state_machine() -> rustate::Machine {{\n"
+    ));
+    code.push_str(&format!(
+        "    let mut builder = rustate::MachineBuilder::new(\"{}\");\n\n",
+        machine.name
+    ));
+
     // ステートの生成
     for (id, state) in &machine.states {
         match state.state_type {
             rustate::state::StateType::Normal => {
-                code.push_str(&format!(
-                    "    // State: {}\n", id
-                ));
+                code.push_str(&format!("    // State: {}\n", id));
                 code.push_str(&format!(
                     "    builder = builder.state(rustate::State::new(\"{}\"));\n",
                     id
                 ));
-            },
+            }
             rustate::state::StateType::Final => {
-                code.push_str(&format!(
-                    "    // State: {}\n", id
-                ));
+                code.push_str(&format!("    // State: {}\n", id));
                 code.push_str(&format!(
                     "    builder = builder.state(rustate::State::new_final(\"{}\"));\n",
                     id
                 ));
-            },
+            }
             rustate::state::StateType::Compound => {
                 if let Some(initial) = &state.initial {
-                    code.push_str(&format!(
-                        "    // State: {}\n", id
-                    ));
+                    code.push_str(&format!("    // State: {}\n", id));
                     code.push_str(&format!(
                         "    builder = builder.state(rustate::State::new_compound(\"{}\", \"{}\"));\n",
                         id, initial
@@ -60,39 +58,33 @@ pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
                         id
                     ));
                 }
-            },
+            }
             rustate::state::StateType::Parallel => {
-                code.push_str(&format!(
-                    "    // State: {}\n", id
-                ));
+                code.push_str(&format!("    // State: {}\n", id));
                 code.push_str(&format!(
                     "    builder = builder.state(rustate::State::new_parallel(\"{}\"));\n",
                     id
                 ));
-            },
+            }
             rustate::state::StateType::History => {
-                code.push_str(&format!(
-                    "    // State: {}\n", id
-                ));
+                code.push_str(&format!("    // State: {}\n", id));
                 code.push_str(&format!(
                     "    builder = builder.state(rustate::State::new_history(\"{}\"));\n",
                     id
                 ));
-            },
+            }
             rustate::state::StateType::DeepHistory => {
-                code.push_str(&format!(
-                    "    // State: {}\n", id
-                ));
+                code.push_str(&format!("    // State: {}\n", id));
                 code.push_str(&format!(
                     "    builder = builder.state(rustate::State::new_deep_history(\"{}\"));\n",
                     id
                 ));
-            },
+            }
         }
     }
-    
+
     code.push_str("\n");
-    
+
     // Set initial state
     if !machine.initial.is_empty() {
         code.push_str(&format!(
@@ -100,7 +92,7 @@ pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
             machine.initial
         ));
     }
-    
+
     // 遷移の追加
     for transition in &machine.transitions {
         if let Some(target) = &transition.target {
@@ -118,9 +110,9 @@ pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
             ));
         }
     }
-    
+
     code.push_str("\n    rustate::Machine::new(builder).expect(\"Failed to build machine\")\n");
     code.push_str("}\n");
-    
+
     code
 }

@@ -27,7 +27,17 @@ impl fmt::Debug for Guard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Guard")
             .field("name", &self.name)
-            .field("predicate", &format_args!("{}", if self.predicate.is_some() { "Some(Fn)" } else { "None" }))
+            .field(
+                "predicate",
+                &format_args!(
+                    "{}",
+                    if self.predicate.is_some() {
+                        "Some(Fn)"
+                    } else {
+                        "None"
+                    }
+                ),
+            )
             .finish()
     }
 }
@@ -35,7 +45,7 @@ impl fmt::Debug for Guard {
 impl Guard {
     /// Create a new guard with a name and predicate function
     pub fn new<F>(name: impl Into<String>, predicate: F) -> Self
-    where 
+    where
         F: Fn(&Context, &Event) -> bool + Send + Sync + 'static,
     {
         Self {
@@ -90,4 +100,4 @@ where
     fn into_guard(self) -> Guard {
         Guard::new(self.0, self.1)
     }
-} 
+}

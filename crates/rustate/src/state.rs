@@ -6,19 +6,19 @@ use uuid::Uuid;
 pub trait StateTrait {
     /// Get the unique identifier for this state
     fn id(&self) -> &str;
-    
+
     /// Get the state type
     fn state_type(&self) -> &StateType;
-    
+
     /// Get the parent state id, if any
     fn parent(&self) -> Option<&str>;
-    
+
     /// Get child states (for compound and parallel states)
     fn children(&self) -> &[String];
-    
+
     /// Get initial state id (for compound states)
     fn initial(&self) -> Option<&str>;
-    
+
     /// Get data associated with this state
     fn data(&self) -> Option<&serde_json::Value>;
 }
@@ -157,23 +157,23 @@ impl StateTrait for State {
     fn id(&self) -> &str {
         &self.id
     }
-    
+
     fn state_type(&self) -> &StateType {
         &self.state_type
     }
-    
+
     fn parent(&self) -> Option<&str> {
         self.parent.as_deref()
     }
-    
+
     fn children(&self) -> &[String] {
         &self.children
     }
-    
+
     fn initial(&self) -> Option<&str> {
         self.initial.as_deref()
     }
-    
+
     fn data(&self) -> Option<&serde_json::Value> {
         self.data.as_ref()
     }
@@ -218,4 +218,4 @@ impl StateCollection {
     pub fn all(&self) -> impl Iterator<Item = &State> {
         self.states.values()
     }
-} 
+}

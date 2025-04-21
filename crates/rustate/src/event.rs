@@ -5,7 +5,7 @@ use std::fmt;
 pub trait EventTrait {
     /// Get the event type
     fn event_type(&self) -> &str;
-    
+
     /// Get the payload data, if any
     fn payload(&self) -> Option<&serde_json::Value>;
 }
@@ -29,7 +29,10 @@ impl Event {
     }
 
     /// Create a new event with payload
-    pub fn with_payload(event_type: impl Into<String>, payload: impl Into<serde_json::Value>) -> Self {
+    pub fn with_payload(
+        event_type: impl Into<String>,
+        payload: impl Into<serde_json::Value>,
+    ) -> Self {
         Self {
             event_type: event_type.into(),
             payload: Some(payload.into()),
@@ -41,7 +44,7 @@ impl EventTrait for Event {
     fn event_type(&self) -> &str {
         &self.event_type
     }
-    
+
     fn payload(&self) -> Option<&serde_json::Value> {
         self.payload.as_ref()
     }
@@ -87,4 +90,4 @@ impl<'a> IntoEvent for &'a String {
 }
 
 /// A wildcard event that matches any event
-pub const WILDCARD_EVENT: &str = "*"; 
+pub const WILDCARD_EVENT: &str = "*";

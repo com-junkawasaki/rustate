@@ -17,28 +17,28 @@ thread_local! {
 pub fn start() {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
-    
+
     console::log_1(&"RuState Wasm initialized".into());
 }
 
 #[wasm_bindgen]
 pub fn init_traffic_light() -> Result<(), JsValue> {
     let machine = create_traffic_light().map_err(|e| JsValue::from_str(&e.to_string()))?;
-    
+
     TRAFFIC_MACHINE.with(|cell| {
         *cell.borrow_mut() = Some(machine);
     });
-    
+
     console::log_1(&"Traffic light machine initialized".into());
     update_traffic_light_state();
-    
+
     Ok(())
 }
 
 #[wasm_bindgen]
 pub fn send_traffic_light_event(event: &str) -> Result<(), JsValue> {
     let mut success = false;
-    
+
     TRAFFIC_MACHINE.with(|cell| {
         if let Some(machine) = &mut *cell.borrow_mut() {
             // エラーを処理するが関数からは伝播させない
@@ -49,7 +49,7 @@ pub fn send_traffic_light_event(event: &str) -> Result<(), JsValue> {
             }
         }
     });
-    
+
     if success {
         update_traffic_light_state();
         Ok(())
@@ -61,11 +61,17 @@ pub fn send_traffic_light_event(event: &str) -> Result<(), JsValue> {
 fn update_traffic_light_state() {
     TRAFFIC_MACHINE.with(|cell| {
         if let Some(machine) = &*cell.borrow() {
-            let state = machine.current_states.iter().next().map_or("unknown", |s| s.as_str());
+            let state = machine
+                .current_states
+                .iter()
+                .next()
+                .map_or("unknown", |s| s.as_str());
             console::log_2(&"Current state:".into(), &state.into());
-            
+
             // JS側から呼び出される関数を設定（実際のDOM操作はJS側で行う）
-            if let Some(update_fn) = js_sys::Reflect::get(&js_sys::global(), &"updateTrafficLightUI".into()).ok() {
+            if let Some(update_fn) =
+                js_sys::Reflect::get(&js_sys::global(), &"updateTrafficLightUI".into()).ok()
+            {
                 if update_fn.is_function() {
                     let function = update_fn.dyn_into::<js_sys::Function>().unwrap();
                     let _ = js_sys::Reflect::apply(
@@ -82,21 +88,21 @@ fn update_traffic_light_state() {
 #[wasm_bindgen]
 pub fn init_music_player() -> Result<(), JsValue> {
     let machine = create_music_player().map_err(|e| JsValue::from_str(&e.to_string()))?;
-    
+
     MUSIC_MACHINE.with(|cell| {
         *cell.borrow_mut() = Some(machine);
     });
-    
+
     console::log_1(&"Music player machine initialized".into());
     update_music_player_state();
-    
+
     Ok(())
 }
 
 #[wasm_bindgen]
 pub fn send_music_player_event(event: &str) -> Result<(), JsValue> {
     let mut success = false;
-    
+
     MUSIC_MACHINE.with(|cell| {
         if let Some(machine) = &mut *cell.borrow_mut() {
             // エラーを処理するが関数からは伝播させない
@@ -107,7 +113,7 @@ pub fn send_music_player_event(event: &str) -> Result<(), JsValue> {
             }
         }
     });
-    
+
     if success {
         update_music_player_state();
         Ok(())
@@ -121,14 +127,16 @@ fn update_music_player_state() {
         if let Some(machine) = &*cell.borrow() {
             let states: Vec<&String> = machine.current_states.iter().collect();
             let states_json = serde_json::to_string(&states).unwrap_or_default();
-            
+
             // JsValueに変換する前にクローンを作成
             let js_status = JsValue::from_str(&states_json);
-            
+
             console::log_2(&"Current states:".into(), &js_status);
-            
+
             // JS側から呼び出される関数を設定
-            if let Some(update_fn) = js_sys::Reflect::get(&js_sys::global(), &"updateMusicPlayerUI".into()).ok() {
+            if let Some(update_fn) =
+                js_sys::Reflect::get(&js_sys::global(), &"updateMusicPlayerUI".into()).ok()
+            {
                 if update_fn.is_function() {
                     let function = update_fn.dyn_into::<js_sys::Function>().unwrap();
                     let _ = js_sys::Reflect::apply(
@@ -155,23 +163,17 @@ fn create_traffic_light() -> crate::Result<Machine> {
     let red_to_green = Transition::new("red", "TIMER", "green");
 
     // アクションを定義
-    let log_green = Action::new(
-        "logGreen",
-        ActionType::Entry,
-        |_ctx, _evt| console::log_1(&"Entering GREEN state - Go!".into()),
-    );
+    let log_green = Action::new("logGreen", ActionType::Entry, |_ctx, _evt| {
+        console::log_1(&"Entering GREEN state - Go!".into())
+    });
 
-    let log_yellow = Action::new(
-        "logYellow",
-        ActionType::Entry,
-        |_ctx, _evt| console::log_1(&"Entering YELLOW state - Slow down!".into()),
-    );
+    let log_yellow = Action::new("logYellow", ActionType::Entry, |_ctx, _evt| {
+        console::log_1(&"Entering YELLOW state - Slow down!".into())
+    });
 
-    let log_red = Action::new(
-        "logRed",
-        ActionType::Entry,
-        |_ctx, _evt| console::log_1(&"Entering RED state - Stop!".into()),
-    );
+    let log_red = Action::new("logRed", ActionType::Entry, |_ctx, _evt| {
+        console::log_1(&"Entering RED state - Stop!".into())
+    });
 
     // 機械を構築
     let machine = MachineBuilder::new("trafficLight")
@@ -229,45 +231,35 @@ fn create_music_player() -> crate::Result<Machine> {
     let prev_track = Transition::internal_transition("playing", "PREV");
 
     // アクションを作成
-    let log_power_on = Action::new(
-        "logPowerOn",
-        ActionType::Entry,
-        |_ctx, _evt| console::log_1(&"Power ON - Player ready".into()),
-    );
+    let log_power_on = Action::new("logPowerOn", ActionType::Entry, |_ctx, _evt| {
+        console::log_1(&"Power ON - Player ready".into())
+    });
 
-    let log_power_off = Action::new(
-        "logPowerOff",
-        ActionType::Entry,
-        |_ctx, _evt| console::log_1(&"Power OFF".into()),
-    );
+    let log_power_off = Action::new("logPowerOff", ActionType::Entry, |_ctx, _evt| {
+        console::log_1(&"Power OFF".into())
+    });
 
-    let log_playing = Action::new(
-        "logPlaying",
-        ActionType::Entry,
-        |_ctx, _evt| console::log_1(&"Playing track".into()),
-    );
+    let log_playing = Action::new("logPlaying", ActionType::Entry, |_ctx, _evt| {
+        console::log_1(&"Playing track".into())
+    });
 
-    let next_track_action = Action::new(
-        "nextTrack",
-        ActionType::Transition,
-        |ctx, _evt| {
-            let current_track = ctx.get::<usize>("track").unwrap_or(0);
-            let next_track = current_track + 1;
-            console::log_1(&format!("Changing to track {}", next_track).into());
-            let _ = ctx.set("track", next_track);
-        },
-    );
+    let next_track_action = Action::new("nextTrack", ActionType::Transition, |ctx, _evt| {
+        let current_track = ctx.get::<usize>("track").unwrap_or(0);
+        let next_track = current_track + 1;
+        console::log_1(&format!("Changing to track {}", next_track).into());
+        let _ = ctx.set("track", next_track);
+    });
 
-    let prev_track_action = Action::new(
-        "prevTrack",
-        ActionType::Transition,
-        |ctx, _evt| {
-            let current_track = ctx.get::<usize>("track").unwrap_or(0);
-            let prev_track = if current_track > 0 { current_track - 1 } else { 0 };
-            console::log_1(&format!("Changing to track {}", prev_track).into());
-            let _ = ctx.set("track", prev_track);
-        },
-    );
+    let prev_track_action = Action::new("prevTrack", ActionType::Transition, |ctx, _evt| {
+        let current_track = ctx.get::<usize>("track").unwrap_or(0);
+        let prev_track = if current_track > 0 {
+            current_track - 1
+        } else {
+            0
+        };
+        console::log_1(&format!("Changing to track {}", prev_track).into());
+        let _ = ctx.set("track", prev_track);
+    });
 
     // コンテキストを作成
     let mut context = Context::new();
@@ -307,4 +299,4 @@ fn create_music_player() -> crate::Result<Machine> {
         .build()?;
 
     Ok(machine)
-} 
+}

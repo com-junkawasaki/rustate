@@ -27,23 +27,17 @@ fn create_traffic_light() -> rustate::Result<Machine> {
     let red_to_green = Transition::new("red", "TIMER", "green");
 
     // Define some actions
-    let log_green = Action::new(
-        "logGreen",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Entering GREEN state - Go!"),
-    );
+    let log_green = Action::new("logGreen", ActionType::Entry, |_ctx, _evt| {
+        println!("Entering GREEN state - Go!")
+    });
 
-    let log_yellow = Action::new(
-        "logYellow",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Entering YELLOW state - Slow down!"),
-    );
+    let log_yellow = Action::new("logYellow", ActionType::Entry, |_ctx, _evt| {
+        println!("Entering YELLOW state - Slow down!")
+    });
 
-    let log_red = Action::new(
-        "logRed",
-        ActionType::Entry,
-        |_ctx, _evt| println!("Entering RED state - Stop!"),
-    );
+    let log_red = Action::new("logRed", ActionType::Entry, |_ctx, _evt| {
+        println!("Entering RED state - Stop!")
+    });
 
     // Build the machine
     let machine = MachineBuilder::new("trafficLight")
@@ -80,4 +74,4 @@ fn run_simulation(mut machine: Machine) -> rustate::Result<()> {
         // Send a timer event to transition to the next state
         machine.send("TIMER")?;
     }
-} 
+}

@@ -1,8 +1,8 @@
-use crate::{
-    action::ActionType, state::StateType, Action, Context, Error, Event, IntoAction,
-    Result, State, Transition,
-};
 use crate::event::IntoEvent;
+use crate::{
+    action::ActionType, state::StateType, Action, Context, Error, Event, IntoAction, Result, State,
+    Transition,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -141,7 +141,7 @@ where
     /// Execute a transition
     fn execute_transition(&mut self, transition: &Transition, event: &Event) -> Result<()> {
         let source_id = transition.source.clone();
-        
+
         // For internal transitions, just execute the actions
         if transition.target.is_none() {
             transition.execute_actions(&mut self.context, event);
@@ -156,13 +156,13 @@ where
 
         // Exit source state
         self.exit_state(&source_id, event)?;
-        
+
         // Execute transition actions
         transition.execute_actions(&mut self.context, event);
-        
+
         // Enter target state
         self.enter_state(&target_id, event)?;
-        
+
         Ok(())
     }
 
@@ -173,17 +173,17 @@ where
             .get(state_id)
             .ok_or_else(|| Error::StateNotFound(state_id.to_string()))?
             .clone();
-        
+
         // Add to current states
         self.current_states.insert(state_id.to_string());
-        
+
         // Execute entry actions
         if let Some(actions) = self.entry_actions.get(state_id) {
             for action in actions.clone() {
                 action.execute(&mut self.context, event);
             }
         }
-        
+
         // Handle different state types
         match state.state_type {
             StateType::Compound => {
@@ -213,7 +213,7 @@ where
                         .get(&parent_id)
                         .ok_or_else(|| Error::StateNotFound(parent_id.to_string()))?
                         .clone();
-                    
+
                     if let Some(initial) = parent.initial {
                         self.enter_state(&initial, event)?;
                     }
@@ -230,7 +230,7 @@ where
                         .get(&parent_id)
                         .ok_or_else(|| Error::StateNotFound(parent_id.to_string()))?
                         .clone();
-                    
+
                     if let Some(initial) = parent.initial {
                         self.enter_state(&initial, event)?;
                     }
@@ -238,7 +238,7 @@ where
             }
             _ => {} // Normal and Final states don't have special entry logic
         }
-        
+
         Ok(())
     }
 
@@ -249,12 +249,12 @@ where
             .get(state_id)
             .ok_or_else(|| Error::StateNotFound(state_id.to_string()))?
             .clone();
-        
+
         // Record in history if it has a parent
         if let Some(parent_id) = self.get_parent_id(state_id) {
             self.history.insert(parent_id, state_id.to_string());
         }
-        
+
         // First exit children (if any) in reverse order
         match state.state_type {
             StateType::Compound | StateType::Parallel => {
@@ -265,7 +265,7 @@ where
                     .filter(|child_id| self.current_states.contains(*child_id))
                     .cloned()
                     .collect();
-                
+
                 // Exit each active child
                 for child_id in active_children {
                     self.exit_state(&child_id, event)?;
@@ -273,23 +273,25 @@ where
             }
             _ => {} // Other state types don't have children to exit
         }
-        
+
         // Execute exit actions
         if let Some(actions) = self.exit_actions.get(state_id) {
             for action in actions.clone() {
                 action.execute(&mut self.context, event);
             }
         }
-        
+
         // Remove from current states
         self.current_states.remove(state_id);
-        
+
         Ok(())
     }
 
     /// Get the parent id of a state
     fn get_parent_id(&self, state_id: &str) -> Option<String> {
-        self.states.get(state_id).and_then(|state| state.parent.clone())
+        self.states
+            .get(state_id)
+            .and_then(|state| state.parent.clone())
     }
 
     /// Check if a state is active
@@ -424,4 +426,4 @@ where
     pub fn build(self) -> Result<Machine<S, E>> {
         Machine::new(self)
     }
-} 
+}

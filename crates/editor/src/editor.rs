@@ -31,9 +31,7 @@ impl Editor {
                 self.state.machine = machine;
                 Ok(())
             }
-            Err(err) => {
-                Err(JsValue::from_str(&format!("JSON解析エラー: {}", err)))
-            }
+            Err(err) => Err(JsValue::from_str(&format!("JSON解析エラー: {}", err))),
         }
     }
 }
@@ -52,7 +50,7 @@ impl PartialEq for EditorState {
         // We can't compare machines directly, so we'll compare their serialized forms
         let this_machine = serde_json::to_string(&self.machine).unwrap_or_default();
         let other_machine = serde_json::to_string(&other.machine).unwrap_or_default();
-        
+
         this_machine == other_machine
             && self.selected_element == other.selected_element
             && self.mode == other.mode
@@ -65,7 +63,7 @@ impl EditorState {
         let builder: MachineBuilder<State, Event> = MachineBuilder::new("default_machine")
             .initial("initial")
             .state(rustate::State::new("initial"));
-            
+
         // Build the machine
         let machine = Machine::new(builder).expect("Failed to create default machine");
 

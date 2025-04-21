@@ -22,7 +22,11 @@ pub struct Transition {
 
 impl Transition {
     /// Create a new transition
-    pub fn new(source: impl Into<String>, event: impl Into<String>, target: impl Into<String>) -> Self {
+    pub fn new(
+        source: impl Into<String>,
+        event: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
         Self {
             source: source.into(),
             target: Some(target.into()),
@@ -66,7 +70,8 @@ impl Transition {
 
     /// Add an action to this transition
     pub fn with_action<A: IntoAction>(&mut self, action: A) -> &mut Self {
-        self.actions.push(action.into_action(ActionType::Transition));
+        self.actions
+            .push(action.into_action(ActionType::Transition));
         self
     }
 
@@ -99,4 +104,4 @@ impl fmt::Display for Transition {
             None => write!(f, "{} -- {} (internal)", self.source, self.event),
         }
     }
-} 
+}

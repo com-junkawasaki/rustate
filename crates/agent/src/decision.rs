@@ -1,8 +1,8 @@
-use crate::{feedback::Feedback, observation::Observation, insight::Insight, AgentError};
 use crate::prelude::Result;
+use crate::{insight::Insight, observation::Observation};
 use async_trait::async_trait;
 use rustate::{EventTrait, StateTrait};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -76,7 +76,7 @@ where
             .duration_since(UNIX_EPOCH)
             .expect("時間が取得できませんでした")
             .as_secs();
-        
+
         Self {
             id: format!("decision-{}", uuid::Uuid::new_v4()),
             timestamp,
@@ -85,13 +85,13 @@ where
             metadata: HashMap::new(),
         }
     }
-    
+
     /// メタデータを追加します
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
-    
+
     /// 決定の信頼度を設定します
     pub fn with_confidence(mut self, confidence: f64) -> Self {
         self.confidence = confidence.max(0.0).min(1.0);
@@ -107,16 +107,14 @@ where
     E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
 {
     /// 現在の状態と目標状態から次の決定を行います
-    async fn decide(
-        &self,
-        context: DecisionContext<'_, S, E>,
-    ) -> Result<Decision<E>>;
+    async fn decide(&self, context: DecisionContext<'_, S, E>) -> Result<Decision<E>>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait};
+    use serde_json::Value;
+    use rustate::{EventTrait, StateType, StateTrait};
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {
@@ -133,25 +131,25 @@ mod tests {
                 TestState::Final => "final",
             }
         }
-        
+
         fn state_type(&self) -> &rustate::StateType {
             static STATE_TYPE: rustate::StateType = rustate::StateType::Normal;
             &STATE_TYPE
         }
-        
+
         fn parent(&self) -> Option<&str> {
             None
         }
-        
+
         fn children(&self) -> &[String] {
             static EMPTY: [String; 0] = [];
             &EMPTY
         }
-        
+
         fn initial(&self) -> Option<&str> {
             None
         }
-        
+
         fn data(&self) -> Option<&Value> {
             None
         }
@@ -172,7 +170,7 @@ mod tests {
                 TestEvent::Finish => "finish",
             }
         }
-        
+
         fn payload(&self) -> Option<&Value> {
             None
         }
@@ -194,6 +192,9 @@ mod tests {
             .with_metadata("source", "user input");
 
         assert_eq!(decision.metadata.get("priority"), Some(&"high".to_string()));
-        assert_eq!(decision.metadata.get("source"), Some(&"user input".to_string()));
+        assert_eq!(
+            decision.metadata.get("source"),
+            Some(&"user input".to_string())
+        );
     }
-} 
+}
