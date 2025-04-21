@@ -281,6 +281,22 @@ println!("Deadlock states found: {}", deadlocks.len());
 
 See the `examples` directory for complete examples.
 
+## Network and Remote Integration
+
+For network-based state machine control and monitoring, check out [rustate-grpc](https://github.com/jun784/rustate/tree/main/crates/rustate-grpc), which provides:
+
+- Remote state machine creation and control via gRPC
+- Real-time state change monitoring via streaming
+- Type-safe client/server communication
+- Cross-language support through protocol buffers
+
+```toml
+[dependencies]
+rustate-grpc = { version = "0.1.0", features = ["full"] }
+```
+
+See the [rustate-grpc documentation](https://github.com/jun784/rustate/tree/main/crates/rustate-grpc) for detailed usage examples.
+
 ## Installation
 
 Add this to your `Cargo.toml`:

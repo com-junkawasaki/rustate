@@ -32,19 +32,41 @@ pub use wasm::*;
 /// 
 /// ```toml
 /// [dependencies]
-/// rustate = { version = "0.2.2", features = ["integration"] }
+/// rustate = { version = "0.2.3", features = ["integration"] }
 /// ```
 /// 
 /// 非同期機能を使用する場合は以下のように指定します：
 /// 
 /// ```toml
 /// [dependencies]
-/// rustate = { version = "0.2.2", features = ["integration_async"] }
+/// rustate = { version = "0.2.3", features = ["integration_async"] }
 /// ```
 /// 
 /// 詳細な使用例は `integration` モジュールのドキュメントを参照してください。
 #[cfg(feature = "integration")]
 pub mod integration;
+
+/// # ネットワーク連携機能
+/// 
+/// RuStateのステートマシンをネットワーク越しに制御・監視するための機能は
+/// 別クレート `rustate-grpc` で提供されています。
+/// 
+/// ## 主なネットワーク連携機能
+/// 
+/// - **リモートステートマシン制御**: gRPC経由でステートマシンを作成・操作
+/// - **リアルタイム状態監視**: ストリーミングによる状態変化の監視
+/// - **複数言語サポート**: Protocol Buffersによる異なる言語間の連携
+/// 
+/// ## 使用方法
+/// 
+/// Cargo.tomlに以下を追加してgRPC機能を有効化します：
+/// 
+/// ```toml
+/// [dependencies]
+/// rustate-grpc = { version = "0.1.0", features = ["full"] }
+/// ```
+/// 
+/// 詳細は `rustate-grpc` クレートのドキュメントを参照してください。
 
 pub use action::{Action, ActionType, IntoAction};
 pub use context::Context;
