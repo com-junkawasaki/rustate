@@ -93,7 +93,7 @@ where
 
     /// 決定の信頼度を設定します
     pub fn with_confidence(mut self, confidence: f64) -> Self {
-        self.confidence = confidence.max(0.0).min(1.0);
+        self.confidence = confidence.clamp(0.0, 1.0);
         self
     }
 }

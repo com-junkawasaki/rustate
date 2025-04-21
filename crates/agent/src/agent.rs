@@ -220,7 +220,7 @@ where
 
         // 最大ステップ数または無制限にステップを実行
         let mut steps = 0;
-        while max_steps.map_or(true, |max| steps < max) {
+        while max_steps.is_none_or(|max| steps < max) {
             // 現在の状態がゴール状態と一致しているか確認
             if self.machine.current_state() == goal_state {
                 // ゴールに到達、エピソードを成功として完了
