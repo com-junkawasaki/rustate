@@ -5,7 +5,7 @@ use thiserror::Error;
 pub enum Error {
     /// ステートマシンエラー
     #[error("ステートマシンエラー: {0}")]
-    StateError(#[from] rustate::StateError),
+    StateError(#[from] rustate::Error),
     
     /// JSONシリアライズ/デシリアライズエラー
     #[error("JSONエラー: {0}")]
@@ -46,7 +46,7 @@ where
     E: std::fmt::Debug,
 {
     fn lock_err(self) -> Result<T> {
-        self.map_err(|e| {
+        self.map_err(|_| {
             Error::LockError
         })
     }

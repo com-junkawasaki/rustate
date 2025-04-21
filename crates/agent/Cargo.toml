@@ -1,5 +1,5 @@
 [package]
-name = "agent"
+name = "rustate-agent"
 version = "0.1.0"
 edition = "2021"
 description = "State-machine-powered LLM agents using rustate"
