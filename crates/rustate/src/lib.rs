@@ -32,14 +32,14 @@ pub use wasm::*;
 /// 
 /// ```toml
 /// [dependencies]
-/// rustate = { version = "0.2.3", features = ["integration"] }
+/// rustate = { version = "0.2.4", features = ["integration"] }
 /// ```
 /// 
 /// 非同期機能を使用する場合は以下のように指定します：
 /// 
 /// ```toml
 /// [dependencies]
-/// rustate = { version = "0.2.3", features = ["integration_async"] }
+/// rustate = { version = "0.2.4", features = ["integration_async"] }
 /// ```
 /// 
 /// 詳細な使用例は `integration` モジュールのドキュメントを参照してください。
