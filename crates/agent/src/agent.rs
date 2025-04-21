@@ -44,8 +44,8 @@ impl Default for AgentConfig {
 /// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, SM, P>
 where
-    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + PartialEq + 'static,
-    E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static,
+    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + PartialEq + 'static + Default,
+    E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static + rustate::IntoEvent,
     SM: Storage<S, E>,
     P: Policy<S, E>,
 {
@@ -65,10 +65,10 @@ where
 
 impl<S, E, SM, P> Agent<S, E, SM, P>
 where
-    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static + Default,
     E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static + rustate::IntoEvent,
-    SM: Storage<S, E> + 'static,
-    P: Policy<S, E> + 'static,
+    SM: Storage<S, E>,
+    P: Policy<S, E>,
 {
     /// 新しいエージェントを作成します
     pub fn new(machine: Machine<S, E>, policy: P, storage: SM) -> Self {
@@ -209,34 +209,25 @@ where
 
     /// エージェントを目標状態に到達するまで実行します
     pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool, AgentError> {
-        if self.current_episode.is_none() {
-            return Err(AgentError::Other(
-                "エピソードが開始されていません".to_string(),
-            ));
-        }
-
-        // 目標状態を取得
-        let goal_state = match &self.current_episode {
-            Some(episode) => episode.goal_state.clone(),
-            None => {
-                return Err(AgentError::Other(
-                    "目標状態が設定されていません".to_string(),
-                ))
-            }
+        // 現在のエピソードを確認
+        let episode = match &self.current_episode {
+            Some(ep) => ep,
+            None => return Err(AgentError::NoActiveEpisode),
         };
 
-        let mut step_count = 0;
-        let max_steps = max_steps.unwrap_or(100); // デフォルトの最大ステップ数
+        // ゴール状態の取得
+        let goal_state = match &episode.goal_state {
+            Some(goal) => goal.clone(),
+            None => return Err(AgentError::NoGoalDefined),
+        };
 
-        while step_count < max_steps {
-            // 現在の状態が目標状態に達したかチェック
-            if self.machine.current_state() == &goal_state {
-                // エピソードを完了としてマーク
-                if let Some(episode) = &mut self.current_episode {
-                    episode.complete(true);
-                    episode.set_overall_score(1.0);
-                    self.storage.save_episode(episode).await?;
-                }
+        // 最大ステップ数または無制限にステップを実行
+        let mut steps = 0;
+        while max_steps.map_or(true, |max| steps < max) {
+            // 現在の状態がゴール状態と一致しているか確認
+            if self.machine.current_state() == goal_state {
+                // ゴールに到達、エピソードを成功として完了
+                self.complete_episode(true).await?;
                 return Ok(true);
             }
 
@@ -245,7 +236,7 @@ where
 
             match result {
                 Ok(_) => {
-                    step_count += 1;
+                    steps += 1;
                 }
                 Err(err) => {
                     // エピソードを失敗としてマーク
@@ -333,6 +324,12 @@ mod tests {
         Final,
     }
 
+    impl Default for TestState {
+        fn default() -> Self {
+            TestState::Initial
+        }
+    }
+
     impl StateTrait for TestState {
         fn id(&self) -> &str {
             match self {
@@ -402,7 +399,17 @@ mod tests {
         let process_transition = Transition::new("processing", "process", "processing");
         let finish_transition = Transition::new("processing", "finish", "final");
         
-        // カスタムタイプへの変換処理は省略（実際には必要ですが、テストのためのモックとして扱います）
+        // 状態IDからTestStateへのマッパー関数
+        let state_mapper = |state_id: &str| -> TestState {
+            match state_id {
+                "initial" => TestState::Initial,
+                "processing" => TestState::Processing,
+                "final" => TestState::Final,
+                _ => panic!("不明な状態ID: {}", state_id),
+            }
+        };
+        
+        // ステートマシンを構築し、ステートマッパーを設定
         rustate::MachineBuilder::new("TestMachine")
             .state(initial_state)
             .state(processing_state)
@@ -413,6 +420,7 @@ mod tests {
             .transition(finish_transition)
             .build()
             .unwrap()
+            .with_state_mapper(state_mapper)
     }
 
     #[tokio::test]
@@ -427,11 +435,10 @@ mod tests {
 
         let agent = Agent::new(machine, policy, storage);
         assert_eq!(agent.config.name, "汎用エージェント");
-        // Skip checking current_state since it's not implemented in the Machine struct
+        assert_eq!(agent.machine.current_state(), TestState::Initial);
     }
 
     #[tokio::test]
-    #[ignore] // Mark as ignored as it depends on unimplemented current_state()
     async fn test_agent_episode() {
         let machine = create_test_machine();
         let policy = RandomPolicy::new(vec![
@@ -452,19 +459,50 @@ mod tests {
         assert!(agent.current_episode.is_some());
         let episode = agent.current_episode.as_ref().unwrap();
         assert_eq!(episode.name, "テストエピソード");
-        // Skip checking episode states as they depend on Machine::current_state
+        assert_eq!(episode.initial_state, TestState::Initial);
         assert_eq!(&episode.goal_state, &TestState::Final);
     }
 
     #[tokio::test]
-    #[ignore] // Mark as ignored as it depends on unimplemented current_state()
     async fn test_agent_decision_and_apply() {
-        // Test implementation needs to be updated once Machine::current_state is implemented
+        let machine = create_test_machine();
+        let policy = RandomPolicy::new(vec![TestEvent::Start]);
+        let storage = MemoryStorage::new();
+
+        let mut agent = Agent::new(machine, policy, storage);
+
+        // エピソードを開始
+        agent
+            .start_episode("テスト決定適用", Some(TestState::Final))
+            .await
+            .unwrap();
+
+        // 決定を取得して適用
+        let decision = agent.next_decision().await.unwrap();
+        assert_eq!(decision.event, TestEvent::Start);
+
+        let next_state = agent.apply_decision(&decision).await.unwrap();
+        assert_eq!(next_state, TestState::Processing);
+        assert_eq!(agent.machine.current_state(), TestState::Processing);
     }
 
     #[tokio::test]
-    #[ignore] // Mark as ignored as it depends on unimplemented current_state()
     async fn test_agent_step() {
-        // Test implementation needs to be updated once Machine::current_state is implemented
+        let machine = create_test_machine();
+        let policy = RandomPolicy::new(vec![TestEvent::Start]);
+        let storage = MemoryStorage::new();
+
+        let mut agent = Agent::new(machine, policy, storage);
+
+        // エピソードを開始
+        agent
+            .start_episode("テストステップ", Some(TestState::Final))
+            .await
+            .unwrap();
+
+        // ステップを実行
+        let next_state = agent.step().await.unwrap();
+        assert_eq!(next_state, TestState::Processing);
+        assert_eq!(agent.machine.current_state(), TestState::Processing);
     }
 }

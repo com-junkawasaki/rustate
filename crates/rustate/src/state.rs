@@ -60,6 +60,20 @@ pub struct State {
     pub(crate) uuid: Uuid,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            id: "default".into(),
+            state_type: StateType::Normal,
+            parent: None,
+            children: Vec::new(),
+            initial: None,
+            data: None,
+            uuid: Uuid::new_v4(),
+        }
+    }
+}
+
 impl State {
     /// Create a new normal state
     pub fn new(id: impl Into<String>) -> Self {

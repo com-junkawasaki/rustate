@@ -38,6 +38,14 @@ pub enum AgentError {
     /// エピソードエラー
     #[error("エピソードエラー: {0}")]
     EpisodeError(String),
+    
+    /// アクティブなエピソードがない
+    #[error("アクティブなエピソードがありません")]
+    NoActiveEpisode,
+
+    /// 目標状態が定義されていない
+    #[error("目標状態が定義されていません")]
+    NoGoalDefined,
 
     /// その他のエラー
     #[error("その他のエラー: {0}")]

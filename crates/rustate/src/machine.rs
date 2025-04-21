@@ -5,12 +5,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Machine<S = State, E = Event>
 where
-    S: Clone + 'static,
+    S: Clone + 'static + Default,
     E: Clone + 'static,
 {
     /// Name of the machine
@@ -33,6 +34,13 @@ where
     pub(crate) exit_actions: HashMap<String, Vec<Action>>,
     /// History states mapping (state id -> last active child)
     pub(crate) history: HashMap<String, String>,
+    /// マッピング関数: 状態IDから型Sへ変換するための関数
+    #[serde(skip)]
+    #[serde(default)]
+    state_mapper: Option<fn(&str) -> S>,
+    /// 現在の状態のキャッシュ
+    #[serde(skip)]
+    current_state_cache: Option<S>,
     /// The type markers
     #[serde(skip)]
     _phantom_s: std::marker::PhantomData<S>,
@@ -42,13 +50,13 @@ where
 
 impl<S, E> Machine<S, E>
 where
-    S: Clone + 'static,
+    S: Clone + 'static + Default,
     E: Clone + 'static,
 {
     /// Create a new state machine instance from a builder
     pub fn new<BuilderS, BuilderE>(builder: MachineBuilder<BuilderS, BuilderE>) -> Result<Self>
     where
-        BuilderS: Clone + 'static,
+        BuilderS: Clone + 'static + Default,
         BuilderE: Clone + 'static,
     {
         let MachineBuilder {
@@ -81,6 +89,8 @@ where
             entry_actions,
             exit_actions,
             history: HashMap::new(),
+            state_mapper: None,
+            current_state_cache: None,
             _phantom_s: std::marker::PhantomData,
             _phantom_e: std::marker::PhantomData,
         };
@@ -110,6 +120,11 @@ where
             if self.process_state_event(&state_id, &event)? {
                 processed = true;
             }
+        }
+
+        // 状態が変更された場合、キャッシュをクリア
+        if processed {
+            self.current_state_cache = None;
         }
 
         Ok(processed)
@@ -311,27 +326,54 @@ where
         Ok(machine)
     }
 
+    /// 状態IDから型Sへのマッピング関数を設定
+    pub fn with_state_mapper(mut self, mapper: fn(&str) -> S) -> Self
+    {
+        self.state_mapper = Some(mapper);
+        self
+    }
+
     /// Get the current state
-    pub fn current_state(&self) -> &S {
-        // Note: This implementation is simplified for the example
-        // In a real implementation, you would need to map from the internal state representation
-        // to the generic state type S
-        panic!("Not implemented - need to map from internal state to generic state type S")
+    pub fn current_state(&self) -> S {
+        // 現在アクティブな状態IDを取得
+        if self.current_states.is_empty() {
+            // 初期化されていない場合はエラー
+            panic!("ステートマシンが初期化されていません。send() を呼び出す前に initialize() を呼び出してください。");
+        }
+        
+        // アクティブな状態の中から最初の一つを取得
+        // 注: より複雑な状態階層では、最も具体的な（leaf）状態を選択するロジックが必要かもしれません
+        let state_id = self.current_states.iter().next().unwrap();
+        
+        // 状態IDからS型への変換
+        if let Some(mapper) = self.state_mapper {
+            // 現在の状態を返す（所有権を移す）
+            mapper(state_id)
+        } else {
+            // マッパーが設定されていない場合はエラー
+            panic!("状態マッパーが設定されていません。Machine::with_state_mapper()を使用してマッパーを設定してください。");
+        }
     }
 
     /// Apply a transition with the given event
     pub fn transition<EV: IntoEvent>(&mut self, event: EV, context: Context) -> Result<S> {
         self.context = context;
         let event = event.into_event();
-        self.send(event)?;
-        Ok(self.current_state().clone())
+        let result = self.send(event)?;
+        
+        // 状態が変更された場合、キャッシュをクリア
+        if result {
+            self.current_state_cache = None;
+        }
+        
+        Ok(self.current_state())
     }
 }
 
 /// Builder for constructing state machines
 pub struct MachineBuilder<S = State, E = Event>
 where
-    S: Clone + 'static,
+    S: Clone + 'static + Default,
     E: Clone + 'static,
 {
     /// Name of the machine
@@ -355,7 +397,7 @@ where
 
 impl<S, E> MachineBuilder<S, E>
 where
-    S: Clone + 'static,
+    S: Clone + 'static + Default,
     E: Clone + 'static,
 {
     /// Create a new state machine builder
