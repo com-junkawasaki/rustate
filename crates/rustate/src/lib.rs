@@ -5,6 +5,7 @@ mod event;
 mod guard;
 pub mod machine;
 pub mod state;
+#[cfg(any(feature = "mbt", feature = "property-testing"))]
 mod test;
 pub mod transition;
 
@@ -55,9 +56,16 @@ pub use state::{State, StateTrait, StateType};
 pub use transition::Transition;
 
 // モデルベーステストの機能をエクスポート
+#[cfg(any(feature = "mbt", feature = "property-testing"))]
 pub use test::{
     CoverageReport, ModelChecker, Property, PropertyType, TestCase, TestGenerator, TestResult,
     TestResults, TestRunner, VerificationResult,
+};
+
+// Property-basedテスト機能をエクスポート
+#[cfg(feature = "property-testing")]
+pub use test::{
+    EventSequenceStrategyBuilder, PropertyTestResult, PropertyTestRunner, StateMachineProperty,
 };
 
 /// # 統合パターンの主要コンポーネント

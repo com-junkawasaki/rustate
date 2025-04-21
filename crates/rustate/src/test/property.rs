@@ -1,5 +1,4 @@
-use crate::{Context, Event, EventTrait, Machine, Result, StateTrait};
-use proptest::prelude::*;
+use crate::{Context, EventTrait, Machine, Result, StateTrait, IntoEvent};
 use proptest::strategy::{BoxedStrategy, Strategy};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -8,8 +7,8 @@ use std::marker::PhantomData;
 /// Property-basedテストの検証プロパティを定義するトレイト
 pub trait StateMachineProperty<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     /// 検証条件を評価する
     fn evaluate(&self, machine: &Machine<S, E>) -> bool;
@@ -37,8 +36,8 @@ pub struct PropertyTestResult {
 /// 事前条件を指定するビルダー
 pub struct GivenBuilder<S, E, F>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
     F: Fn(&Machine<S, E>) -> bool + 'static,
 {
     name: String,
@@ -50,8 +49,8 @@ where
 /// アクション（イベントシーケンス）を指定するビルダー
 pub struct WhenBuilder<S, E, F, G>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
     F: Fn(&Machine<S, E>) -> bool + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + 'static,
 {
@@ -65,8 +64,8 @@ where
 /// 事後条件を指定するビルダー（完成したプロパティ）
 pub struct StateMachinePropertyImpl<S, E, F, G, H>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
     F: Fn(&Machine<S, E>) -> bool + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + 'static,
     H: Fn(&Machine<S, E>) -> bool + 'static,
@@ -81,8 +80,8 @@ where
 
 impl<S, E> Machine<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     /// 状態マシンのプロパティを定義するためのビルダーを開始
     pub fn property(name: impl Into<String>) -> PropertyBuilder<S, E> {
@@ -97,8 +96,8 @@ where
 /// プロパティビルダーの開始点
 pub struct PropertyBuilder<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     name: String,
     description: Option<String>,
@@ -107,8 +106,8 @@ where
 
 impl<S, E> PropertyBuilder<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     /// プロパティの説明を設定
     pub fn description(mut self, description: impl Into<String>) -> Self {
@@ -132,8 +131,8 @@ where
 
 impl<S, E, F> GivenBuilder<S, E, F>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
     F: Fn(&Machine<S, E>) -> bool + 'static,
 {
     /// アクションを設定
@@ -153,8 +152,8 @@ where
 
 impl<S, E, F, G> WhenBuilder<S, E, F, G>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
     F: Fn(&Machine<S, E>) -> bool + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + 'static,
 {
@@ -176,8 +175,8 @@ where
 
 impl<S, E, F, G, H> StateMachineProperty<S, E> for StateMachinePropertyImpl<S, E, F, G, H>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
     F: Fn(&Machine<S, E>) -> bool + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + 'static,
     H: Fn(&Machine<S, E>) -> bool + 'static,
@@ -217,8 +216,8 @@ where
 /// イベントシーケンスを生成するためのストラテジービルダー
 pub struct EventSequenceStrategyBuilder<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     valid_events: Vec<E>,
     min_length: usize,
@@ -228,8 +227,8 @@ where
 
 impl<S, E> EventSequenceStrategyBuilder<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     /// 新しいビルダーを作成
     pub fn new() -> Self {
@@ -275,16 +274,16 @@ where
 /// Property-basedテストランナー
 pub struct PropertyTestRunner<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     machine: Machine<S, E>,
 }
 
 impl<S, E> PropertyTestRunner<S, E>
 where
-    S: StateTrait + Clone + Debug + 'static,
-    E: EventTrait + Clone + Debug + 'static,
+    S: StateTrait + Clone + Debug + Default + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static,
 {
     /// 新しいテストランナーを作成
     pub fn new(machine: Machine<S, E>) -> Self {
@@ -324,8 +323,8 @@ where
             Err(e) => PropertyTestResult {
                 property_name,
                 success: false,
-                counterexample: Some(vec![format!("{:?}", e)]),
-                message: Some(format!("Property violation detected: {}", e)),
+                counterexample: Some(vec![format!("{}", e)]),
+                message: Some(format!("Property violation detected")),
             },
         }
     }
@@ -372,23 +371,12 @@ where
                 message: Some("Property holds for all tested event sequences".to_string()),
             },
             Err(e) => {
-                // 反例からイベントシーケンスを抽出
-                let mut counterexample = Vec::new();
-                if let proptest::test_runner::TestError::Fail(_, values) = &e {
-                    if let Some(events) = values.as_ref().and_then(|v| v.first()) {
-                        // ここで反例を整形
-                        counterexample = events
-                            .as_ref()
-                            .map(|e| format!("{:?}", e))
-                            .unwrap_or_default();
-                    }
-                }
-                
+                // 反例の表示を簡略化
                 PropertyTestResult {
                     property_name,
                     success: false,
-                    counterexample: Some(counterexample),
-                    message: Some(format!("Property violation detected: {}", e)),
+                    counterexample: Some(vec![format!("{}", e)]),
+                    message: Some(format!("Property violation detected")),
                 }
             },
         }
