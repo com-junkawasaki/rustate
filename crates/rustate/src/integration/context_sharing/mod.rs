@@ -3,6 +3,96 @@
 //! 複数のステートマシン間で共有コンテキストを使用してデータを共有するパターンの実装です。
 //! このパターンでは複数のクレートにまたがるステートマシンが同じコンテキストデータに
 //! アクセスして読み書きすることができます。
+//!
+//! ## 概要
+//!
+//! コンテキスト共有パターンは、複数のステートマシンが同じデータを共有するための柔軟な方法を提供します。
+//! このパターンを使用すると、以下のようなメリットがあります：
+//!
+//! - 複数のステートマシン間でのデータ同期が容易になる
+//! - クレート境界をまたいだデータ共有が型安全に行える
+//! - イベント転送よりもデータ中心のアプローチでステートマシンを連携させられる
+//!
+//! ## 主要コンポーネント
+//!
+//! - `SharedContext`: 複数のステートマシン間で共有できるコンテキストコンテナ
+//!
+//! ## 使用例
+//!
+//! ```rust
+//! use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
+//! use rustate::integration::SharedContext;
+//!
+//! // 共有コンテキストを作成
+//! let shared_context = SharedContext::new();
+//! let context_for_a = shared_context.clone();
+//! let context_for_b = shared_context.clone();
+//!
+//! // マシンA: データを書き込むアクション
+//! let write_action = Action::new(
+//!     "writeData",
+//!     ActionType::Transition,
+//!     move |_ctx, _evt| {
+//!         let _ = context_for_a.set("status", "active");
+//!         let _ = context_for_a.set("timestamp", 12345);
+//!     }
+//! );
+//!
+//! // マシンA: 状態マシンを作成
+//! let machine_a = MachineBuilder::new("machineA")
+//!     .state(State::new("idle"))
+//!     .state(State::new("running"))
+//!     .initial("idle")
+//!     .transition(Transition::new("idle", "START", "running"))
+//!     .on_entry("running", write_action)
+//!     .build()
+//!     .unwrap();
+//!
+//! // マシンB: データを読み込むアクション
+//! let read_action = Action::new(
+//!     "readData",
+//!     ActionType::Transition,
+//!     move |ctx, _evt| {
+//!         if let Ok(Some(status)) = context_for_b.get::<String>("status") {
+//!             let _ = ctx.set("localStatus", status);
+//!         }
+//!         if let Ok(Some(timestamp)) = context_for_b.get::<i64>("timestamp") {
+//!             let _ = ctx.set("localTimestamp", timestamp);
+//!         }
+//!     }
+//! );
+//!
+//! // マシンB: 状態マシンを作成
+//! let machine_b = MachineBuilder::new("machineB")
+//!     .state(State::new("waiting"))
+//!     .state(State::new("processing"))
+//!     .initial("waiting")
+//!     .transition(Transition::new("waiting", "PROCESS", "processing"))
+//!     .on_entry("processing", read_action)
+//!     .build()
+//!     .unwrap();
+//!
+//! // マシンAを実行 (データを書き込む)
+//! machine_a.send("START").unwrap();
+//!
+//! // マシンBを実行 (データを読み込む)
+//! machine_b.send("PROCESS").unwrap();
+//! ```
+//!
+//! ## 実装の詳細
+//!
+//! このパターンでは、`Arc<RwLock<serde_json::Value>>` を使用してJSON形式のデータを安全に共有します。
+//! これにより、複数のステートマシンが同時にコンテキストデータにアクセスしても、データの整合性が
+//! 保たれるようになっています。読み込み操作は並行して行えますが、書き込み操作は排他的に実行されます。
+//!
+//! `SharedContext` はキーと値のペアをJSONオブジェクトとして保存します。
+//! この方法により、様々な型のデータを柔軟に格納でき、Serdeを通じた型安全なアクセスが可能になります。
+//!
+//! ## 制限事項
+//!
+//! - 大量のデータや高頻度のアクセスが発生する場合、パフォーマンスに影響する可能性があります
+//! - 複雑なデータ構造の場合、JSONシリアライズのオーバーヘッドが発生します
+//! - 書き込み操作が頻繁に行われる場合、読み込みのブロックが発生する可能性があります
 
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, de::DeserializeOwned};

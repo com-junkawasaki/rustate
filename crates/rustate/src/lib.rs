@@ -14,7 +14,34 @@ mod wasm;
 #[cfg(feature = "wasm")]
 pub use wasm::*;
 
-// クレート統合用モジュール
+/// # 統合パターン機能
+/// 
+/// このモジュールは複数のクレートにまたがるステートマシン間で
+/// 型安全な連携を実現するためのパターンを提供します。
+/// 
+/// ## 主な統合パターン
+/// 
+/// - **イベント転送**: 複数のステートマシン間でイベントを転送
+/// - **コンテキスト共有**: 共有データを使用してステートマシン間で状態を連携
+/// - **階層的統合**: 親子関係を持つステートマシン間の連携
+/// 
+/// ## 使用方法
+/// 
+/// Cargo.tomlに以下を追加して統合機能を有効化します：
+/// 
+/// ```toml
+/// [dependencies]
+/// rustate = { version = "0.2.1", features = ["integration"] }
+/// ```
+/// 
+/// 非同期機能を使用する場合は以下のように指定します：
+/// 
+/// ```toml
+/// [dependencies]
+/// rustate = { version = "0.2.1", features = ["integration_async"] }
+/// ```
+/// 
+/// 詳細な使用例は `integration` モジュールのドキュメントを参照してください。
 #[cfg(feature = "integration")]
 pub mod integration;
 
@@ -33,7 +60,14 @@ pub use test::{
     TestResults, TestRunner, VerificationResult,
 };
 
-// 統合パターンの機能をエクスポート
+/// # 統合パターンの主要コンポーネント
+/// 
+/// これらは複数のクレートにまたがるステートマシン間の連携を容易にするための
+/// 便利なインターフェースです。
+/// 
+/// - `SharedMachineRef`: ステートマシンへの共有参照（イベント転送パターン）
+/// - `SharedContext`: ステートマシン間で共有されるコンテキスト（コンテキスト共有パターン）
+/// - `ChildMachine`: 親子関係を持つステートマシン間の連携トレイト（階層的統合パターン）
 #[cfg(feature = "integration")]
 pub use integration::{
     event_forwarding::SharedMachineRef,

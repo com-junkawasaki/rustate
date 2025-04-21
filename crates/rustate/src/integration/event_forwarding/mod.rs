@@ -3,6 +3,81 @@
 //! ステートマシン間でイベントを転送するパターンの実装です。
 //! このパターンではステートマシンの参照を共有し、一方のステートマシンの
 //! アクションから他方のステートマシンにイベントを転送することができます。
+//!
+//! ## 概要
+//!
+//! イベント転送パターンは、複数のステートマシンが疎結合な形で連携するための効果的な方法です。
+//! このパターンを使用すると、以下のようなメリットがあります：
+//!
+//! - ステートマシン間の直接的な依存関係を減らす
+//! - クレート境界をまたいだ連携が可能になる
+//! - 複数のステートマシンが並行して動作する場合でも安全に連携できる
+//!
+//! ## 主要コンポーネント
+//!
+//! - `SharedMachineRef`: ステートマシンをスレッドセーフに共有するためのラッパー
+//! - `EventForwarder`: イベント転送機能を抽象化するトレイト
+//!
+//! ## 使用例
+//!
+//! ```rust
+//! use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
+//! use rustate::integration::SharedMachineRef;
+//!
+//! // 子ステートマシンを作成
+//! let child_machine = MachineBuilder::new("child")
+//!     .state(State::new("idle"))
+//!     .state(State::new("active"))
+//!     .initial("idle")
+//!     .transition(Transition::new("idle", "ACTIVATE", "active"))
+//!     .build()
+//!     .unwrap();
+//!
+//! // 共有参照を作成
+//! let shared_child = SharedMachineRef::new(child_machine);
+//! let shared_child_clone = shared_child.clone();
+//!
+//! // 親ステートマシンのイベントに応じて子マシンにイベントを転送するアクション
+//! let forward_action = Action::new(
+//!     "forwardToChild",
+//!     ActionType::Transition,
+//!     move |_ctx, evt| {
+//!         if evt.event_type == "PARENT_EVENT" {
+//!             let _ = shared_child_clone.send_event("ACTIVATE");
+//!         }
+//!     }
+//! );
+//!
+//! // 親ステートマシンを作成
+//! let parent_machine = MachineBuilder::new("parent")
+//!     .state(State::new("ready"))
+//!     .initial("ready")
+//!     .on_entry("ready", forward_action)
+//!     .build()
+//!     .unwrap();
+//!
+//! // 親マシンにイベントを送信すると、子マシンにもイベントが転送される
+//! parent_machine.send("PARENT_EVENT").unwrap();
+//!
+//! // 子マシンの状態を確認
+//! assert!(shared_child.is_in("active").unwrap());
+//! ```
+//!
+//! ## 実装の詳細
+//!
+//! このパターンでは、`Arc<Mutex<Machine>>` を使用してステートマシンを安全に共有します。
+//! これにより、複数のコンポーネントが同じステートマシンに対して同時にイベントを送信しても
+//! データの競合が発生しないようにしています。
+//!
+//! `EventForwarder` トレイトは、様々なイベント転送の実装を抽象化するために使用できます。
+//! デフォルトでは `SharedMachineRef` がこのトレイトを実装していますが、
+//! カスタムの実装を作成することも可能です。
+//!
+//! ## 制限事項
+//!
+//! - イベント転送時にデッドロックが発生する可能性があるため、相互に参照し合うステートマシンの
+//!   設計には注意が必要です。循環的な依存関係は避けてください。
+//! - 大量のイベント転送が発生する場合、パフォーマンスに影響する可能性があります。
 
 use std::sync::{Arc, Mutex};
 use crate::{IntoEvent, Machine};

@@ -3,6 +3,122 @@
 //! 親子関係を持つステートマシン間の連携パターンの実装です。
 //! このパターンではトレイトを使用して親ステートマシンが子ステートマシンと
 //! 疎結合に連携できるようにします。
+//!
+//! ## 概要
+//!
+//! 階層的統合パターンは、複雑なシステムを親子関係にある複数のステートマシンとして
+//! モデル化するための方法を提供します。このパターンを使用すると、以下のようなメリットがあります：
+//!
+//! - 複雑なロジックを小さな管理可能な部分に分割できる
+//! - 親ステートマシンは子ステートマシンの詳細を知る必要がない（疎結合）
+//! - トレイトを使用したポリモーフィズムにより、様々な子ステートマシンを使用できる
+//! - 親ステートマシンが子ステートマシンの状態を監視してコーディネートできる
+//!
+//! ## 主要コンポーネント
+//!
+//! - `ChildMachine`: 子ステートマシンのインターフェースを定義するトレイト
+//! - `DefaultChildMachine`: 標準的な子ステートマシン実装
+//! - `coordination`: 親子ステートマシン間の連携を支援するユーティリティ関数群
+//!
+//! ## 使用例
+//!
+//! ```rust
+//! use std::sync::{Arc, Mutex};
+//! use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
+//! use rustate::integration::{ChildMachine, DefaultChildMachine};
+//! use rustate::integration::hierarchical::coordination;
+//!
+//! // 子ステートマシンを作成
+//! let child_machine = MachineBuilder::new("process")
+//!     .state(State::new("init"))
+//!     .state(State::new("working"))
+//!     .state(State::new_final("complete"))
+//!     .initial("init")
+//!     .transition(Transition::new("init", "START", "working"))
+//!     .transition(Transition::new("working", "FINISH", "complete"))
+//!     .build()
+//!     .unwrap();
+//!
+//! // 子マシンをトレイト実装でラップし、共有参照を作成
+//! let child = DefaultChildMachine::new(child_machine, "complete");
+//! let child_ref = Arc::new(Mutex::new(child));
+//!
+//! // 子マシンの状態を監視するアクション
+//! let monitor_action = coordination::create_child_monitor_action(
+//!     "monitorProcess",
+//!     child_ref.clone()
+//! );
+//!
+//! // STARTイベントを子マシンに転送するアクション
+//! let start_process = coordination::create_event_forwarder_action(
+//!     "startProcess",
+//!     child_ref.clone(),
+//!     "START_PROCESS",
+//!     "START"
+//! );
+//!
+//! // FINISHイベントを子マシンに転送するアクション
+//! let finish_process = coordination::create_event_forwarder_action(
+//!     "finishProcess",
+//!     child_ref,
+//!     "FINISH_PROCESS",
+//!     "FINISH"
+//! );
+//!
+//! // 子マシンが完了したかどうかを確認するガード
+//! let is_complete = Action::new(
+//!     "checkCompletion",
+//!     ActionType::Guard,
+//!     |ctx, _| ctx.get::<bool>("childComplete").unwrap_or(false)
+//! );
+//!
+//! // 親ステートマシンを作成
+//! let parent_machine = MachineBuilder::new("workflow")
+//!     .state(State::new("idle"))
+//!     .state(State::new("processing"))
+//!     .state(State::new("done"))
+//!     .initial("idle")
+//!     .transition(Transition::new("idle", "START_PROCESS", "processing"))
+//!     .transition(Transition::new("processing", "FINISH_PROCESS", "processing"))
+//!     .transition(Transition::new("processing", "CHECK", "done").with_guard(("isComplete", is_complete)))
+//!     .on_entry("processing", monitor_action)
+//!     .on_transition("idle", "START_PROCESS", start_process)
+//!     .on_transition("processing", "FINISH_PROCESS", finish_process)
+//!     .build()
+//!     .unwrap();
+//!
+//! // 親マシンを実行
+//! parent_machine.send("START_PROCESS").unwrap();
+//! parent_machine.send("FINISH_PROCESS").unwrap();
+//! parent_machine.send("CHECK").unwrap();
+//! ```
+//!
+//! ## 実装の詳細
+//!
+//! このパターンは以下の方法で実装されています：
+//!
+//! 1. `ChildMachine` トレイトは子ステートマシンのインターフェースを定義し、
+//!    親ステートマシンが子ステートマシンとやり取りするための共通APIを提供します。
+//!
+//! 2. `DefaultChildMachine` は `ChildMachine` トレイトの標準実装で、
+//!    通常の `Machine` インスタンスをラップして親子連携を可能にします。
+//!
+//! 3. `coordination` モジュールは、子ステートマシンを監視したり、イベントを転送したりする
+//!    ような一般的なアクションを作成するためのユーティリティ関数を提供します。
+//!
+//! ## 応用例
+//!
+//! このパターンは、以下のようなユースケースに特に役立ちます：
+//!
+//! - ワークフロー管理: 親マシンが全体のワークフローを管理し、子マシンが個々のタスクを実行
+//! - UI状態管理: 親マシンがアプリケーション全体の状態を管理し、子マシンが個々のUIコンポーネントを制御
+//! - マイクロサービス連携: 親マシンがオーケストレーションを担当し、子マシンが個々のサービスを表現
+//!
+//! ## 制限事項
+//!
+//! - 多数の子ステートマシンを管理する場合、親ステートマシンが複雑になる可能性があります
+//! - 深い階層構造を作成すると、デバッグや理解が難しくなる場合があります
+//! - マルチスレッド環境では、子ステートマシンへのアクセスに対する同期処理が必要です
 
 use crate::{Machine, IntoEvent};
 use crate::integration::error::Result;
