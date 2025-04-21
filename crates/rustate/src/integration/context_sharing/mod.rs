@@ -176,7 +176,7 @@ mod tests {
         let shared_context = SharedContext::new();
         
         // 2つのステートマシンを作成（両方とも同じ共有コンテキストを使用）
-        let (machine_a, machine_b) = create_machines(shared_context.clone());
+        let (mut machine_a, mut machine_b) = create_machines(shared_context.clone());
         
         // マシンAを"updateState"イベントで実行
         machine_a.send("UPDATE_STATE").unwrap();
@@ -212,8 +212,11 @@ mod tests {
         let machine_a = MachineBuilder::new("machineA")
             .state(state_a)
             .initial("stateA")
-            .on_entry("stateA", update_action)
-            .transition(Transition::internal_transition("stateA", "UPDATE_STATE"))
+            .transition({
+                let mut transition = Transition::internal_transition("stateA", "UPDATE_STATE");
+                transition.with_action(update_action);
+                transition
+            })
             .build()
             .unwrap();
             
@@ -236,8 +239,11 @@ mod tests {
         let machine_b = MachineBuilder::new("machineB")
             .state(state_b)
             .initial("stateB")
-            .on_entry("stateB", read_action)
-            .transition(Transition::internal_transition("stateB", "READ_STATE"))
+            .transition({
+                let mut transition = Transition::internal_transition("stateB", "READ_STATE");
+                transition.with_action(read_action);
+                transition
+            })
             .build()
             .unwrap();
             

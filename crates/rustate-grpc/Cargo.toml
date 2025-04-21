@@ -9,7 +9,7 @@ documentation.workspace = true
 license.workspace = true
 
 [dependencies]
-rustate = { path = "../rustate" }
+rustate = { path = "../rustate", features = ["mbt"] }
 tonic = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true }
@@ -20,6 +20,7 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+chrono = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }

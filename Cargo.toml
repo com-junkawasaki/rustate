@@ -37,3 +37,4 @@ tonic = "0.10.2"
 prost = "0.12.1"
 tonic-build = "0.10.2"
 tokio-stream = { version = "0.1", features = ["net"] }
+chrono = "0.4"

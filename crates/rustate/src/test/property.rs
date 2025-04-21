@@ -418,11 +418,14 @@ mod tests {
         let machine = create_test_machine();
         
         // プロパティの定義: greenからTIMERイベントを送ると必ずyellowになる
-        let property = Machine::property("green to yellow")
+        let property = Machine::<State, Event>::property("green to yellow")
             .description("Sending TIMER from green should transition to yellow")
-            .given(|m| m.is_in("green"))
-            .when(|m| m.send("TIMER"))
-            .then(|m| m.is_in("yellow"));
+            .given(|m: &Machine<State, Event>| m.is_in("green"))
+            .when(|m: &mut Machine<State, Event>| {
+                m.send("TIMER")?;
+                Ok(m.current_state().clone())
+            })
+            .then(|m: &Machine<State, Event>| m.is_in("yellow"));
         
         // プロパティの検証
         let runner = PropertyTestRunner::new(machine);
@@ -436,23 +439,23 @@ mod tests {
         let machine = create_test_machine();
         
         // プロパティの定義: どの状態からでも3回のTIMERイベントで元の状態に戻る
-        let property = Machine::property("cycle property")
+        let property = Machine::<State, Event>::property("cycle property")
             .description("Sending TIMER three times should return to the original state")
-            .given(|_| true) // どの状態でも
-            .when(|m| {
+            .given(|_: &Machine<State, Event>| true) // どの状態でも
+            .when(|m: &mut Machine<State, Event>| {
                 let initial_state = m.current_state().id().to_string();
                 m.send("TIMER")?;
                 m.send("TIMER")?;
                 m.send("TIMER")?;
                 Ok(m.current_state().clone())
             })
-            .then(|m| {
+            .then(|m: &Machine<State, Event>| {
                 // 元の状態に戻っているはず
                 m.is_in(m.initial.as_str())
             });
         
         // イベントシーケンスストラテジーの構築
-        let events_strategy = EventSequenceStrategyBuilder::<_, Event>::new()
+        let events_strategy = EventSequenceStrategyBuilder::<State, Event>::new()
             .with_events(vec![Event::new("TIMER")])
             .min_length(1)
             .max_length(3)

@@ -240,9 +240,14 @@ pub mod coordination {
             name,
             ActionType::Transition,
             move |_ctx: &mut Context, evt: &Event| {
+                println!("Debug: Event forwarder received event: {}", evt.event_type);
                 if evt.event_type == parent_event {
+                    println!("Debug: Forwarding event to child: {}", parent_event);
                     if let Ok(mut child) = child.lock() {
-                        let _ = child.handle_parent_event(child_event.clone());
+                        let result = child.handle_parent_event(child_event.clone());
+                        println!("Debug: Child event handler result: {:?}", result);
+                    } else {
+                        println!("Debug: Failed to lock child");
                     }
                 }
             },
@@ -264,17 +269,19 @@ mod tests {
         let child = Arc::new(Mutex::new(child));
         
         // 親ステートマシンを作成
-        let parent_machine = create_parent_machine(child.clone());
+        let mut parent_machine = create_parent_machine(child.clone());
         
         // 親マシンに"START"イベントを送信
         parent_machine.send("START").unwrap();
         
-        // 子マシンの状態を確認
-        let child = child.lock().unwrap();
-        assert!(child.is_in("progress"));
-        
-        // 子マシンが最終状態にないことを確認
-        assert!(!child.is_in_final_state());
+        {
+            // 子マシンの状態を確認 - START後なので、initialからprogressに移行しているはず
+            let child_lock = child.lock().unwrap();
+            assert!(child_lock.is_in("progress"));
+            
+            // 子マシンが最終状態にないことを確認
+            assert!(!child_lock.is_in_final_state());
+        }
     }
     
     fn create_child_machine() -> Machine {
@@ -300,7 +307,7 @@ mod tests {
         let monitoring = State::new("monitoring");
         let completed = State::new("completed");
         
-        let start_monitoring = Transition::new("monitoring", "CHECK", "completed");
+        let _start_monitoring = Transition::new("monitoring", "CHECK", "completed");
         
         // 子マシンの状態を監視するアクション
         let monitor_action = coordination::create_child_monitor_action(
@@ -311,7 +318,7 @@ mod tests {
         // イベントを転送するアクション
         let forward_action = coordination::create_event_forwarder_action(
             "forwardToChild",
-            child,
+            child.clone(),
             "START",
             "START",
         );
@@ -326,8 +333,16 @@ mod tests {
             .state(completed)
             .initial("monitoring")
             .on_entry("monitoring", monitor_action)
-            .on_entry("monitoring", forward_action)
-            .transition(Transition::new("monitoring", "CHECK", "completed").with_guard(check_complete))
+            .transition({
+                let mut transition = Transition::internal_transition("monitoring", "START");
+                transition.with_action(forward_action);
+                transition
+            })
+            .transition({
+                let mut transition = Transition::new("monitoring", "CHECK", "completed");
+                transition.with_guard(check_complete);
+                transition
+            })
             .build()
             .unwrap()
     }

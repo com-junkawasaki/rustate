@@ -41,6 +41,7 @@ integration = []
 integration_async = ["integration", "tokio", "async-trait"]
 # Property-basedテスト機能を有効化
 property-testing = ["proptest"]
+proptest = ["dep:proptest"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

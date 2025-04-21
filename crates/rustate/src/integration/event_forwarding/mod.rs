@@ -179,19 +179,33 @@ mod tests {
         // 子マシンにイベントを転送するアクション
         let forward_to_child = Action::new(
             "forwardToChild",
-            ActionType::Entry,
+            ActionType::Transition,
             move |_ctx, evt| {
-                if evt.event_type == "PARENT_EVENT" {
-                    let _ = child.send_event("ACTIVATE");
+                println!("Debug: Parent received event: {}", evt.event_type);
+                // 厳密な比較ではなく、文字列を含むか確認する
+                if evt.event_type.contains("PARENT_EVENT") {
+                    println!("Debug: Forwarding ACTIVATE event to child");
+                    let result = child.send_event("ACTIVATE");
+                    println!("Debug: Child event result: {:?}", result);
                 }
             },
         );
         
-        MachineBuilder::new("parentMachine")
+        // 内部遷移を作成
+        let internal_transition = {
+            let mut transition = Transition::internal_transition("parent", "PARENT_EVENT");
+            transition.with_action(forward_to_child);
+            transition
+        };
+        
+        let result = MachineBuilder::new("parentMachine")
             .state(state)
             .initial("parent")
-            .on_entry("parent", forward_to_child)
+            .transition(internal_transition)
             .build()
-            .unwrap()
+            .unwrap();
+            
+        println!("Debug: Parent machine built: {}", result.name);
+        result
     }
 } 
