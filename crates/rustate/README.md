@@ -43,7 +43,7 @@ Enable with the `integration` feature:
 
 ```toml
 [dependencies]
-rustate = { version = "0.2.1", features = ["integration"] }
+rustate = { version = "0.2.2", features = ["integration"] }
 ```
 
 ### Integration Example
@@ -166,7 +166,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rustate = "0.2.1"
+rustate = "0.2.2"
 ```
 
 ## Documentation
