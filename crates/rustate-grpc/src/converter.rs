@@ -5,12 +5,13 @@
 //! 安全かつ効率的に転送できます。
 
 use rustate::{
-    Action as RuAction, ActionType as RuActionType, Context as RuContext, 
-    Guard as RuGuard, Machine as RuMachine, MachineBuilder as RuMachineBuilder,
-    State as RuState, StateType as RuStateType, Transition as RuTransition
+    ActionType as RuActionType, Context as RuContext, 
+    Machine as RuMachine, MachineBuilder as RuMachineBuilder,
+    State as RuState, StateType as RuStateType, Transition as RuTransition,
 };
 use crate::proto;
 use crate::error::{GrpcError, Result};
+use std::convert::TryFrom;
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
 ///
@@ -25,6 +26,8 @@ pub fn state_type_to_proto(state_type: &RuStateType) -> proto::StateType {
         RuStateType::Final => proto::StateType::Final,
         RuStateType::History => proto::StateType::History,
         RuStateType::Parallel => proto::StateType::Parallel,
+        RuStateType::Compound => proto::StateType::Normal, // Compoundはprotoにないため、Normalにマッピング
+        RuStateType::DeepHistory => proto::StateType::History, // DeepHistoryはprotoにないため、Historyにマッピング
     }
 }
 
@@ -71,10 +74,10 @@ pub fn action_type_from_proto(action_type: proto::ActionType) -> RuActionType {
 /// * 変換されたgRPCの状態オブジェクト
 pub fn state_to_proto(state: &RuState) -> proto::State {
     proto::State {
-        id: state.id().to_string(),
-        r#type: state_type_to_proto(state.state_type()) as i32,
-        parent: state.parent().unwrap_or_default().to_string(),
-        children: state.children().iter().map(|s| s.to_string()).collect(),
+        id: state.id.to_string(),
+        r#type: state_type_to_proto(&state.state_type) as i32,
+        parent: state.parent.clone().unwrap_or_default().to_string(),
+        children: state.children.iter().map(|s| s.to_string()).collect(),
     }
 }
 
@@ -86,19 +89,43 @@ pub fn state_to_proto(state: &RuState) -> proto::State {
 /// # 戻り値
 /// * 変換されたRuStateの状態オブジェクト
 pub fn state_from_proto(proto_state: &proto::State) -> RuState {
-    let state_type = state_type_from_proto(proto::StateType::from_i32(proto_state.r#type)
-        .unwrap_or(proto::StateType::Normal));
+    let state_type = state_type_from_proto(
+        proto::StateType::try_from(proto_state.r#type)
+            .unwrap_or(proto::StateType::Normal)
+    );
     
-    let mut state = RuState::new_with_type(&proto_state.id, state_type);
+    // 状態タイプに基づいて適切な状態を作成
+    let mut state = match state_type {
+        RuStateType::Normal => RuState::new(&proto_state.id),
+        RuStateType::Final => RuState::new_final(&proto_state.id),
+        RuStateType::Parallel => RuState::new_parallel(&proto_state.id),
+        RuStateType::History => {
+            // Historyは通常のStateTypeを使用して作成
+            let s = RuState::new(&proto_state.id);
+            s.state_type = RuStateType::History;
+            s
+        },
+        RuStateType::Compound => {
+            // Compoundの場合は空の初期状態で作成（プロトコルからは情報が限られる）
+            RuState::new_compound(&proto_state.id, "")
+        },
+        RuStateType::DeepHistory => {
+            // DeepHistoryは通常のStateTypeを使用して作成
+            let s = RuState::new(&proto_state.id);
+            s.state_type = RuStateType::DeepHistory;
+            s
+        },
+    };
     
+    // 親状態の設定（存在する場合）
     if !proto_state.parent.is_empty() {
-        state.set_parent(&proto_state.parent);
+        state.parent = Some(proto_state.parent.clone());
     }
     
-    // 子ノードの追加を一度の呼び出しでまとめて行う最適化
+    // 子状態の追加
     if !proto_state.children.is_empty() {
         for child in &proto_state.children {
-            state.add_child(child);
+            state.children.push(child.clone());
         }
     }
     
@@ -114,11 +141,12 @@ pub fn state_from_proto(proto_state: &proto::State) -> RuState {
 /// * 変換されたgRPCの遷移オブジェクト
 pub fn transition_to_proto(transition: &RuTransition) -> proto::Transition {
     proto::Transition {
-        source: transition.source().to_string(),
-        event: transition.event().to_string(),
-        target: transition.target().to_string(),
-        guards: transition.guards().iter().map(|g| g.to_string()).collect(),
-        actions: transition.actions().iter().map(|a| a.to_string()).collect(),
+        id: transition.id.clone(),
+        source: transition.source.clone(),
+        event: transition.event.clone(),
+        target: transition.target.clone().unwrap_or_default().to_string(),
+        guards: transition.guard.iter().map(|g| g.to_string()).collect(),
+        actions: transition.actions.iter().map(|a| a.to_string()).collect(),
     }
 }
 
@@ -136,18 +164,9 @@ pub fn transition_from_proto(proto_transition: &proto::Transition) -> RuTransiti
         &proto_transition.target,
     );
     
-    // 値がある場合のみ処理（最適化）
-    if !proto_transition.guards.is_empty() {
-        for guard in &proto_transition.guards {
-            transition.add_guard(guard);
-        }
-    }
-    
-    if !proto_transition.actions.is_empty() {
-        for action in &proto_transition.actions {
-            transition.add_action(action);
-        }
-    }
+    // ガードとアクションの設定
+    // 注意: 実際のrustateのTransitionにはこれらを直接設定する方法がないため、
+    // 単純なクローンだけを行う (実際のアクションやガードの設定はMachineBuilder経由で行われる)
     
     transition
 }
@@ -161,31 +180,28 @@ pub fn transition_from_proto(proto_transition: &proto::Transition) -> RuTransiti
 /// * 変換されたgRPCのマシン定義オブジェクト
 /// * エラー: シリアライゼーションに失敗した場合
 pub fn machine_to_proto(machine: &RuMachine) -> Result<proto::MachineDefinition> {
-    // 状態の変換を事前に一括で行う（最適化）
-    let states: Vec<proto::State> = machine
-        .states()
-        .into_iter()
-        .map(state_to_proto)
-        .collect();
+    // 状態の変換
+    let mut states = Vec::new();
+    for (_id, state) in &machine.states {
+        states.push(state_to_proto(state));
+    }
     
-    // 遷移の変換を事前に一括で行う（最適化）
-    let transitions: Vec<proto::Transition> = machine
-        .transitions()
-        .into_iter()
-        .map(transition_to_proto)
-        .collect();
+    // 遷移の変換
+    let mut transitions = Vec::new();
+    for transition in &machine.transitions {
+        transitions.push(transition_to_proto(transition));
+    }
     
     // コンテキストのJSONシリアライズ
-    let context_json = serde_json::to_string(machine.context())
+    let context_json = serde_json::to_string(&machine.context)
         .map_err(GrpcError::Serialization)?;
     
     Ok(proto::MachineDefinition {
-        id: machine.id().to_string(),
-        initial: machine.initial().to_string(),
+        id: machine.name.to_string(),
+        initial: machine.initial.to_string(),
         states,
         transitions,
-        // アクションとガードの詳細情報はプロトタイプとして簡略化
-        // 将来的に完全なシリアライズ/デシリアライズを実装予定
+        // アクションとガードの詳細情報は将来的に実装予定
         actions: vec![],
         guards: vec![],
         context: context_json,
@@ -206,8 +222,7 @@ pub fn machine_from_proto(proto_machine: &proto::MachineDefinition) -> Result<Ru
     // 初期状態の設定
     builder = builder.initial(&proto_machine.initial);
     
-    // 状態の追加（最適化: キャパシティを事前に確保）
-    let states_capacity = proto_machine.states.len();
+    // 状態の追加
     for state in &proto_machine.states {
         builder = builder.state(state_from_proto(state));
     }
@@ -217,15 +232,14 @@ pub fn machine_from_proto(proto_machine: &proto::MachineDefinition) -> Result<Ru
         builder = builder.transition(transition_from_proto(transition));
     }
     
-    // コンテキストの設定（存在する場合のみ処理）
+    // コンテキストの設定
     if !proto_machine.context.is_empty() {
         let context: RuContext = serde_json::from_str(&proto_machine.context)
             .map_err(GrpcError::Serialization)?;
         builder = builder.context(context);
     }
     
-    // 注: アクションとガードの詳細なインポートは今後実装予定
-    
+    // ステートマシンの構築
     let machine = builder.build()
         .map_err(GrpcError::StateMachine)?;
     
@@ -241,12 +255,15 @@ pub fn machine_from_proto(proto_machine: &proto::MachineDefinition) -> Result<Ru
 /// * 変換されたgRPCのマシン状態オブジェクト
 /// * エラー: シリアライゼーションに失敗した場合
 pub fn machine_state_to_proto(machine: &RuMachine) -> Result<proto::MachineState> {
-    let context_json = serde_json::to_string(machine.context())
+    let context_json = serde_json::to_string(&machine.context)
         .map_err(GrpcError::Serialization)?;
     
+    // current_statesを文字列の配列として取得
+    let current_states = machine.current_states.iter().map(|s| s.to_string()).collect();
+    
     Ok(proto::MachineState {
-        machine_id: machine.id().to_string(),
-        current_states: machine.current_states().iter().map(|s| s.to_string()).collect(),
+        machine_id: machine.name.to_string(),
+        current_states,
         context: context_json,
     })
 }

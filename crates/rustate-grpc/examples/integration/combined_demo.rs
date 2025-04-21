@@ -2,7 +2,7 @@
 // このサンプルは、rustateのステートマシンをgRPC経由で制御する方法を示します
 //
 // 以下のコマンドで実行：
-// cargo run --example integration_combined_demo --features=full
+// cargo run --example combined_demo --features=full
 
 use rustate::{
     Action, ActionType, Machine, MachineBuilder, State, Transition
@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     // 1. ローカルでステートマシンを作成
     let local_machine = create_traffic_light_machine();
-    println!("ローカルマシン作成完了: {}", local_machine.id());
+    println!("ローカルマシン作成完了: {}", local_machine.name);
     
     // 2. gRPC経由でサーバーに同様のマシンを作成
     // ローカルマシンをProtobuf形式に変換
@@ -150,9 +150,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     for i in 1..=5 {
         // ローカルマシンでイベント処理
         println!("\n----- サイクル {} -----", i);
-        println!("ローカルマシン状態（前）: {}", local_machine.current());
+        println!("ローカルマシン状態（前）: {:?}", local_machine.current_states);
         let _ = local_machine.send("TIMER", serde_json::json!({}));
-        println!("ローカルマシン状態（後）: {}", local_machine.current());
+        println!("ローカルマシン状態（後）: {:?}", local_machine.current_states);
         
         // リモートマシンにイベント送信
         let event = EventDefinition {
