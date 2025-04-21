@@ -1,10 +1,12 @@
 pub mod checker;
 pub mod generator;
 pub mod runner;
+pub mod property;
 
 pub use checker::{ModelChecker, Property, PropertyType, VerificationResult};
 pub use generator::{TestCase, TestGenerator};
 pub use runner::{CoverageReport, TestResult, TestResults, TestRunner};
+pub use property::{PropertyTestResult, PropertyTestRunner, StateMachineProperty, EventSequenceStrategyBuilder};
 
 #[cfg(test)]
 mod tests {

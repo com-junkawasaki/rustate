@@ -25,6 +25,10 @@ web-sys = { workspace = true, optional = true, features = [
 console_error_panic_hook = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
+proptest = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
 
 [features]
 default = ["uuid", "integration"]
@@ -35,6 +39,8 @@ mbt = []
 integration = []
 # 非同期統合機能を有効化
 integration_async = ["integration", "tokio", "async-trait"]
+# Property-basedテスト機能を有効化
+property-testing = ["proptest"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -50,6 +56,11 @@ path = "examples/hierarchical.rs"
 [[example]]
 name = "model_based_testing"
 path = "examples/model_based_testing.rs"
+
+[[example]]
+name = "property_based_testing"
+path = "examples/property_based_testing.rs"
+required-features = ["property-testing"]
 
 [[example]]
 name = "integration_demo"
