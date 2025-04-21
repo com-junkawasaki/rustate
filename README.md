@@ -1,62 +1,62 @@
 # RuState
 
-RuStateは、Rustで実装された型安全なステートマシンおよびステートチャートライブラリです。XStateにインスパイアされており、モデルベーステスト（MBT）の原則に基づいた設計になっています。
+RuState is a type-safe state machine and statechart library implemented in Rust. Inspired by XState, it follows the principles of model-based testing (MBT).
 
-## 概要
+## Overview
 
-RuStateは以下の機能を提供します：
+RuState provides the following features:
 
-- ✅ 有限状態機械とステートチャート
-- ✅ 階層状態
-- ✅ 並列状態
-- ✅ 遷移条件（ガード）
-- ✅ アクション（副作用）
-- ✅ コンテキスト（拡張状態）
-- ✅ 型安全なAPI
-- ✅ シリアライズ可能なマシン
-- ✅ モデルベーステスト（MBT）サポート
+- ✅ Finite state machines and statecharts
+- ✅ Hierarchical states
+- ✅ Parallel states
+- ✅ Transition conditions (guards)
+- ✅ Actions (side effects)
+- ✅ Context (extended state)
+- ✅ Type-safe API
+- ✅ Serializable machines
+- ✅ Model-based testing (MBT) support
 
-## モデルベーステスト（MBT）の統合
+## Model-Based Testing (MBT) Integration
 
-RuStateは、モデルベーステストの原則を取り入れています：
+RuState incorporates the principles of model-based testing:
 
-1. **モデル定義**: 状態、遷移、ガード、アクションを使って、明示的なモデルを定義できます
-2. **テストケース生成**: モデルから自動的にテストケースを生成
-3. **テスト実行**: オンラインテストとオフラインテストの両方をサポート
-4. **完全カバレッジ検証**: 全ての状態および遷移をカバーするテストの保証
+1. **Model Definition**: Define explicit models using states, transitions, guards, and actions
+2. **Test Case Generation**: Automatically generate test cases from the model
+3. **Test Execution**: Support for both online and offline testing
+4. **Complete Coverage Verification**: Ensure tests cover all states and transitions
 
-### 主な機能
+### Key Features
 
-- **テスト生成器**: 状態マシンから自動的にテストケースを生成
-- **オンラインテスト**: 実行時に状態マシンを直接テスト
-- **オフラインテスト**: テストケースをエクスポートして後で実行可能
-- **状態カバレッジレポート**: どの状態や遷移がテストされたかを確認
+- **Test Generator**: Automatically generate test cases from state machines
+- **Online Testing**: Directly test state machines at runtime
+- **Offline Testing**: Export test cases to run later
+- **State Coverage Report**: Verify which states and transitions have been tested
 
-## 使用例
+## Usage Examples
 
-### シンプルな状態マシン
+### Simple State Machine
 
 ```rust
 use rustate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
 
-// 状態の作成
+// Create states
 let green = State::new("green");
 let yellow = State::new("yellow");
 let red = State::new("red");
 
-// 遷移の作成
+// Create transitions
 let green_to_yellow = Transition::new("green", "TIMER", "yellow");
 let yellow_to_red = Transition::new("yellow", "TIMER", "red");
 let red_to_green = Transition::new("red", "TIMER", "green");
 
-// アクションの定義
+// Define actions
 let log_green = Action::new(
     "logGreen",
     ActionType::Entry,
     |_ctx, _evt| println!("Entering GREEN state - Go!"),
 );
 
-// マシンの構築
+// Build the machine
 let mut machine = MachineBuilder::new("trafficLight")
     .state(green)
     .state(yellow)
@@ -69,71 +69,71 @@ let mut machine = MachineBuilder::new("trafficLight")
     .build()
     .unwrap();
 
-// イベント送信
+// Send events
 machine.send("TIMER").unwrap();
 ```
 
-### モデルベーステスト例
+### Model-Based Testing Example
 
 ```rust
 use rustate::{Machine, TestGenerator, TestRunner};
 
-// 既存の状態マシン定義から...
+// From an existing state machine definition...
 let machine = /* ... */;
 
-// テストケース生成
+// Generate test cases
 let test_generator = TestGenerator::new(&machine);
 let test_cases = test_generator.generate_all_transitions();
 
-// テスト実行
+// Run tests
 let test_runner = TestRunner::new(&machine);
 let results = test_runner.run_tests(test_cases);
 
-// カバレッジレポート
+// Coverage report
 let coverage = results.get_coverage();
 println!("State coverage: {}%", coverage.state_coverage());
 println!("Transition coverage: {}%", coverage.transition_coverage());
 ```
 
-## インストール
+## Installation
 
-Cargo.tomlに追加してください：
+Add to your Cargo.toml:
 
 ```toml
 [dependencies]
 rustate = "0.2.0"
 ```
 
-## ドキュメント
+## Documentation
 
-### 主要概念
+### Key Concepts
 
-- **状態（State）**: ステートチャートのノードを表現
-- **遷移（Transition）**: イベントに応じた状態間の移動を定義
-- **ガード（Guard）**: 遷移条件を決定する論理
-- **アクション（Action）**: 状態遷移中に実行される副作用
-- **コンテキスト（Context）**: マシンの拡張状態を格納
-- **テストジェネレータ（TestGenerator）**: モデルからテストケースを生成
-- **テストランナー（TestRunner）**: テストケースを実行
-- **カバレッジレポート（CoverageReport）**: テストのカバレッジを分析
+- **State**: Represents a node in the statechart
+- **Transition**: Defines movement between states in response to events
+- **Guard**: Logic that determines transition conditions
+- **Action**: Side effects executed during state transitions
+- **Context**: Stores the extended state of the machine
+- **TestGenerator**: Generates test cases from the model
+- **TestRunner**: Executes test cases
+- **CoverageReport**: Analyzes test coverage
 
-## ロードマップ
+## Roadmap
 
-- [x] モデルチェッカーの統合
-- [ ] プロパティベースのテスト
-- [ ] テスト可視化ツール
-- [ ] クイックチェックスタイルのテスト
-- [ ] FuzzingによるMBT
-- [ ] 時相論理（LTL/CTL）によるプロパティ指定と検証
-- [ ] 大規模ステートマシン向けパフォーマンス最適化
-- [ ] 分散システム向けのステートマシン連携機能
-- [ ] WebAssembly (WASM) サポートの強化
-- [ ] 視覚的なステートマシンエディタとの統合
-- [ ] 実システムからのステートマシンモデル自動生成
-- [ ] より高度な並行性モデルのサポート
-- [ ] ドメイン特化言語（DSL）によるステートマシン定義
-- [ ] マイクロコントローラ向け最適化版
+- [x] Model checker integration
+- [ ] Property-based testing
+- [ ] Test visualization tools
+- [ ] QuickCheck-style testing
+- [ ] MBT with Fuzzing
+- [ ] Property specification and verification with temporal logic (LTL/CTL)
+- [ ] Performance optimization for large state machines
+- [ ] State machine coordination for distributed systems
+- [ ] Enhanced WebAssembly (WASM) support
+- [ ] Integration with visual state machine editors
+- [ ] Automatic state machine model generation from real systems
+- [ ] Support for more advanced concurrency models
+- [ ] Domain-specific language (DSL) for state machine definition
+- [ ] Optimized version for microcontrollers
 
-## ライセンス
+## License
 
 MIT 

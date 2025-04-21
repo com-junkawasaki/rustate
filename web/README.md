@@ -1,70 +1,70 @@
 # RuState WebAssembly Demo
 
-RuState ライブラリの WebAssembly デモページです。交通信号機と音楽プレーヤーの状態機械の動作をブラウザで確認できます。
+This is the WebAssembly demo page for the RuState library. You can see how the traffic light and music player state machines work in your browser.
 
-## ビルド方法
+## How to Build
 
-### 必要なツール
+### Required Tools
 
-- Rust (1.50以上)
-- wasm-pack (0.9.1以上)
-- Node.js (14.0.0以上)
+- Rust (1.50 or later)
+- wasm-pack (0.9.1 or later)
+- Node.js (14.0.0 or later)
 
-### インストール
+### Installation
 
 ```bash
-# wasm-packのインストール
+# Install wasm-pack
 cargo install wasm-pack
 
-# その他の依存関係
+# Other dependencies
 npm install
 ```
 
-### ビルド手順
+### Build Steps
 
 ```bash
-# rustate クレートを wasm にコンパイル
+# Compile the rustate crate to wasm
 wasm-pack build --target web --features wasm
 
-# 開発サーバーの起動
+# Start the development server
 cd web
 python -m http.server
-# または
+# Or
 npx serve
 ```
 
-## 実行方法
+## How to Run
 
-ビルド後、ブラウザで http://localhost:8000 または開発サーバーが表示するURLにアクセスしてください。
+After building, access http://localhost:8000 or the URL displayed by the development server in your browser.
 
-## デモの内容
+## Demo Contents
 
-### 交通信号機
+### Traffic Light
 
-シンプルな3状態の交通信号機です。「タイマーイベント送信」ボタンをクリックすると、以下の遷移が発生します：
+A simple 3-state traffic light. When you click the "Send Timer Event" button, the following transitions occur:
 
 ```
-緑 → 黄 → 赤 → 緑 → ...
+green → yellow → red → green → ...
 ```
 
-### 音楽プレーヤー
+### Music Player
 
-階層型の状態機械を使った音楽プレーヤーのデモです。次の状態とトランジションがあります：
+A music player demo using a hierarchical state machine. It has the following states and transitions:
 
-- 電源オフ/オン状態
-- 再生/停止/一時停止状態
-- 通常速度/倍速再生状態
-- トラック変更機能
+- Power off/on states
+- Play/stop/pause states
+- Normal speed/high speed playback states
+- Track change functionality
 
-## トラブルシューティング
+## Troubleshooting
 
-問題が発生した場合は、以下を確認してください：
+If you encounter issues, check the following:
 
-1. Rustとwasm-packが最新バージョンであること
-2. コンソールにエラーメッセージが出ていないか
-3. `pkg`ディレクトリが正しく生成されていること
+1. Make sure Rust and wasm-pack are up to date
+2. Check if there are any error messages in the console
+3. Verify that the `pkg` directory has been generated correctly
 
-## 注意事項
+## Notes
 
-- このデモは教育目的であり、実際の音楽再生機能は含まれていません
-- WebAssemblyと互換性のあるモダンブラウザが必要です 
+- This demo is for educational purposes and does not include actual music playback functionality
+- A modern browser compatible with WebAssembly is required 
