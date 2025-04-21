@@ -1,21 +1,21 @@
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
-use chrono::Utc;
 
-use rustate::Machine;
 use crate::converter;
 use crate::error::{GrpcError, Result};
-use crate::proto::{
-    self, CreateMachineRequest, CreateMachineResponse, SendEventRequest, SendEventResponse,
-    BatchEventsRequest, BatchEventsResponse, GetStateRequest, MachineState,
-    UnregisterMachineRequest, UnregisterMachineResponse, WatchMachineRequest,
-    StateChangeEvent, GenerateClientCodeRequest, GenerateClientCodeResponse,
-};
 use crate::proto::state_machine_service_server::StateMachineService;
+use crate::proto::{
+    self, BatchEventsRequest, BatchEventsResponse, CreateMachineRequest, CreateMachineResponse,
+    GenerateClientCodeRequest, GenerateClientCodeResponse, GetStateRequest, MachineState,
+    SendEventRequest, SendEventResponse, StateChangeEvent, UnregisterMachineRequest,
+    UnregisterMachineResponse, WatchMachineRequest,
+};
+use rustate::Machine;
 
 // 状態変更通知用のチャネル型
 type StateChangeChannel = mpsc::Sender<Result<StateChangeEvent, Status>>;
@@ -48,7 +48,7 @@ impl RuStateMachineService {
         let machine_id = machine_id.to_string();
         let event_type = event_type.to_string();
         let timestamp = Utc::now().to_rfc3339();
-        
+
         let event = StateChangeEvent {
             machine_id: machine_id.clone(),
             event_type,
@@ -57,7 +57,7 @@ impl RuStateMachineService {
             context,
             timestamp,
         };
-        
+
         // 監視チャネルを取得
         let watchers = self.watchers.read().unwrap();
         if let Some(channels) = watchers.get(&machine_id) {
@@ -82,31 +82,29 @@ impl StateMachineService for RuStateMachineService {
         let Some(definition) = req.definition else {
             return Err(Status::invalid_argument("Machine definition is required"));
         };
-        
+
         // protoからRuState形式に変換
-        let machine = converter::machine_from_proto(&definition)
-            .map_err(Status::from)?;
-        
+        let machine = converter::machine_from_proto(&definition).map_err(Status::from)?;
+
         let machine_id = machine.id().to_string();
-        
+
         // ステートマシンの状態をproto形式に変換
-        let initial_state = converter::machine_state_to_proto(&machine)
-            .map_err(Status::from)?;
-        
+        let initial_state = converter::machine_state_to_proto(&machine).map_err(Status::from)?;
+
         // レジストリに登録
         let mut machines = self.machines.write().unwrap();
         machines.insert(machine_id.clone(), machine);
-        
+
         // 監視リスト作成
         let mut watchers = self.watchers.write().unwrap();
         watchers.entry(machine_id.clone()).or_insert_with(Vec::new);
-        
+
         // レスポンス作成
         let response = CreateMachineResponse {
             machine_id,
             initial_state: Some(initial_state),
         };
-        
+
         Ok(Response::new(response))
     }
 
@@ -119,33 +117,40 @@ impl StateMachineService for RuStateMachineService {
         let Some(event) = req.event else {
             return Err(Status::invalid_argument("Event is required"));
         };
-        
+
         let machine_id = event.machine_id.clone();
         let event_type = event.event_type.clone();
-        
+
         // マシンレジストリからステートマシンを取得
         let mut machines = self.machines.write().unwrap();
-        let machine = machines.get_mut(&machine_id).ok_or_else(|| {
-            Status::not_found(format!("Machine not found: {}", machine_id))
-        })?;
-        
+        let machine = machines
+            .get_mut(&machine_id)
+            .ok_or_else(|| Status::not_found(format!("Machine not found: {}", machine_id)))?;
+
         // 現在の状態を保存（通知用）
-        let previous_states = machine.current_states().iter().map(|s| s.to_string()).collect();
-        
+        let previous_states = machine
+            .current_states()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
         // イベントを送信
         let event_name = converter::event_from_proto(&event).map_err(Status::from)?;
-        let success = machine.send(&event_name).map_err(|e| {
-            Status::internal(format!("Failed to process event: {}", e))
-        })?;
-        
+        let success = machine
+            .send(&event_name)
+            .map_err(|e| Status::internal(format!("Failed to process event: {}", e)))?;
+
         // 更新後の状態
-        let current_states = machine.current_states().iter().map(|s| s.to_string()).collect();
-        
+        let current_states = machine
+            .current_states()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
         // コンテキストをJSON文字列化
-        let context_json = serde_json::to_string(machine.context()).map_err(|e| {
-            Status::internal(format!("Failed to serialize context: {}", e))
-        })?;
-        
+        let context_json = serde_json::to_string(machine.context())
+            .map_err(|e| Status::internal(format!("Failed to serialize context: {}", e)))?;
+
         // 状態変更通知
         self.notify_state_change(
             &machine_id,
@@ -154,7 +159,7 @@ impl StateMachineService for RuStateMachineService {
             current_states.clone(),
             context_json.clone(),
         );
-        
+
         // レスポンス作成
         let result = proto::EventResult {
             success,
@@ -162,11 +167,11 @@ impl StateMachineService for RuStateMachineService {
             context: context_json,
             error_message: "".to_string(),
         };
-        
+
         let response = SendEventResponse {
             result: Some(result),
         };
-        
+
         Ok(Response::new(response))
     }
 
@@ -177,17 +182,16 @@ impl StateMachineService for RuStateMachineService {
     ) -> std::result::Result<Response<MachineState>, Status> {
         let req = request.into_inner();
         let machine_id = req.machine_id;
-        
+
         // マシンレジストリからステートマシンを取得
         let machines = self.machines.read().unwrap();
-        let machine = machines.get(&machine_id).ok_or_else(|| {
-            Status::not_found(format!("Machine not found: {}", machine_id))
-        })?;
-        
+        let machine = machines
+            .get(&machine_id)
+            .ok_or_else(|| Status::not_found(format!("Machine not found: {}", machine_id)))?;
+
         // ステートマシンの状態を変換
-        let state = converter::machine_state_to_proto(machine)
-            .map_err(Status::from)?;
-        
+        let state = converter::machine_state_to_proto(machine).map_err(Status::from)?;
+
         Ok(Response::new(state))
     }
 
@@ -198,31 +202,39 @@ impl StateMachineService for RuStateMachineService {
     ) -> std::result::Result<Response<BatchEventsResponse>, Status> {
         let req = request.into_inner();
         let machine_id = req.machine_id.clone();
-        
+
         // マシンレジストリからステートマシンを取得
         let mut machines = self.machines.write().unwrap();
-        let machine = machines.get_mut(&machine_id).ok_or_else(|| {
-            Status::not_found(format!("Machine not found: {}", machine_id))
-        })?;
-        
+        let machine = machines
+            .get_mut(&machine_id)
+            .ok_or_else(|| Status::not_found(format!("Machine not found: {}", machine_id)))?;
+
         // 各イベントを処理
         let mut results = Vec::new();
-        
+
         for event in req.events {
             // 現在の状態を保存（通知用）
-            let previous_states = machine.current_states().iter().map(|s| s.to_string()).collect();
-            
+            let previous_states = machine
+                .current_states()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+
             // イベントを送信
             let event_name = converter::event_from_proto(&event).map_err(Status::from)?;
             let success = match machine.send(&event_name) {
                 Ok(success) => {
-                    let current_states = machine.current_states().iter().map(|s| s.to_string()).collect();
-                    
+                    let current_states = machine
+                        .current_states()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect();
+
                     // コンテキストをJSON文字列化
                     let context_json = serde_json::to_string(machine.context()).map_err(|e| {
                         Status::internal(format!("Failed to serialize context: {}", e))
                     })?;
-                    
+
                     // 状態変更通知
                     self.notify_state_change(
                         &machine_id,
@@ -231,7 +243,7 @@ impl StateMachineService for RuStateMachineService {
                         current_states.clone(),
                         context_json.clone(),
                     );
-                    
+
                     // 結果を追加
                     let result = proto::EventResult {
                         success,
@@ -239,7 +251,7 @@ impl StateMachineService for RuStateMachineService {
                         context: context_json,
                         error_message: "".to_string(),
                     };
-                    
+
                     results.push(result);
                     success
                 }
@@ -251,28 +263,27 @@ impl StateMachineService for RuStateMachineService {
                         context: "{}".to_string(),
                         error_message: format!("{}", e),
                     };
-                    
+
                     results.push(result);
                     false
                 }
             };
-            
+
             // イベント処理が失敗した場合はバッチ処理を中断
             if !success {
                 break;
             }
         }
-        
+
         // 最終状態を取得
-        let final_state = converter::machine_state_to_proto(machine)
-            .map_err(Status::from)?;
-        
+        let final_state = converter::machine_state_to_proto(machine).map_err(Status::from)?;
+
         // レスポンス作成
         let response = BatchEventsResponse {
             results,
             final_state: Some(final_state),
         };
-        
+
         Ok(Response::new(response))
     }
 
@@ -283,17 +294,17 @@ impl StateMachineService for RuStateMachineService {
     ) -> std::result::Result<Response<UnregisterMachineResponse>, Status> {
         let req = request.into_inner();
         let machine_id = req.machine_id;
-        
+
         // マシンレジストリからステートマシンを削除
         let mut machines = self.machines.write().unwrap();
         let removed = machines.remove(&machine_id).is_some();
-        
+
         // 監視リストからも削除
         if removed {
             let mut watchers = self.watchers.write().unwrap();
             watchers.remove(&machine_id);
         }
-        
+
         // レスポンス作成
         let response = UnregisterMachineResponse {
             success: removed,
@@ -303,29 +314,32 @@ impl StateMachineService for RuStateMachineService {
                 format!("Machine {} not found", machine_id)
             },
         };
-        
+
         Ok(Response::new(response))
     }
 
     /// ステートマシンの状態変化を監視（ストリーミング）
     type WatchMachineStream = ReceiverStream<Result<StateChangeEvent, Status>>;
-    
+
     async fn watch_machine(
         &self,
         request: Request<WatchMachineRequest>,
     ) -> std::result::Result<Response<Self::WatchMachineStream>, Status> {
         let req = request.into_inner();
         let machine_id = req.machine_id;
-        
+
         // マシンの存在確認
         let machines = self.machines.read().unwrap();
         if !machines.contains_key(&machine_id) {
-            return Err(Status::not_found(format!("Machine not found: {}", machine_id)));
+            return Err(Status::not_found(format!(
+                "Machine not found: {}",
+                machine_id
+            )));
         }
-        
+
         // チャネルの作成（バッファサイズは調整可能）
         let (tx, rx) = mpsc::channel(128);
-        
+
         // 監視リストに追加
         let mut watchers = self.watchers.write().unwrap();
         if let Some(channels) = watchers.get_mut(&machine_id) {
@@ -333,7 +347,7 @@ impl StateMachineService for RuStateMachineService {
         } else {
             return Err(Status::internal("Watcher registration failed"));
         }
-        
+
         // ストリームを返す
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -346,16 +360,16 @@ impl StateMachineService for RuStateMachineService {
         let req = request.into_inner();
         let machine_id = req.machine_id;
         let language = req.language;
-        
+
         // マシンの存在確認
         let machines = self.machines.read().unwrap();
-        let machine = machines.get(&machine_id).ok_or_else(|| {
-            Status::not_found(format!("Machine not found: {}", machine_id))
-        })?;
-        
+        let machine = machines
+            .get(&machine_id)
+            .ok_or_else(|| Status::not_found(format!("Machine not found: {}", machine_id)))?;
+
         // ここでは簡略化のため、実際のコード生成は省略
         // 実際には言語ごとのテンプレートエンジンなどを使用する
-        
+
         let code = match language.as_str() {
             "rust" => {
                 format!(
@@ -456,10 +470,10 @@ export class {}Client {{
                 )));
             }
         };
-        
+
         // レスポンス作成
         let response = GenerateClientCodeResponse { code };
-        
+
         Ok(Response::new(response))
     }
-} 
+}

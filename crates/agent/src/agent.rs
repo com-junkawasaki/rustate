@@ -391,11 +391,11 @@ mod tests {
         let initial_state = State::new("initial");
         let processing_state = State::new("processing");
         let final_state = State::new("final");
-        
+
         let start_transition = Transition::new("initial", "start", "processing");
         let process_transition = Transition::new("processing", "process", "processing");
         let finish_transition = Transition::new("processing", "finish", "final");
-        
+
         // 状態IDからTestStateへのマッパー関数
         let state_mapper = |state_id: &str| -> TestState {
             match state_id {
@@ -405,7 +405,7 @@ mod tests {
                 _ => panic!("不明な状態ID: {}", state_id),
             }
         };
-        
+
         // ステートマシンを構築し、ステートマッパーを設定
         rustate::MachineBuilder::new("TestMachine")
             .state(initial_state)

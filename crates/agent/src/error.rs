@@ -38,7 +38,7 @@ pub enum AgentError {
     /// エピソードエラー
     #[error("エピソードエラー: {0}")]
     EpisodeError(String),
-    
+
     /// アクティブなエピソードがない
     #[error("アクティブなエピソードがありません")]
     NoActiveEpisode,

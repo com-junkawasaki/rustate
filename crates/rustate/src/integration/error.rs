@@ -6,15 +6,15 @@ pub enum Error {
     /// ステートマシンエラー
     #[error("ステートマシンエラー: {0}")]
     StateError(#[from] crate::Error),
-    
+
     /// JSONシリアライズ/デシリアライズエラー
     #[error("JSONエラー: {0}")]
     JsonError(#[from] serde_json::Error),
-    
+
     /// ロック取得エラー
     #[error("ロック取得に失敗しました")]
     LockError,
-    
+
     /// 一般的なエラー
     #[error("{0}")]
     Other(String),
@@ -46,8 +46,6 @@ where
     E: std::fmt::Debug,
 {
     fn lock_err(self) -> Result<T> {
-        self.map_err(|_| {
-            Error::LockError
-        })
+        self.map_err(|_| Error::LockError)
     }
-} 
+}

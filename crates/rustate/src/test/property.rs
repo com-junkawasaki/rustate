@@ -1,4 +1,4 @@
-use crate::{Context, EventTrait, Machine, Result, StateTrait, IntoEvent};
+use crate::{Context, EventTrait, IntoEvent, Machine, Result, StateTrait};
 use proptest::strategy::{BoxedStrategy, Strategy};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -12,10 +12,10 @@ where
 {
     /// 検証条件を評価する
     fn evaluate(&self, machine: &Machine<S, E>) -> bool;
-    
+
     /// プロパティの名前を取得
     fn name(&self) -> &str;
-    
+
     /// プロパティの説明を取得
     fn description(&self) -> Option<&str>;
 }
@@ -115,7 +115,7 @@ where
         self.description = Some(description.into());
         self
     }
-    
+
     /// 事前条件を設定
     pub fn given<F>(self, precondition: F) -> GivenBuilder<S, E, F>
     where
@@ -188,10 +188,10 @@ where
             // 事前条件が満たされていない場合は無条件で成功
             return true;
         }
-        
+
         // 状態マシンをクローン
         let mut machine_clone = machine.clone();
-        
+
         // アクションを適用
         match (self.action)(&mut machine_clone) {
             Ok(_) => {
@@ -204,11 +204,11 @@ where
             }
         }
     }
-    
+
     fn name(&self) -> &str {
         &self.name
     }
-    
+
     fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
@@ -240,25 +240,25 @@ where
             _marker: PhantomData,
         }
     }
-    
+
     /// 有効なイベントを追加
     pub fn with_events(mut self, events: Vec<E>) -> Self {
         self.valid_events = events;
         self
     }
-    
+
     /// シーケンスの最小長を設定
     pub fn min_length(mut self, min: usize) -> Self {
         self.min_length = min;
         self
     }
-    
+
     /// シーケンスの最大長を設定
     pub fn max_length(mut self, max: usize) -> Self {
         self.max_length = max;
         self
     }
-    
+
     /// ストラテジーを構築
     pub fn build(self) -> BoxedStrategy<Vec<E>>
     where
@@ -267,7 +267,7 @@ where
         let events = self.valid_events;
         let min = self.min_length;
         let max = self.max_length;
-        
+
         proptest::collection::vec(proptest::sample::select(events), min..=max).boxed()
     }
 }
@@ -290,30 +290,37 @@ where
     pub fn new(machine: Machine<S, E>) -> Self {
         Self { machine }
     }
-    
+
     /// プロパティを検証
-    pub fn verify_property<P>(&self, property: P, config: proptest::test_runner::Config) -> PropertyTestResult
+    pub fn verify_property<P>(
+        &self,
+        property: P,
+        config: proptest::test_runner::Config,
+    ) -> PropertyTestResult
     where
         P: StateMachineProperty<S, E>,
         E: Clone,
     {
         let machine = self.machine.clone();
         let property_name = property.name().to_string();
-        
+
         // proptestのランナーを作成
         let mut runner = proptest::test_runner::TestRunner::new(config);
-        
+
         // 検証を実行
-        let result = runner.run(&proptest::strategy::Just(()).prop_map(move |_| {
-            property.evaluate(&machine)
-        }), |result| {
-            if result {
-                Ok(())
-            } else {
-                Err(proptest::test_runner::TestCaseError::fail("Property violated"))
-            }
-        });
-        
+        let result = runner.run(
+            &proptest::strategy::Just(()).prop_map(move |_| property.evaluate(&machine)),
+            |result| {
+                if result {
+                    Ok(())
+                } else {
+                    Err(proptest::test_runner::TestCaseError::fail(
+                        "Property violated",
+                    ))
+                }
+            },
+        );
+
         match result {
             Ok(_) => PropertyTestResult {
                 property_name,
@@ -329,23 +336,28 @@ where
             },
         }
     }
-    
+
     /// イベントシーケンスを使用してプロパティを検証
-    pub fn verify_with_events<P, S1>(&self, property: P, event_strategy: S1, config: proptest::test_runner::Config) -> PropertyTestResult
+    pub fn verify_with_events<P, S1>(
+        &self,
+        property: P,
+        event_strategy: S1,
+        config: proptest::test_runner::Config,
+    ) -> PropertyTestResult
     where
         P: StateMachineProperty<S, E> + Clone,
         E: Clone,
         S1: Strategy<Value = Vec<E>>,
     {
         let property_name = property.name().to_string();
-        
+
         // proptestのランナーを作成
         let mut runner = proptest::test_runner::TestRunner::new(config);
-        
+
         // 検証を実行
         let result = runner.run(&event_strategy, |events| {
             let mut machine = self.machine.clone();
-            
+
             // イベントを適用
             for event in &events {
                 if let Err(_) = machine.transition(event.clone(), Context::default()) {
@@ -353,17 +365,18 @@ where
                     return Ok(());
                 }
             }
-            
+
             // プロパティを評価
             if property.evaluate(&machine) {
                 Ok(())
             } else {
-                Err(proptest::test_runner::TestCaseError::fail(
-                    format!("Property violated after events: {:?}", events)
-                ))
+                Err(proptest::test_runner::TestCaseError::fail(format!(
+                    "Property violated after events: {:?}",
+                    events
+                )))
             }
         });
-        
+
         match result {
             Ok(_) => PropertyTestResult {
                 property_name,
@@ -379,7 +392,7 @@ where
                     counterexample: Some(vec![format!("{}", e)]),
                     message: Some(format!("Property violation detected")),
                 }
-            },
+            }
         }
     }
 }
@@ -388,19 +401,19 @@ where
 mod tests {
     use super::*;
     use crate::{Event, MachineBuilder, State, Transition};
-    
+
     // テスト用の簡単な状態マシンを作成
     fn create_test_machine() -> Machine {
         // 状態の作成
         let green = State::new("green");
         let yellow = State::new("yellow");
         let red = State::new("red");
-        
+
         // 遷移の作成
         let green_to_yellow = Transition::new("green", "TIMER", "yellow");
         let yellow_to_red = Transition::new("yellow", "TIMER", "red");
         let red_to_green = Transition::new("red", "TIMER", "green");
-        
+
         // マシンの構築
         let machine = MachineBuilder::new("trafficLight")
             .state(green)
@@ -412,22 +425,20 @@ mod tests {
             .transition(red_to_green)
             .build()
             .unwrap();
-            
+
         // 状態マッパーを追加
-        machine.with_state_mapper(|id| {
-            match id {
-                id if id == "green" => State::new("green"),
-                id if id == "yellow" => State::new("yellow"),
-                id if id == "red" => State::new("red"),
-                _ => State::new(id),
-            }
+        machine.with_state_mapper(|id| match id {
+            id if id == "green" => State::new("green"),
+            id if id == "yellow" => State::new("yellow"),
+            id if id == "red" => State::new("red"),
+            _ => State::new(id),
         })
     }
-    
+
     #[test]
     fn test_simple_property() {
         let machine = create_test_machine();
-        
+
         // プロパティの定義: greenからTIMERイベントを送ると必ずyellowになる
         let property = Machine::<State, Event>::property("green to yellow")
             .description("Sending TIMER from green should transition to yellow")
@@ -437,18 +448,18 @@ mod tests {
                 Ok(m.current_state().clone())
             })
             .then(|m: &Machine<State, Event>| m.is_in("yellow"));
-        
+
         // プロパティの検証
         let runner = PropertyTestRunner::new(machine);
         let result = runner.verify_property(property, proptest::test_runner::Config::default());
-        
+
         assert!(result.success);
     }
-    
+
     #[test]
     fn test_event_sequence_property() {
         let machine = create_test_machine();
-        
+
         // プロパティの定義: どの状態からでも3回のTIMERイベントで元の状態に戻る
         let property = Machine::<State, Event>::property("cycle property")
             .description("Sending TIMER three times should return to the original state")
@@ -465,18 +476,22 @@ mod tests {
                 // Traffic lightの場合、3回のサイクルで元に戻る
                 m.is_in("green")
             });
-        
+
         // イベントシーケンスストラテジーの構築
         let events_strategy = EventSequenceStrategyBuilder::<State, Event>::new()
             .with_events(vec![Event::new("TIMER")])
             .min_length(3)
             .max_length(3)
             .build();
-        
+
         // プロパティの検証
         let runner = PropertyTestRunner::new(machine);
-        let result = runner.verify_with_events(property, events_strategy, proptest::test_runner::Config::default());
-        
+        let result = runner.verify_with_events(
+            property,
+            events_strategy,
+            proptest::test_runner::Config::default(),
+        );
+
         assert!(result.success);
     }
-} 
+}

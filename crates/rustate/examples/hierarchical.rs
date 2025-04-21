@@ -1,6 +1,4 @@
-use rustate::{
-    Action, ActionType, Context, Machine, MachineBuilder, State, Transition,
-};
+use rustate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
 
 fn main() -> rustate::Result<()> {
     // Create a hierarchical state machine for a music player

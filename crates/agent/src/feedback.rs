@@ -113,7 +113,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait};
+    use rustate::EventTrait;
     use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq)]

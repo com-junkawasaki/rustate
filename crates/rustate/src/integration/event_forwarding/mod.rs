@@ -1,5 +1,5 @@
 //! # イベント転送パターン
-//! 
+//!
 //! ステートマシン間でイベントを転送するパターンの実装です。
 //! このパターンではステートマシンの参照を共有し、一方のステートマシンの
 //! アクションから他方のステートマシンにイベントを転送することができます。
@@ -79,12 +79,12 @@
 //!   設計には注意が必要です。循環的な依存関係は避けてください。
 //! - 大量のイベント転送が発生する場合、パフォーマンスに影響する可能性があります。
 
-use std::sync::{Arc, Mutex};
+use crate::integration::error::{LockResultExt, Result};
 use crate::{IntoEvent, Machine};
-use crate::integration::error::{Result, LockResultExt};
+use std::sync::{Arc, Mutex};
 
 /// 共有ステートマシン参照
-/// 
+///
 /// このラッパーは複数のクレートにまたがるステートマシンへの参照を
 /// 安全に共有するために使用されます。
 #[derive(Clone)]
@@ -104,19 +104,19 @@ impl SharedMachineRef {
             name,
         }
     }
-    
+
     /// ステートマシンにイベントを送信
     pub fn send_event<E: IntoEvent>(&self, event: E) -> Result<bool> {
         let mut machine = self.machine.lock().lock_err()?;
         Ok(machine.send(event)?)
     }
-    
+
     /// ステートマシンが特定の状態にあるか確認
     pub fn is_in(&self, state_id: &str) -> Result<bool> {
         let machine = self.machine.lock().lock_err()?;
         Ok(machine.is_in(state_id))
     }
-    
+
     /// マシン名を取得
     pub fn name(&self) -> &str {
         &self.name
@@ -139,38 +139,38 @@ impl EventForwarder for SharedMachineRef {
 mod tests {
     use super::*;
     use crate::{Action, ActionType, MachineBuilder, State, Transition};
-    
+
     #[test]
     fn test_event_forwarding() {
         // 子ステートマシンを作成
         let child = create_child_machine();
         let shared_child = SharedMachineRef::new(child);
-        
+
         // 親ステートマシンを作成（子マシンへのイベント転送を設定）
         let parent = create_parent_machine(shared_child.clone());
         let shared_parent = SharedMachineRef::new(parent);
-        
+
         // テスト用に直接子マシンへイベントを送信（本来はイベント転送経由）
         println!("Debug: Sending ACTIVATE event directly to child");
         let direct_result = shared_child.send_event("ACTIVATE");
         println!("Debug: Direct child event result: {:?}", direct_result);
-        
+
         // 親マシンにもイベントを送信（テスト用だが、転送機能テストが目的ではない）
         let result = shared_parent.send_event("PARENT_EVENT");
         println!("Debug: Parent event result: {:?}", result);
-        
+
         // 子マシンの状態を確認
         let is_activated = shared_child.is_in("activated");
         println!("Debug: Child is in activated state: {:?}", is_activated);
         assert!(is_activated.unwrap());
     }
-    
+
     fn create_child_machine() -> Machine {
         let initial = State::new("initial");
         let activated = State::new("activated");
-        
+
         let activate = Transition::new("initial", "ACTIVATE", "activated");
-        
+
         MachineBuilder::new("childMachine")
             .state(initial)
             .state(activated)
@@ -179,10 +179,10 @@ mod tests {
             .build()
             .unwrap()
     }
-    
+
     fn create_parent_machine(child: SharedMachineRef) -> Machine {
         let state = State::new("parent");
-        
+
         // 子マシンにイベントを転送するアクション
         let forward_to_child = Action::new(
             "forwardToChild",
@@ -197,19 +197,19 @@ mod tests {
                 }
             },
         );
-        
+
         // 内部遷移を作成
         let mut internal_transition = Transition::internal_transition("parent", "PARENT_EVENT");
         internal_transition.with_action(forward_to_child);
-        
+
         let result = MachineBuilder::new("parentMachine")
             .state(state)
             .initial("parent")
             .transition(internal_transition)
             .build()
             .unwrap();
-            
+
         println!("Debug: Parent machine built: {}", result.name);
         result
     }
-} 
+}

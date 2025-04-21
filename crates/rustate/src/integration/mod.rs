@@ -1,15 +1,15 @@
 //! # RuState Integration
-//! 
+//!
 //! このモジュールはRuStateステートマシンをクレート間で型安全に統合するためのパターンを提供します。
-//! 
+//!
 //! ## 主な統合パターン
-//! 
+//!
 //! 1. **イベント転送パターン**: 複数のステートマシン間でイベントを転送し、疎結合な連携を実現します。
 //!    ステートマシンの参照を共有し、一方のマシンのアクションから他方のマシンにイベントを送信できます。
-//! 
+//!
 //! 2. **コンテキスト共有パターン**: 複数のステートマシン間で共有コンテキストを使用してデータを連携します。
 //!    これにより異なるクレートにまたがるステートマシンが同じデータにアクセスし、状態を同期できます。
-//! 
+//!
 //! 3. **階層的統合パターン**: 親子関係を持つステートマシン間の連携を実現します。トレイトを使用して
 //!    親ステートマシンが子ステートマシンと疎結合に連携できるようにします。
 //!
@@ -124,15 +124,15 @@
 //! );
 //! ```
 
-pub mod event_forwarding;
 pub mod context_sharing;
+pub mod event_forwarding;
 pub mod hierarchical;
 
 /// エラー型
 pub mod error;
-pub use error::{Error, Result, LockResultExt};
+pub use error::{Error, LockResultExt, Result};
 
+pub use context_sharing::SharedContext;
 /// 再エクスポートして便利なインターフェースを提供
 pub use event_forwarding::SharedMachineRef;
-pub use context_sharing::SharedContext;
-pub use hierarchical::ChildMachine; 
+pub use hierarchical::ChildMachine;

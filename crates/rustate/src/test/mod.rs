@@ -1,7 +1,7 @@
 pub mod checker;
 pub mod generator;
-pub mod runner;
 pub mod property;
+pub mod runner;
 
 pub use checker::{ModelChecker, Property, PropertyType, VerificationResult};
 pub use generator::{TestCase, TestGenerator};
@@ -9,55 +9,54 @@ pub use runner::{CoverageReport, TestResult, TestResults, TestRunner};
 
 // プロパティベースドテストモジュールからneed-to-exportのみをexport
 #[cfg(feature = "property-testing")]
-pub use property::{PropertyTestResult, PropertyTestRunner, StateMachineProperty, EventSequenceStrategyBuilder};
+pub use property::{
+    EventSequenceStrategyBuilder, PropertyTestResult, PropertyTestRunner, StateMachineProperty,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Action, ActionType, Context, Event, Machine, MachineBuilder, State, Transition};
+    use crate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
 
     #[test]
     fn it_works() {
         // シンプルなステートマシンを作成
         let mut machine = create_test_machine();
-        
+
         // 初期状態を確認
         assert!(machine.is_in("idle"));
-        
+
         // イベントを送信
         let result = machine.send("START");
         assert!(result.is_ok());
-        
+
         // 状態が遷移したことを確認
         assert!(machine.is_in("running"));
-        
+
         // コンテキストの値はテストの前提条件としない
         // Context APIが変更されている可能性があるため、この部分のテストはスキップ
     }
-    
+
     fn create_test_machine() -> Machine {
         // 状態定義
         let idle_state = State::new("idle");
         let running_state = State::new("running");
         let completed_state = State::new("completed");
-        
+
         // カウンターをインクリメントするアクション
-        let increment_action = Action::new(
-            "incrementCounter",
-            ActionType::Transition,
-            |ctx, _evt| {
+        let increment_action =
+            Action::new("incrementCounter", ActionType::Transition, |ctx, _evt| {
                 let counter = ctx.get::<i32>("counter").unwrap_or(0);
                 let _ = ctx.set("counter", counter + 1);
-            },
-        );
-        
+            });
+
         // 遷移を定義
         let mut start_transition = Transition::new("idle", "START", "running");
         start_transition.with_action(increment_action);
-        
+
         let complete_transition = Transition::new("running", "COMPLETE", "completed");
         let reset_transition = Transition::new("completed", "RESET", "idle");
-        
+
         // マシンを構築
         let machine = MachineBuilder::new("testMachine")
             .state(idle_state)
@@ -69,18 +68,16 @@ mod tests {
             .transition(reset_transition)
             .build()
             .unwrap();
-            
+
         // 状態マッパーを追加
-        machine.with_state_mapper(|id| {
-            match id {
-                id if id == "idle" => State::new("idle"),
-                id if id == "running" => State::new("running"),
-                id if id == "completed" => State::new("completed"),
-                id if id == "green" => State::new("green"),
-                id if id == "yellow" => State::new("yellow"),
-                id if id == "red" => State::new("red"),
-                _ => State::new(id),
-            }
+        machine.with_state_mapper(|id| match id {
+            id if id == "idle" => State::new("idle"),
+            id if id == "running" => State::new("running"),
+            id if id == "completed" => State::new("completed"),
+            id if id == "green" => State::new("green"),
+            id if id == "yellow" => State::new("yellow"),
+            id if id == "red" => State::new("red"),
+            _ => State::new(id),
         })
     }
 

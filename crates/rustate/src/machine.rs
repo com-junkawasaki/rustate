@@ -326,8 +326,7 @@ where
     }
 
     /// 状態IDから型Sへのマッピング関数を設定
-    pub fn with_state_mapper(mut self, mapper: fn(&str) -> S) -> Self
-    {
+    pub fn with_state_mapper(mut self, mapper: fn(&str) -> S) -> Self {
         self.state_mapper = Some(mapper);
         self
     }
@@ -339,11 +338,11 @@ where
             // 初期化されていない場合はエラー
             panic!("ステートマシンが初期化されていません。send() を呼び出す前に initialize() を呼び出してください。");
         }
-        
+
         // アクティブな状態の中から最初の一つを取得
         // 注: より複雑な状態階層では、最も具体的な（leaf）状態を選択するロジックが必要かもしれません
         let state_id = self.current_states.iter().next().unwrap();
-        
+
         // 状態IDからS型への変換
         if let Some(mapper) = self.state_mapper {
             // 現在の状態を返す（所有権を移す）
@@ -359,12 +358,12 @@ where
         self.context = context;
         let event = event.into_event();
         let result = self.send(event)?;
-        
+
         // 状態が変更された場合、キャッシュをクリア
         if result {
             self.current_state_cache = None;
         }
-        
+
         Ok(self.current_state())
     }
 }
@@ -439,10 +438,7 @@ where
     pub fn on_entry<A: IntoAction>(mut self, state_id: impl Into<String>, action: A) -> Self {
         let state_id = state_id.into();
         let action = action.into_action(ActionType::Entry);
-        self.entry_actions
-            .entry(state_id)
-            .or_default()
-            .push(action);
+        self.entry_actions.entry(state_id).or_default().push(action);
         self
     }
 
@@ -450,10 +446,7 @@ where
     pub fn on_exit<A: IntoAction>(mut self, state_id: impl Into<String>, action: A) -> Self {
         let state_id = state_id.into();
         let action = action.into_action(ActionType::Exit);
-        self.exit_actions
-            .entry(state_id)
-            .or_default()
-            .push(action);
+        self.exit_actions.entry(state_id).or_default().push(action);
         self
     }
 

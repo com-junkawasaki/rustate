@@ -1,5 +1,5 @@
-use tonic::transport::{Channel, Endpoint};
 use std::time::Duration;
+use tonic::transport::{Channel, Endpoint};
 
 /// トランスポート設定
 pub struct TransportConfig {
@@ -37,20 +37,20 @@ impl ClientTransport {
         let endpoint = Endpoint::from_shared(addr.to_string())?;
         Ok(Self { endpoint })
     }
-    
+
     /// デフォルト設定で構成
     pub fn with_default_config(mut self) -> Self {
         let config = TransportConfig::default();
         self.apply_config(&config);
         self
     }
-    
+
     /// カスタム設定で構成
     pub fn with_config(mut self, config: &TransportConfig) -> Self {
         self.apply_config(config);
         self
     }
-    
+
     /// 設定を適用
     fn apply_config(&mut self, config: &TransportConfig) {
         self.endpoint = if let Some(timeout) = config.connect_timeout {
@@ -58,42 +58,42 @@ impl ClientTransport {
         } else {
             self.endpoint.clone()
         };
-        
+
         self.endpoint = if let Some(timeout) = config.timeout {
             self.endpoint.clone().timeout(timeout)
         } else {
             self.endpoint.clone()
         };
-        
+
         self.endpoint = if let Some(limit) = config.concurrency_limit {
             self.endpoint.clone().concurrency_limit(limit)
         } else {
             self.endpoint.clone()
         };
-        
+
         self.endpoint = if let Some((limit, duration)) = config.rate_limit {
             self.endpoint.clone().rate_limit(limit, duration)
         } else {
             self.endpoint.clone()
         };
-        
+
         self.endpoint = if let Some(agent) = &config.user_agent {
             self.endpoint.clone().user_agent(agent.clone())
         } else {
             self.endpoint.clone()
         };
-        
+
         self.endpoint = if let Some(duration) = config.keep_alive {
             self.endpoint.clone().keep_alive_timeout(duration)
         } else {
             self.endpoint.clone()
         };
-        
+
         self.endpoint = self.endpoint.clone().tcp_nodelay(config.tcp_nodelay);
     }
-    
+
     /// チャネルを作成
     pub async fn connect(&self) -> Result<Channel, tonic::transport::Error> {
         self.endpoint.connect().await
     }
-} 
+}

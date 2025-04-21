@@ -112,8 +112,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
     use rustate::{EventTrait, StateTrait};
+    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {

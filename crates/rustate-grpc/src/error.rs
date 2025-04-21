@@ -46,13 +46,17 @@ impl From<GrpcError> for tonic::Status {
             GrpcError::Serialization(e) => {
                 tonic::Status::new(Code::Internal, format!("Serialization error: {}", e))
             }
-            GrpcError::Internal(e) => tonic::Status::new(Code::Internal, format!("Internal error: {}", e)),
-            GrpcError::Authentication(e) => {
-                tonic::Status::new(Code::Unauthenticated, format!("Authentication error: {}", e))
+            GrpcError::Internal(e) => {
+                tonic::Status::new(Code::Internal, format!("Internal error: {}", e))
             }
-            GrpcError::Authorization(e) => {
-                tonic::Status::new(Code::PermissionDenied, format!("Authorization error: {}", e))
-            }
+            GrpcError::Authentication(e) => tonic::Status::new(
+                Code::Unauthenticated,
+                format!("Authentication error: {}", e),
+            ),
+            GrpcError::Authorization(e) => tonic::Status::new(
+                Code::PermissionDenied,
+                format!("Authorization error: {}", e),
+            ),
             GrpcError::Communication(e) => {
                 tonic::Status::new(Code::Unavailable, format!("Communication error: {}", e))
             }
@@ -63,4 +67,4 @@ impl From<GrpcError> for tonic::Status {
     }
 }
 
-pub type Result<T> = std::result::Result<T, GrpcError>; 
+pub type Result<T> = std::result::Result<T, GrpcError>;

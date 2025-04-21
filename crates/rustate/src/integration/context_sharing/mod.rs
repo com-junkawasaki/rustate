@@ -1,5 +1,5 @@
 //! # コンテキスト共有パターン
-//! 
+//!
 //! 複数のステートマシン間で共有コンテキストを使用してデータを共有するパターンの実装です。
 //! このパターンでは複数のクレートにまたがるステートマシンが同じコンテキストデータに
 //! アクセスして読み書きすることができます。
@@ -94,12 +94,12 @@
 //! - 複雑なデータ構造の場合、JSONシリアライズのオーバーヘッドが発生します
 //! - 書き込み操作が頻繁に行われる場合、読み込みのブロックが発生する可能性があります
 
+use crate::integration::error::{LockResultExt, Result};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
-use serde::{Serialize, de::DeserializeOwned};
-use crate::integration::error::{Result, LockResultExt};
 
 /// 共有コンテキスト
-/// 
+///
 /// このラッパーは複数のクレートにまたがるステートマシン間で
 /// コンテキストデータを安全に共有するために使用されます。
 #[derive(Clone, Default)]
@@ -115,7 +115,7 @@ impl SharedContext {
             data: Arc::new(RwLock::new(serde_json::json!({}))),
         }
     }
-    
+
     /// 共有コンテキストから値を取得
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let data = self.data.read().lock_err()?;
@@ -130,7 +130,7 @@ impl SharedContext {
             _ => Ok(None),
         }
     }
-    
+
     /// 共有コンテキストに値を設定
     pub fn set<T: Serialize>(&self, key: &str, value: T) -> Result<()> {
         let mut data = self.data.write().lock_err()?;
@@ -145,7 +145,7 @@ impl SharedContext {
             }
         }
     }
-    
+
     /// キーが存在するか確認
     pub fn contains_key(&self, key: &str) -> Result<bool> {
         let data = self.data.read().lock_err()?;
@@ -154,7 +154,7 @@ impl SharedContext {
             _ => Ok(false),
         }
     }
-    
+
     /// 共有コンテキストからキーを削除
     pub fn remove(&self, key: &str) -> Result<Option<serde_json::Value>> {
         let mut data = self.data.write().lock_err()?;
@@ -168,14 +168,14 @@ impl SharedContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Machine, MachineBuilder, State, Action, ActionType, Transition};
-    
+    use crate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
+
     #[test]
     fn test_context_sharing() {
         // 共有コンテキストを作成
         let shared_context = SharedContext::new();
         println!("Debug: Created shared context");
-        
+
         // 共有コンテキストに直接値を設定（テスト用）
         let _ = shared_context.set("status", "active");
         let _ = shared_context.set("counter", 1);
@@ -184,21 +184,21 @@ mod tests {
         // 2つのステートマシンを作成（両方とも同じ共有コンテキストを使用）
         let (_machine_a, mut machine_b) = create_machines(shared_context.clone());
         println!("Debug: Created machines A and B");
-        
+
         // 共有コンテキストの値を確認
         let status_before = shared_context.get::<String>("status");
         println!("Debug: Status from shared context: {:?}", status_before);
-        
+
         // テスト用に直接マシンBのコンテキストに値を設定
         println!("Debug: Directly setting values in machine B context");
         let _ = machine_b.context.set("localStatus", "active");
         let _ = machine_b.context.set("localCounter", 1);
-        
+
         // 共有コンテキストの値を確認
         let status = shared_context.get::<String>("status");
         println!("Debug: Final status: {:?}", status);
         assert_eq!(status.unwrap(), Some("active".to_string()));
-        
+
         let counter = shared_context.get::<i32>("counter");
         println!("Debug: Final counter: {:?}", counter);
         assert_eq!(counter.unwrap(), Some(1));
@@ -208,74 +208,67 @@ mod tests {
         let local_status = machine_b.context.get::<String>("localStatus");
         println!("Debug: Local status in machine B: {:?}", local_status);
         assert_eq!(local_status, Some("active".to_string()));
-        
+
         let local_counter = machine_b.context.get::<i32>("localCounter");
         println!("Debug: Local counter in machine B: {:?}", local_counter);
         assert_eq!(local_counter, Some(1));
     }
-    
+
     fn create_machines(shared_context: SharedContext) -> (Machine, Machine) {
         // クローンを作成して別々のクロージャに渡す
         let context_for_a = shared_context.clone();
         let context_for_b = shared_context;
-        
+
         // マシンA: 状態を更新する
         let state_a = State::new("stateA");
-        let update_action = Action::new(
-            "updateStatus",
-            ActionType::Transition,
-            move |_ctx, _evt| {
+        let update_action =
+            Action::new("updateStatus", ActionType::Transition, move |_ctx, _evt| {
                 println!("Debug: Executing update action");
                 let result = context_for_a.set("status", "active");
                 println!("Debug: Set status result: {:?}", result);
-                
+
                 let counter_result = context_for_a.get::<i32>("counter");
                 println!("Debug: Get counter result: {:?}", counter_result);
-                
+
                 let counter = counter_result.unwrap().unwrap_or(0);
                 let inc_result = context_for_a.set("counter", counter + 1);
                 println!("Debug: Increment counter result: {:?}", inc_result);
-            },
-        );
-        
-        // UPDATE_STATE 遷移を作成 
+            });
+
+        // UPDATE_STATE 遷移を作成
         let mut update_transition = Transition::internal_transition("stateA", "UPDATE_STATE");
         update_transition.with_action(update_action);
-        
+
         let machine_a = MachineBuilder::new("machineA")
             .state(state_a)
             .initial("stateA")
             .transition(update_transition)
             .build()
             .unwrap();
-            
+
         // マシンB: 状態を読み取る
         let state_b = State::new("stateB");
-        let read_action = Action::new(
-            "readStatus",
-            ActionType::Transition,
-            move |ctx, _evt| {
-                if let Ok(Some(status)) = context_for_b.get::<String>("status") {
-                    let _ = ctx.set("localStatus", status);
-                }
-                
-                if let Ok(Some(counter)) = context_for_b.get::<i32>("counter") {
-                    let _ = ctx.set("localCounter", counter);
-                }
-            },
-        );
-        
+        let read_action = Action::new("readStatus", ActionType::Transition, move |ctx, _evt| {
+            if let Ok(Some(status)) = context_for_b.get::<String>("status") {
+                let _ = ctx.set("localStatus", status);
+            }
+
+            if let Ok(Some(counter)) = context_for_b.get::<i32>("counter") {
+                let _ = ctx.set("localCounter", counter);
+            }
+        });
+
         // READ_STATE 遷移を作成
         let mut read_transition = Transition::internal_transition("stateB", "READ_STATE");
         read_transition.with_action(read_action);
-        
+
         let machine_b = MachineBuilder::new("machineB")
             .state(state_b)
             .initial("stateB")
             .transition(read_transition)
             .build()
             .unwrap();
-            
+
         (machine_a, machine_b)
     }
-} 
+}

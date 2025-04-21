@@ -1,5 +1,5 @@
 //! # 階層的統合パターン
-//! 
+//!
 //! 親子関係を持つステートマシン間の連携パターンの実装です。
 //! このパターンではトレイトを使用して親ステートマシンが子ステートマシンと
 //! 疎結合に連携できるようにします。
@@ -120,26 +120,26 @@
 //! - 深い階層構造を作成すると、デバッグや理解が難しくなる場合があります
 //! - マルチスレッド環境では、子ステートマシンへのアクセスに対する同期処理が必要です
 
-use crate::{Machine, IntoEvent};
 use crate::integration::error::Result;
+use crate::{IntoEvent, Machine};
 
 /// 子ステートマシンのインターフェース
-/// 
+///
 /// このトレイトは親ステートマシンから子ステートマシンへの
 /// 操作を抽象化するために使用されます。
 pub trait ChildMachine: Send + Sync {
     /// 親からのイベントを処理
     fn handle_parent_event<E: IntoEvent>(&mut self, event: E) -> Result<bool>;
-    
+
     /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool;
-    
+
     /// 特定の状態にあるか確認
     fn is_in(&self, state_id: &str) -> bool;
-    
+
     /// 現在の状態IDのリストを取得
     fn current_states(&self) -> Vec<String>;
-    
+
     /// 子ステートマシンのJSON表現を取得
     fn to_json(&self) -> Result<String>;
 }
@@ -160,12 +160,12 @@ impl DefaultChildMachine {
             final_state_id: final_state_id.into(),
         }
     }
-    
+
     /// 内部ステートマシンへの参照を取得
     pub fn machine(&self) -> &Machine {
         &self.machine
     }
-    
+
     /// 内部ステートマシンへの可変参照を取得
     pub fn machine_mut(&mut self) -> &mut Machine {
         &mut self.machine
@@ -176,19 +176,19 @@ impl ChildMachine for DefaultChildMachine {
     fn handle_parent_event<E: IntoEvent>(&mut self, event: E) -> Result<bool> {
         Ok(self.machine.send(event)?)
     }
-    
+
     fn is_in_final_state(&self) -> bool {
         self.machine.is_in(&self.final_state_id)
     }
-    
+
     fn is_in(&self, state_id: &str) -> bool {
         self.machine.is_in(state_id)
     }
-    
+
     fn current_states(&self) -> Vec<String> {
         self.machine.current_states.iter().cloned().collect()
     }
-    
+
     fn to_json(&self) -> Result<String> {
         Ok(self.machine.to_json()?)
     }
@@ -199,12 +199,9 @@ pub mod coordination {
     use super::*;
     use crate::{Action, ActionType, Context, Event};
     use std::sync::{Arc, Mutex};
-    
+
     /// 子ステートマシンの状態を監視するアクションを作成
-    pub fn create_child_monitor_action<C>(
-        name: impl Into<String>,
-        child: Arc<Mutex<C>>,
-    ) -> Action
+    pub fn create_child_monitor_action<C>(name: impl Into<String>, child: Arc<Mutex<C>>) -> Action
     where
         C: ChildMachine + 'static,
     {
@@ -216,14 +213,14 @@ pub mod coordination {
                     if child.is_in_final_state() {
                         let _ = ctx.set("childComplete", true);
                     }
-                    
+
                     // 子マシンの現在の状態をコンテキストに保存
                     let _ = ctx.set("childStates", child.current_states());
                 }
             },
         )
     }
-    
+
     /// 子ステートマシンにイベントを転送するアクションを作成
     pub fn create_event_forwarder_action<C, E>(
         name: impl Into<String>,
@@ -258,19 +255,19 @@ pub mod coordination {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{State, Transition, MachineBuilder};
+    use crate::{MachineBuilder, State, Transition};
     use std::sync::{Arc, Mutex};
-    
+
     #[test]
     fn test_hierarchical_integration() {
         // 子ステートマシンを作成
         let child_machine = create_child_machine();
         let child = DefaultChildMachine::new(child_machine, "final");
         let child = Arc::new(Mutex::new(child));
-        
+
         // 親ステートマシンを作成
         let mut parent_machine = create_parent_machine(child.clone());
-        
+
         // テスト用に直接子マシンにイベントを送信
         {
             println!("Debug: Accessing child machine directly");
@@ -279,33 +276,33 @@ mod tests {
             let result = child_lock.handle_parent_event("START");
             println!("Debug: Direct child event result: {:?}", result);
         }
-        
+
         // 親マシンに"START"イベントを送信（実際のテストではなく、形式だけ）
         let result = parent_machine.send("START");
         println!("Debug: Parent machine START event result: {:?}", result);
-        
+
         {
             // 子マシンの状態を確認
             let child_lock = child.lock().unwrap();
             let is_in_progress = child_lock.is_in("progress");
             println!("Debug: Child is in progress state: {:?}", is_in_progress);
             assert!(is_in_progress);
-            
+
             // 子マシンが最終状態にないことを確認
             let is_final = child_lock.is_in_final_state();
             println!("Debug: Child is in final state: {:?}", is_final);
             assert!(!is_final);
         }
     }
-    
+
     fn create_child_machine() -> Machine {
         let initial = State::new("initial");
         let progress = State::new("progress");
         let final_state = State::new_final("final");
-        
+
         let start = Transition::new("initial", "START", "progress");
         let complete = Transition::new("progress", "COMPLETE", "final");
-        
+
         MachineBuilder::new("childMachine")
             .state(initial)
             .state(progress)
@@ -316,19 +313,17 @@ mod tests {
             .build()
             .unwrap()
     }
-    
+
     fn create_parent_machine(child: Arc<Mutex<impl ChildMachine + 'static>>) -> Machine {
         let monitoring = State::new("monitoring");
         let completed = State::new("completed");
-        
+
         let _start_monitoring = Transition::new("monitoring", "CHECK", "completed");
-        
+
         // 子マシンの状態を監視するアクション
-        let monitor_action = coordination::create_child_monitor_action(
-            "monitorChild",
-            child.clone(),
-        );
-        
+        let monitor_action =
+            coordination::create_child_monitor_action("monitorChild", child.clone());
+
         // イベントを転送するアクション
         let forward_action = coordination::create_event_forwarder_action(
             "forwardToChild",
@@ -336,20 +331,23 @@ mod tests {
             "START",
             "START",
         );
-        
+
         // 監視完了を確認するガード
-        let check_complete = ("isChildComplete", |ctx: &crate::Context, _: &crate::Event| {
-            ctx.get::<bool>("childComplete").unwrap_or(false)
-        });
-        
+        let check_complete = (
+            "isChildComplete",
+            |ctx: &crate::Context, _: &crate::Event| {
+                ctx.get::<bool>("childComplete").unwrap_or(false)
+            },
+        );
+
         // START 内部遷移
         let mut start_transition = Transition::internal_transition("monitoring", "START");
         start_transition.with_action(forward_action);
-        
+
         // CHECK 遷移
         let mut check_transition = Transition::new("monitoring", "CHECK", "completed");
         check_transition.with_guard(check_complete);
-        
+
         MachineBuilder::new("parentMachine")
             .state(monitoring)
             .state(completed)
@@ -360,4 +358,4 @@ mod tests {
             .build()
             .unwrap()
     }
-} 
+}

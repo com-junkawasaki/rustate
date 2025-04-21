@@ -211,7 +211,7 @@ where
         + Sync
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
- {
+{
     fn default() -> Self {
         Self::new()
     }

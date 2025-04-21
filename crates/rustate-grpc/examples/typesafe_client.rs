@@ -1,11 +1,9 @@
 use rustate_grpc::client::typesafe::TypeSafeClient;
 use rustate_grpc::client::StateMachineServiceClient;
-use rustate_grpc::types::{
-    CreateMachineRequest, MachineDefinition, State, Transition, StateType,
-};
+use rustate_grpc::types::{CreateMachineRequest, MachineDefinition, State, StateType, Transition};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 // トラフィックライトのイベント型を定義
 #[derive(Clone, Debug)]
@@ -38,25 +36,24 @@ struct TrafficLightContext {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // サーバーアドレスを環境変数から取得するか、デフォルトを使用
     let server_addr = env::var("SERVER_ADDR").unwrap_or_else(|_| "http://[::1]:50051".to_string());
-    
+
     println!("サーバーに接続中: {}", server_addr);
-    
+
     // 通常のクライアントを作成
     let mut client = StateMachineServiceClient::connect(&server_addr).await?;
     println!("接続完了");
-    
+
     // ステートマシンの作成
     println!("トラフィックライトのステートマシンを作成中...");
     let machine_id = create_machine(&mut client).await?;
-    
+
     // 型安全なクライアントを作成
-    let mut typesafe_client = TypeSafeClient::<TrafficLightEvent, TrafficLightContext>::new(
-        &server_addr,
-        &machine_id,
-    ).await?;
-    
+    let mut typesafe_client =
+        TypeSafeClient::<TrafficLightEvent, TrafficLightContext>::new(&server_addr, &machine_id)
+            .await?;
+
     println!("\n型安全なクライアントを使用してイベントを送信します");
-    
+
     // イベント送信
     println!("\nTIMERイベントを送信中...");
     let result = typesafe_client.send_event(TrafficLightEvent::Timer).await?;
@@ -64,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  成功: {}", result.success);
     println!("  状態変化: {}", result.states_changed.join(" -> "));
     println!("  コンテキスト: {:?}", result.context);
-    
+
     // 現在の状態を取得
     println!("\n現在の状態を取得中...");
     let state = typesafe_client.get_state().await?;
@@ -72,15 +69,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  マシンID: {}", state.machine_id);
     println!("  状態: {}", state.current_states.join(", "));
     println!("  コンテキスト: {:?}", state.context);
-    
+
     // 緊急イベントを送信
     println!("\nEMERGENCYイベントを送信中...");
-    let result = typesafe_client.send_event(TrafficLightEvent::Emergency).await?;
+    let result = typesafe_client
+        .send_event(TrafficLightEvent::Emergency)
+        .await?;
     println!("EMERGENCY処理結果:");
     println!("  成功: {}", result.success);
     println!("  状態変化: {}", result.states_changed.join(" -> "));
     println!("  コンテキスト: {:?}", result.context);
-    
+
     // バッチ処理の例
     println!("\n複数イベントをバッチ処理中...");
     let events = vec![
@@ -88,20 +87,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TrafficLightEvent::Timer,
         TrafficLightEvent::Timer,
     ];
-    
+
     let batch_result = typesafe_client.batch_events(events).await?;
-    
+
     println!("バッチ処理結果:");
     for (i, result) in batch_result.results.iter().enumerate() {
-        println!("  イベント #{}: 成功={}, 状態={}", i + 1, result.success, result.states_changed.join(", "));
+        println!(
+            "  イベント #{}: 成功={}, 状態={}",
+            i + 1,
+            result.success,
+            result.states_changed.join(", ")
+        );
     }
-    
+
     if let Some(final_state) = batch_result.final_state {
         println!("\n最終状態:");
         println!("  状態: {}", final_state.current_states.join(", "));
         println!("  コンテキスト: {:?}", final_state.context);
     }
-    
+
     Ok(())
 }
 
@@ -184,20 +188,20 @@ async fn create_machine(
         guards: vec![],
         context: r#"{"counter": 0, "is_emergency": false, "last_event": ""}"#.to_string(),
     };
-    
+
     // ステートマシンの作成
     let create_request = CreateMachineRequest {
         definition: Some(machine_def),
     };
-    
+
     let response = client.create_machine(create_request).await?;
     let machine_id = response.get_ref().machine_id.clone();
-    
+
     println!("ステートマシンを作成しました: {}", machine_id);
-    
+
     if let Some(initial_state) = &response.get_ref().initial_state {
         println!("初期状態: {}", initial_state.current_states.join(", "));
     }
-    
+
     Ok(machine_id)
-} 
+}
