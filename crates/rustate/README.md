@@ -68,6 +68,127 @@ shared_machine.send_event("EVENT")?;
 
 See the `examples/integration` directory for complete integration examples.
 
+## Integration Patterns in Detail
+
+RuState provides three main integration patterns for connecting state machines across crate boundaries in a type-safe way:
+
+### 1. Event Forwarding Pattern
+
+This pattern allows state machines to communicate by sending events to each other. It's useful when you need to coordinate multiple state machines with minimal coupling.
+
+```rust
+use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
+use rustate::integration::SharedMachineRef;
+
+// Create a child state machine
+let child_machine = MachineBuilder::new("child")
+    .state(State::new("idle"))
+    .state(State::new("active"))
+    .initial("idle")
+    .transition(Transition::new("idle", "ACTIVATE", "active"))
+    .build()
+    .unwrap();
+
+// Create a shared reference
+let shared_child = SharedMachineRef::new(child_machine);
+let shared_child_clone = shared_child.clone();
+
+// Parent machine action that forwards events to child
+let forward_action = Action::new(
+    "forwardToChild",
+    ActionType::Transition,
+    move |_ctx, evt| {
+        if evt.event_type == "PARENT_EVENT" {
+            let _ = shared_child_clone.send_event("ACTIVATE");
+        }
+    }
+);
+```
+
+### 2. Context Sharing Pattern
+
+This pattern allows multiple state machines to share data through a common context. It's ideal for scenarios where state machines need to access and modify shared state.
+
+```rust
+use rustate::{Machine, MachineBuilder, State, Action, ActionType};
+use rustate::integration::SharedContext;
+
+// Create shared context
+let shared_context = SharedContext::new();
+let context_for_a = shared_context.clone();
+let context_for_b = shared_context.clone();
+
+// Action that writes to shared context
+let write_action = Action::new(
+    "writeData",
+    ActionType::Transition,
+    move |_ctx, _evt| {
+        let _ = context_for_a.set("status", "active");
+    }
+);
+
+// Action that reads from shared context
+let read_action = Action::new(
+    "readData",
+    ActionType::Transition,
+    move |ctx, _evt| {
+        if let Ok(Some(status)) = context_for_b.get::<String>("status") {
+            let _ = ctx.set("localStatus", status);
+        }
+    }
+);
+```
+
+### 3. Hierarchical Integration Pattern
+
+This pattern establishes parent-child relationships between state machines using traits. It's powerful for complex systems where you need to model hierarchical relationships with high cohesion but low coupling.
+
+```rust
+use std::sync::{Arc, Mutex};
+use rustate::{Machine, MachineBuilder, State, Transition};
+use rustate::integration::hierarchical::{ChildMachine, DefaultChildMachine, coordination};
+
+// Create a child state machine
+let child_machine = MachineBuilder::new("child")
+    .state(State::new("initial"))
+    .state(State::new("running"))
+    .state(State::new_final("complete"))
+    .initial("initial")
+    .transition(Transition::new("initial", "START", "running"))
+    .transition(Transition::new("running", "COMPLETE", "complete"))
+    .build()
+    .unwrap();
+
+// Wrap with trait implementation
+let child = DefaultChildMachine::new(child_machine, "complete");
+let child = Arc::new(Mutex::new(child));
+
+// Create action that monitors child machine state
+let monitor_action = coordination::create_child_monitor_action(
+    "monitorChild",
+    child.clone()
+);
+
+// Create action that forwards events to child machine
+let forward_action = coordination::create_event_forwarder_action(
+    "forwardToChild",
+    child,
+    "PARENT_START",  // Event received by parent
+    "START"          // Event forwarded to child
+);
+```
+
+### Combining Integration Patterns
+
+For complex systems, these patterns can be combined to create powerful integration strategies. See the `examples/integration/combined_demo.rs` for a complete example that demonstrates all three patterns working together.
+
+For asynchronous integration capabilities, use the `integration_async` feature:
+
+```toml
+[dependencies]
+rustate = { version = "0.2.2", features = ["integration_async"] }
+```
+
 ## Usage Example
 
 ### Simple State Machine
