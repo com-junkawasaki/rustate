@@ -4,7 +4,7 @@ import {
     State,
     Transition,
     init,
-} from '../pkg/rustate.js'; // Changed path to relative
+} from '../crates/rustate/pkg/rustate.js'; // Changed path to relative
 
 let currentTrack = 0;
 
