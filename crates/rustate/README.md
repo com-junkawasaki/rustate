@@ -14,6 +14,7 @@ implement finite state machines and statecharts in Rust, with full support for m
 - ✅ Typesafe API
 - ✅ Serializable machines
 - ✅ Model-based testing support
+- ✅ Cross-crate integration patterns
 
 ## Model-Based Testing Integration
 
@@ -29,6 +30,43 @@ RuState now includes comprehensive model-based testing features:
 - **TestGenerator**: Creates test cases for states, transitions, and loop coverage
 - **TestRunner**: Executes test cases against your machine
 - **ModelChecker**: Verifies model properties and detects deadlocks and unreachable states
+
+## Cross-Crate Integration Patterns
+
+RuState provides patterns for integrating state machines across crates with type safety:
+
+1. **Event Forwarding Pattern**: Share state machine references and forward events between machines
+2. **Context Sharing Pattern**: Share context data between multiple state machines
+3. **Hierarchical Integration Pattern**: Connect parent-child state machines with traits
+
+Enable with the `integration` feature:
+
+```toml
+[dependencies]
+rustate = { version = "0.2.0", features = ["integration"] }
+```
+
+### Integration Example
+
+```rust
+use rustate::{
+    Machine, MachineBuilder, State, Transition,
+    integration::{
+        SharedMachineRef,
+        SharedContext,
+        ChildMachine,
+    },
+};
+
+// Create and share a state machine
+let machine = create_machine();
+let shared_machine = SharedMachineRef::new(machine);
+
+// Forward events
+shared_machine.send_event("EVENT")?;
+```
+
+See the `examples/integration` directory for complete integration examples.
 
 ## Usage Example
 
@@ -142,7 +180,7 @@ rustate = "0.2.0"
 - **Context**: Stores extended state for the machine
 - **TestGenerator**: Creates test cases from your state machine model
 - **TestRunner**: Executes test cases against your machine
-- **ModelChecker**: Verifies properties and analyzes your state machine
+- **ModelChecker**: Verifies properties and analyzes your state machine model
 
 ### API Overview
 
@@ -165,7 +203,7 @@ rustate = "0.2.0"
 - Fuzzing-based MBT
 - Temporal logic (LTL/CTL) property specification and verification
 - Performance optimizations for large state machines
-- Distributed system state machine coordination
+- ✅ Distributed system state machine coordination
 - Enhanced WebAssembly (WASM) support
 - Integration with visual state machine editors
 - Automatic state machine model generation from existing systems

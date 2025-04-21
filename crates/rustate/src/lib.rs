@@ -14,6 +14,10 @@ mod wasm;
 #[cfg(feature = "wasm")]
 pub use wasm::*;
 
+// クレート統合用モジュール
+#[cfg(feature = "integration")]
+pub mod integration;
+
 pub use action::{Action, ActionType, IntoAction};
 pub use context::Context;
 pub use error::{Result, StateError as Error};
@@ -27,6 +31,16 @@ pub use transition::Transition;
 pub use test::{
     CoverageReport, ModelChecker, Property, PropertyType, TestCase, TestGenerator, TestResult,
     TestResults, TestRunner, VerificationResult,
+};
+
+// 統合パターンの機能をエクスポート
+#[cfg(feature = "integration")]
+pub use integration::{
+    event_forwarding::SharedMachineRef,
+    context_sharing::SharedContext,
+    hierarchical::ChildMachine,
+    Error as IntegrationError,
+    Result as IntegrationResult,
 };
 
 #[cfg(test)]
