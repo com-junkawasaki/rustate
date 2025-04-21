@@ -381,3 +381,76 @@ MIT
 - [ ] CI/CDパイプラインの強化
 
 最終更新: 2024年5月7日 
+
+## gRPC インターフェース
+
+RuStateはgRPCを通じて型安全な状態機械APIを提供します。以下の機能があります：
+
+- **型安全なステートマシン操作**: RuStateの全機能をgRPC経由で利用可能
+- **リアルタイム状態変化監視**: ストリーミングでステートマシンの状態変化をリアルタイム監視
+- **バッチ処理**: 複数イベントのトランザクション的処理
+- **自動コード生成**: クライアント側の型安全コードを動的生成
+- **クロスプラットフォーム**: 様々な言語・環境からアクセス可能
+
+### サーバー側の使用例
+
+```rust
+use rustate_grpc::run_server;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // サーバーをポート50051で起動
+    run_server("[::1]:50051").await?;
+    
+    Ok(())
+}
+```
+
+### 型安全なクライアント
+
+```rust
+use rustate_grpc::client::typesafe::TypeSafeClient;
+use std::fmt;
+
+// イベント型を定義
+#[derive(Clone)]
+enum TrafficLightEvent {
+    Timer,
+    Emergency,
+    Reset,
+}
+
+impl fmt::Display for TrafficLightEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Timer => write!(f, "TIMER"),
+            Self::Emergency => write!(f, "EMERGENCY"),
+            Self::Reset => write!(f, "RESET"),
+        }
+    }
+}
+
+// コンテキスト型を定義
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
+struct TrafficLightContext {
+    counter: u32,
+    is_emergency: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 型安全なクライアントを作成
+    let mut client = TypeSafeClient::<TrafficLightEvent, TrafficLightContext>::new(
+        "http://[::1]:50051",
+        "traffic_light",
+    ).await?;
+    
+    // イベント送信
+    let result = client.send_event(TrafficLightEvent::Timer).await?;
+    println!("イベント処理結果: {:?}", result);
+    
+    Ok(())
+}
+```
+
+詳細は[gRPCドキュメント](./crates/rustate-grpc/README.md)を参照してください。 

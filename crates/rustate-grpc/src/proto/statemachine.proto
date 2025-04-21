@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package rustate;
+
+// StateTypeの定義
+enum StateType {
+  NORMAL = 0;
+  FINAL = 1;
+  HISTORY = 2;
+  PARALLEL = 3;
+}
+
+// Stateの定義
+message State {
+  string id = 1;
+  StateType type = 2;
+  string parent = 3;
+  repeated string children = 4;
+}
+
+// Guardの定義
+message Guard {
+  string id = 1;
+  string condition = 2;
+}
+
+// Actionの定義
+enum ActionType {
+  ENTRY = 0;
+  EXIT = 1;
+  TRANSITION = 2;
+}
+
+message Action {
+  string id = 1;
+  ActionType type = 2;
+}
+
+// Transitionの定義
+message Transition {
+  string source = 1;
+  string event = 2;
+  string target = 3;
+  repeated string guards = 4;
+  repeated string actions = 5;
+}
+
+// ステートマシンの定義
+message MachineDefinition {
+  string id = 1;
+  string initial = 2;
+  repeated State states = 3;
+  repeated Transition transitions = 4;
+  repeated Action actions = 5;
+  repeated Guard guards = 6;
+  string context = 7; // JSON形式のコンテキスト
+}
+
+// マシンの現在の状態
+message MachineState {
+  string machine_id = 1;
+  repeated string current_states = 2; // 現在アクティブな状態のID
+  string context = 3; // JSON文字列形式のコンテキスト
+}
+
+// イベント定義
+message EventDefinition {
+  string machine_id = 1;
+  string event_type = 2;
+  string payload = 3; // JSON文字列形式のペイロード
+}
+
+// イベント結果
+message EventResult {
+  bool success = 1;
+  repeated string states_changed = 2; // 変更された状態
+  string context = 3; // 更新後のコンテキスト
+  string error_message = 4; // エラーが発生した場合のメッセージ
+}
+
+// ステートマシン作成リクエスト
+message CreateMachineRequest {
+  MachineDefinition definition = 1;
+}
+
+// ステートマシン作成レスポンス
+message CreateMachineResponse {
+  string machine_id = 1;
+  MachineState initial_state = 2;
+}
+
+// イベント送信リクエスト
+message SendEventRequest {
+  EventDefinition event = 1;
+}
+
+// イベント送信レスポンス
+message SendEventResponse {
+  EventResult result = 1;
+}
+
+// ステートマシン状態取得リクエスト
+message GetStateRequest {
+  string machine_id = 1;
+}
+
+// バッチイベント送信リクエスト
+message BatchEventsRequest {
+  string machine_id = 1;
+  repeated EventDefinition events = 2;
+}
+
+// バッチイベント送信レスポンス
+message BatchEventsResponse {
+  repeated EventResult results = 1;
+  MachineState final_state = 2;
+}
+
+// ステートマシン登録解除リクエスト
+message UnregisterMachineRequest {
+  string machine_id = 1;
+}
+
+// ステートマシン登録解除レスポンス
+message UnregisterMachineResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// 状態変更イベント（ストリーミング用）
+message StateChangeEvent {
+  string machine_id = 1;
+  string event_type = 2;
+  repeated string previous_states = 3;
+  repeated string current_states = 4;
+  string context = 5; // JSON文字列形式のコンテキスト
+  string timestamp = 6; // ISO8601形式のタイムスタンプ
+}
+
+// ステートマシン監視リクエスト
+message WatchMachineRequest {
+  string machine_id = 1;
+  bool include_context = 2; // コンテキスト変更も含める
+}
+
+// 型安全なクライアント生成リクエスト
+message GenerateClientCodeRequest {
+  string machine_id = 1;
+  string language = 2; // 'rust', 'typescript', etc.
+}
+
+// 型安全なクライアント生成レスポンス
+message GenerateClientCodeResponse {
+  string code = 1; // 生成されたコード
+}
+
+// ステートマシンサービス
+service StateMachineService {
+  // ステートマシンの作成と登録
+  rpc CreateMachine(CreateMachineRequest) returns (CreateMachineResponse);
+  
+  // イベントの送信
+  rpc SendEvent(SendEventRequest) returns (SendEventResponse);
+  
+  // ステートマシンの現在の状態を取得
+  rpc GetState(GetStateRequest) returns (MachineState);
+  
+  // 複数イベントをバッチ処理
+  rpc BatchEvents(BatchEventsRequest) returns (BatchEventsResponse);
+  
+  // ステートマシンの登録解除
+  rpc UnregisterMachine(UnregisterMachineRequest) returns (UnregisterMachineResponse);
+  
+  // ステートマシンの状態変化を監視（ストリーミング）
+  rpc WatchMachine(WatchMachineRequest) returns (stream StateChangeEvent);
+  
+  // 型安全なクライアントコードの生成
+  rpc GenerateClientCode(GenerateClientCodeRequest) returns (GenerateClientCodeResponse);
+} 
