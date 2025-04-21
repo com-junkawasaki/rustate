@@ -1,4 +1,3 @@
-use rustate_editor::Editor;
 
 fn main() {
     // WASMをビルドする場合は何もしないが、

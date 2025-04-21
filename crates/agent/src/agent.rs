@@ -1,7 +1,7 @@
 use crate::{
-    decision::{Decision, DecisionContext, DecisionMaker},
+    decision::{Decision, DecisionContext},
     episode::Episode,
-    error::AgentError,
+    error::{AgentError, Result},
     feedback::Feedback,
     insight::Insight,
     observation::Observation,
@@ -215,11 +215,8 @@ where
             None => return Err(AgentError::NoActiveEpisode),
         };
 
-        // ゴール状態の取得
-        let goal_state = match &episode.goal_state {
-            Some(goal) => goal.clone(),
-            None => return Err(AgentError::NoGoalDefined),
-        };
+        // ゴール状態を取得
+        let goal_state = episode.goal_state.clone();
 
         // 最大ステップ数または無制限にステップを実行
         let mut steps = 0;

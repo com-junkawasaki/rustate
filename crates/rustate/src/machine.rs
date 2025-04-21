@@ -5,7 +5,6 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::cell::RefCell;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]

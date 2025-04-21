@@ -113,7 +113,7 @@ where
 mod tests {
     use super::*;
     use serde_json::Value;
-    use rustate::{EventTrait, StateType, StateTrait};
+    use rustate::{EventTrait, StateTrait};
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum TestState {

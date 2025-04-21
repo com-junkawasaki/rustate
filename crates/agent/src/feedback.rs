@@ -5,7 +5,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json::Value;
 
 /// フィードバックの種類
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -115,6 +114,7 @@ where
 mod tests {
     use super::*;
     use rustate::{EventTrait};
+    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum TestEvent {
