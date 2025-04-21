@@ -1,7 +1,5 @@
 use crate::editor::EditorState;
 use rustate::state::State;
-use rustate::transition::Transition;
-use serde_json::json;
 use uuid::Uuid;
 use yew::prelude::*;
 
@@ -21,7 +19,7 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
             let mut new_editor_state = (*editor_state).clone();
             let state_id = Uuid::new_v4().to_string();
             
-            let new_state = State::new(&state_id, rustate::state::StateType::Normal);
+            let new_state = State::new(&state_id);
             
             new_editor_state.machine.states.insert(state_id, new_state);
             editor_state.set(new_editor_state);
@@ -54,15 +52,13 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
                     new_editor_state.machine.transitions.retain(|t| {
                         t.source != *element_id && t.target.as_ref().map_or(true, |target| target != element_id)
                     });
-                } else {
-                    let transition_index = new_editor_state.machine.transitions.iter()
-                        .position(|t| {
-                            format!("{}-{}-{}", t.source, t.target.as_ref().unwrap_or(&String::new()),
-                                t.event.as_ref().unwrap_or(&String::new())) == *element_id
-                        });
-                        
-                    if let Some(index) = transition_index {
-                        new_editor_state.machine.transitions.remove(index);
+                } else if element_id.starts_with("transition-") {
+                    if let Some(index_str) = element_id.strip_prefix("transition-") {
+                        if let Ok(index) = index_str.parse::<usize>() {
+                            if index < new_editor_state.machine.transitions.len() {
+                                new_editor_state.machine.transitions.remove(index);
+                            }
+                        }
                     }
                 }
                 
@@ -73,8 +69,6 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
     };
 
     let on_generate_code = {
-        let editor_state = props.editor_state.clone();
-        
         Callback::from(move |_: MouseEvent| {
             web_sys::window()
                 .and_then(|win| win.open_with_url_and_target("/generate-code", "_blank").ok())

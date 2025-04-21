@@ -27,17 +27,13 @@ pub fn auto_layout(machine: &mut Machine) {
         
         // このステートの位置を設定
         if let Some(state) = machine.states.get_mut(&state_id) {
-            // Create metadata if it doesn't exist
-            if !state.metadata.is_object() {
-                state.metadata = serde_json::Value::Object(serde_json::Map::new());
-            }
+            // Set position in data field
+            let position_data = json!({
+                "x": x,
+                "y": y
+            });
             
-            // Set x and y values
-            if let Some(obj) = state.metadata.as_object_mut() {
-                obj.insert("x".to_string(), json!(x));
-                obj.insert("y".to_string(), json!(y));
-            }
-            
+            state.with_data(position_data);
             visited.insert(state_id.clone(), (x, y));
             
             // 次の位置を計算
@@ -65,16 +61,13 @@ pub fn auto_layout(machine: &mut Machine) {
     // 残ったステートを処理（孤立したステート）
     for (id, state) in &mut machine.states {
         if !visited.contains_key(id) {
-            // Create metadata if it doesn't exist
-            if !state.metadata.is_object() {
-                state.metadata = serde_json::Value::Object(serde_json::Map::new());
-            }
+            // Set position in data field
+            let position_data = json!({
+                "x": x,
+                "y": y
+            });
             
-            // Set x and y values
-            if let Some(obj) = state.metadata.as_object_mut() {
-                obj.insert("x".to_string(), json!(x));
-                obj.insert("y".to_string(), json!(y));
-            }
+            state.with_data(position_data);
             
             x += padding;
             if x > 600.0 {

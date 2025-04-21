@@ -1,5 +1,5 @@
-use rustate::machine::Machine;
-use serde::{Deserialize, Serialize};
+use rustate::machine::{Machine, MachineBuilder};
+use rustate::{Event, State};
 use wasm_bindgen::prelude::*;
 
 // エディタのメインクラス
@@ -39,23 +39,35 @@ impl Editor {
 }
 
 // エディタの状態
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct EditorState {
     pub machine: Machine,
     pub selected_element: Option<String>,
     pub mode: EditorMode,
 }
 
+// Manual implementation of PartialEq for EditorState since Machine doesn't implement it
+impl PartialEq for EditorState {
+    fn eq(&self, other: &Self) -> bool {
+        // We can't compare machines directly, so we'll compare their serialized forms
+        let this_machine = serde_json::to_string(&self.machine).unwrap_or_default();
+        let other_machine = serde_json::to_string(&other.machine).unwrap_or_default();
+        
+        this_machine == other_machine
+            && self.selected_element == other.selected_element
+            && self.mode == other.mode
+    }
+}
+
 impl EditorState {
     pub fn new() -> Self {
-        // Create a default machine
-        let machine = Machine::new(
-            rustate::MachineBuilder::new("default_machine")
-                .initial("initial")
-                .state(rustate::State::new("initial", rustate::state::StateType::Normal))
-                .build()
-                .unwrap_or_else(|_| panic!("Failed to create default machine"))
-        );
+        // Create a default machine with builder with explicit type annotations
+        let builder: MachineBuilder<State, Event> = MachineBuilder::new("default_machine")
+            .initial("initial")
+            .state(rustate::State::new("initial"));
+            
+        // Build the machine
+        let machine = Machine::new(builder).expect("Failed to create default machine");
 
         Self {
             machine,

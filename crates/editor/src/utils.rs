@@ -23,38 +23,98 @@ pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
     
     // ステートの生成
     for (id, state) in &machine.states {
-        let state_type = match state.state_type {
-            rustate::state::StateType::Normal => "Normal",
-            rustate::state::StateType::Initial => "Initial",
-            rustate::state::StateType::Final => "Final",
-            rustate::state::StateType::Compound => "Compound",
-            rustate::state::StateType::Parallel => "Parallel",
-            rustate::state::StateType::History => "History",
-            _ => "Normal", // Default
-        };
-        
-        code.push_str(&format!(
-            "    builder = builder.state(rustate::State::new(\"{}\", rustate::state::StateType::{}){};\n",
-            id,
-            state_type,
-            if id == &machine.initial { ".make_initial()" } else { "" }
-        ));
+        match state.state_type {
+            rustate::state::StateType::Normal => {
+                code.push_str(&format!(
+                    "    // State: {}\n", id
+                ));
+                code.push_str(&format!(
+                    "    builder = builder.state(rustate::State::new(\"{}\"));\n",
+                    id
+                ));
+            },
+            rustate::state::StateType::Final => {
+                code.push_str(&format!(
+                    "    // State: {}\n", id
+                ));
+                code.push_str(&format!(
+                    "    builder = builder.state(rustate::State::new_final(\"{}\"));\n",
+                    id
+                ));
+            },
+            rustate::state::StateType::Compound => {
+                if let Some(initial) = &state.initial {
+                    code.push_str(&format!(
+                        "    // State: {}\n", id
+                    ));
+                    code.push_str(&format!(
+                        "    builder = builder.state(rustate::State::new_compound(\"{}\", \"{}\"));\n",
+                        id, initial
+                    ));
+                } else {
+                    code.push_str(&format!(
+                        "    // Warning: Compound state without initial state\n"
+                    ));
+                    code.push_str(&format!(
+                        "    builder = builder.state(rustate::State::new(\"{}\"));\n",
+                        id
+                    ));
+                }
+            },
+            rustate::state::StateType::Parallel => {
+                code.push_str(&format!(
+                    "    // State: {}\n", id
+                ));
+                code.push_str(&format!(
+                    "    builder = builder.state(rustate::State::new_parallel(\"{}\"));\n",
+                    id
+                ));
+            },
+            rustate::state::StateType::History => {
+                code.push_str(&format!(
+                    "    // State: {}\n", id
+                ));
+                code.push_str(&format!(
+                    "    builder = builder.state(rustate::State::new_history(\"{}\"));\n",
+                    id
+                ));
+            },
+            rustate::state::StateType::DeepHistory => {
+                code.push_str(&format!(
+                    "    // State: {}\n", id
+                ));
+                code.push_str(&format!(
+                    "    builder = builder.state(rustate::State::new_deep_history(\"{}\"));\n",
+                    id
+                ));
+            },
+        }
     }
     
     code.push_str("\n");
     
+    // Set initial state
+    if !machine.initial.is_empty() {
+        code.push_str(&format!(
+            "    builder = builder.initial(\"{}\");\n\n",
+            machine.initial
+        ));
+    }
+    
     // 遷移の追加
     for transition in &machine.transitions {
         if let Some(target) = &transition.target {
-            let event = transition.event.as_ref()
-                .map(|e| format!("Some(\"{}\")", e))
-                .unwrap_or_else(|| "None".to_string());
-                
             code.push_str(&format!(
-                "    builder = builder.transition(rustate::Transition::new(\"{}\", \"{}\", {}));\n",
+                "    builder = builder.transition(rustate::Transition::new(\"{}\", \"{}\", \"{}\"));\n",
                 transition.source,
-                target,
-                event
+                transition.event,
+                target
+            ));
+        } else {
+            code.push_str(&format!(
+                "    builder = builder.transition(rustate::Transition::internal_transition(\"{}\", \"{}\"));\n",
+                transition.source,
+                transition.event
             ));
         }
     }
