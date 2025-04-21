@@ -27,7 +27,7 @@ tokio = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 
 [features]
-default = ["uuid"]
+default = ["uuid", "integration"]
 wasm = ["wasm-bindgen", "js-sys", "web-sys", "console_error_panic_hook", "uuid/js"]
 # モデルベーステスト機能を有効化（デフォルトで有効）
 mbt = []
