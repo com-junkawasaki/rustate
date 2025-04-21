@@ -18,8 +18,8 @@ pub use property::{
 // XState v5 互換モジュールをexport
 #[cfg(feature = "xstate-compat")]
 pub use xstate::{
-    XStateTestModel, XStateTestPlan, XStateTestPath, XStatePathSegment,
-    create_test_model, execute_test_plan,
+    create_test_model, execute_test_plan, XStatePathSegment, XStateTestModel, XStateTestPath,
+    XStateTestPlan,
 };
 
 #[cfg(test)]

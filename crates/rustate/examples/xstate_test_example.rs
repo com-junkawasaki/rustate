@@ -1,7 +1,6 @@
 use rustate::{
-    Action, ActionType, Machine, MachineBuilder, State, Transition,
-    XStateTestModel, XStateTestPlan, XStateTestPath, XStatePathSegment,
-    create_test_model, execute_test_plan,
+    create_test_model, execute_test_plan, Action, ActionType, Machine, MachineBuilder, State,
+    Transition, XStatePathSegment, XStateTestModel, XStateTestPath, XStateTestPlan,
 };
 
 fn main() {
@@ -47,27 +46,41 @@ fn main() {
         Ok(result) => {
             println!("テスト成功: {}", result.success);
             println!("全パスカバー: {}", result.all_paths_covered);
-            
+
             for (i, path_result) in result.path_results.iter().enumerate() {
-                println!("\nパス {}: {} ({})", 
-                    i + 1, 
+                println!(
+                    "\nパス {}: {} ({})",
+                    i + 1,
                     path_result.path_name,
-                    if path_result.success { "成功" } else { "失敗" }
+                    if path_result.success {
+                        "成功"
+                    } else {
+                        "失敗"
+                    }
                 );
-                
+
                 if !path_result.failures.is_empty() {
                     println!("失敗:");
                     for failure in &path_result.failures {
-                        println!("  - セグメント {}: {}", failure.segment_index, failure.error);
+                        println!(
+                            "  - セグメント {}: {}",
+                            failure.segment_index, failure.error
+                        );
                     }
                 }
             }
-            
+
             // カバレッジを取得
             let coverage = model.get_coverage();
             println!("\n=== カバレッジ情報 ===");
-            println!("状態カバレッジ: {:.1}%", coverage.state_coverage_percentage());
-            println!("遷移カバレッジ: {:.1}%", coverage.transition_coverage_percentage());
+            println!(
+                "状態カバレッジ: {:.1}%",
+                coverage.state_coverage_percentage()
+            );
+            println!(
+                "遷移カバレッジ: {:.1}%",
+                coverage.transition_coverage_percentage()
+            );
         }
         Err(err) => {
             println!("テスト実行中にエラーが発生しました: {}", err);
@@ -234,4 +247,4 @@ fn create_test_plan() -> XStateTestPlan {
             },
         ],
     }
-} 
+}

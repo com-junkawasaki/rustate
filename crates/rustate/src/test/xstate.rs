@@ -126,9 +126,15 @@ where
                 failures.push(SegmentFailure {
                     segment_index: i,
                     state: segment.state.clone(),
-                    error: format!("Expected state '{}' but machine is in '{}'", 
-                        segment.state, 
-                        machine_clone.current_states.iter().next().unwrap_or(&"unknown".to_string())),
+                    error: format!(
+                        "Expected state '{}' but machine is in '{}'",
+                        segment.state,
+                        machine_clone
+                            .current_states
+                            .iter()
+                            .next()
+                            .unwrap_or(&"unknown".to_string())
+                    ),
                 });
                 break;
             }
@@ -158,7 +164,7 @@ where
             // 次のイベントを送信
             if let Some(event_type) = &segment.event {
                 let event = Event::new(event_type.clone());
-                
+
                 // イベント送信
                 if let Err(err) = machine_clone.send(event) {
                     success = false;
@@ -184,20 +190,20 @@ where
     pub fn generate_paths(&self, max_depth: usize) -> XStateTestPlan {
         let mut paths = Vec::new();
         let initial_state = self.machine.initial.clone();
-        
+
         // DFSで可能なパスをすべて探索
         let mut visited = HashSet::new();
         let mut current_path = Vec::new();
-        
+
         self.dfs_generate_paths(
-            &initial_state, 
-            &mut visited, 
-            &mut current_path, 
-            &mut paths, 
-            0, 
-            max_depth
+            &initial_state,
+            &mut visited,
+            &mut current_path,
+            &mut paths,
+            0,
+            max_depth,
         );
-        
+
         XStateTestPlan {
             name: format!("Generated plan for {}", self.machine.name),
             paths,
@@ -205,7 +211,7 @@ where
             description: Some("Automatically generated test plan".to_string()),
         }
     }
-    
+
     /// DFSを使用して可能なパスを生成
     fn dfs_generate_paths(
         &self,
@@ -228,19 +234,22 @@ where
             }
             return;
         }
-        
+
         // 現在の状態をパスに追加
         current_path.push(XStatePathSegment {
             state: current_state.to_string(),
             event: None,
             assertions: None,
         });
-        
+
         // この状態から可能な遷移をすべて探索
-        let outgoing_transitions = self.machine.transitions.iter()
+        let outgoing_transitions = self
+            .machine
+            .transitions
+            .iter()
             .filter(|t| t.source == current_state && t.target.is_some())
             .collect::<Vec<_>>();
-            
+
         if outgoing_transitions.is_empty() {
             // 出口がない状態（最終状態）の場合、パスを記録
             paths.push(XStateTestPath {
@@ -252,44 +261,51 @@ where
             // 各遷移を探索
             for transition in outgoing_transitions {
                 let target = transition.target.as_ref().unwrap();
-                
+
                 // 遷移情報を現在のパスに追加
                 current_path.push(XStatePathSegment {
                     state: current_state.to_string(),
                     event: Some(transition.event.clone()),
                     assertions: None,
                 });
-                
+
                 // 訪問済みでなければ再帰的に探索
                 if !visited.contains(&format!("{}-{}", current_state, target)) {
                     visited.insert(format!("{}-{}", current_state, target));
-                    self.dfs_generate_paths(target, visited, current_path, paths, depth + 1, max_depth);
+                    self.dfs_generate_paths(
+                        target,
+                        visited,
+                        current_path,
+                        paths,
+                        depth + 1,
+                        max_depth,
+                    );
                     visited.remove(&format!("{}-{}", current_state, target));
                 }
-                
+
                 // バックトラック
                 current_path.pop();
             }
         }
-        
+
         // バックトラック
         current_path.pop();
     }
-    
+
     /// カバレッジレポートを取得
     pub fn get_coverage(&self) -> TestCoverageReport {
         let total_states = self.machine.states.len();
         let total_transitions = self.machine.transitions.len();
-        
+
         // 探索済みのパスからカバレッジを計算
         let mut visited_states = HashSet::new();
         let mut visited_transitions = HashSet::new();
-        
+
         for path_hash in &self.verified_paths {
             // ここではシンプルに実装
             // 実際には検証済みパスから状態と遷移をカウント
         }
-        
+
         TestCoverageReport {
             visited_states_count: visited_states.len(),
             total_states,
@@ -400,10 +416,11 @@ mod tests {
         let red = crate::State::new("red");
 
         // カウンターをインクリメントするアクション
-        let increment_action = Action::new("incrementCounter", ActionType::Transition, |ctx, _evt| {
-            let counter = ctx.get::<i32>("counter").unwrap_or(0);
-            let _ = ctx.set("counter", counter + 1);
-        });
+        let increment_action =
+            Action::new("incrementCounter", ActionType::Transition, |ctx, _evt| {
+                let counter = ctx.get::<i32>("counter").unwrap_or(0);
+                let _ = ctx.set("counter", counter + 1);
+            });
 
         // 遷移を定義
         let green_to_yellow = Transition::new("green", "TIMER", "yellow");
@@ -435,7 +452,7 @@ mod tests {
     fn test_generate_paths() {
         let machine = create_test_machine();
         let model = create_test_model(machine);
-        
+
         let plan = model.generate_paths(3);
         assert!(!plan.paths.is_empty());
     }
@@ -444,59 +461,57 @@ mod tests {
     fn test_execute_plan() {
         let machine = create_test_machine();
         let mut model = create_test_model(machine);
-        
+
         // カウンターが増加するという条件を検証するアサーション
         model.assert("counterIncreased", |m| {
             let counter = m.context.get::<i32>("counter").unwrap_or(0);
             counter > 0
         });
-        
+
         // テストプランを作成
         let plan = XStateTestPlan {
             name: "Traffic Light Test".to_string(),
-            paths: vec![
-                XStateTestPath {
-                    name: "Full Cycle".to_string(),
-                    segments: vec![
-                        XStatePathSegment {
-                            state: "green".to_string(),
-                            event: None,
-                            assertions: None,
-                        },
-                        XStatePathSegment {
-                            state: "green".to_string(),
-                            event: Some("TIMER".to_string()),
-                            assertions: None,
-                        },
-                        XStatePathSegment {
-                            state: "yellow".to_string(),
-                            event: Some("TIMER".to_string()),
-                            assertions: None,
-                        },
-                        XStatePathSegment {
-                            state: "red".to_string(),
-                            event: Some("TIMER".to_string()),
-                            assertions: Some(vec!["counterIncreased".to_string()]),
-                        },
-                        XStatePathSegment {
-                            state: "green".to_string(),
-                            event: None,
-                            assertions: None,
-                        },
-                    ],
-                    description: Some("Test a full cycle through all states".to_string()),
-                },
-            ],
+            paths: vec![XStateTestPath {
+                name: "Full Cycle".to_string(),
+                segments: vec![
+                    XStatePathSegment {
+                        state: "green".to_string(),
+                        event: None,
+                        assertions: None,
+                    },
+                    XStatePathSegment {
+                        state: "green".to_string(),
+                        event: Some("TIMER".to_string()),
+                        assertions: None,
+                    },
+                    XStatePathSegment {
+                        state: "yellow".to_string(),
+                        event: Some("TIMER".to_string()),
+                        assertions: None,
+                    },
+                    XStatePathSegment {
+                        state: "red".to_string(),
+                        event: Some("TIMER".to_string()),
+                        assertions: Some(vec!["counterIncreased".to_string()]),
+                    },
+                    XStatePathSegment {
+                        state: "green".to_string(),
+                        event: None,
+                        assertions: None,
+                    },
+                ],
+                description: Some("Test a full cycle through all states".to_string()),
+            }],
             preconditions: None,
             description: Some("Test the traffic light state machine".to_string()),
         };
-        
+
         let result = execute_test_plan(&mut model, &plan);
         assert!(result.is_ok());
-        
+
         let result = result.unwrap();
         assert!(result.success);
         assert_eq!(result.path_results.len(), 1);
         assert!(result.path_results[0].success);
     }
-} 
+}
