@@ -1,70 +1,92 @@
-# RuState WebAssembly Demo
+# RuState Web Demo
 
-This is the WebAssembly demo page for the RuState library. You can see how the traffic light and music player state machines work in your browser.
+This directory contains a WebAssembly demo for the RuState statechart library.
 
-## How to Build
+## Prerequisites
 
-### Required Tools
+- Rust (1.56.0 or later)
+- [Trunk](https://trunkrs.dev/) - WebAssembly bundler for Rust
+- wasm-bindgen-cli - WebAssembly binding generator
 
-- Rust (1.50 or later)
-- wasm-pack (0.9.1 or later)
-- Node.js (14.0.0 or later)
+## Installation
 
-### Installation
-
-```bash
-# Install wasm-pack
-cargo install wasm-pack
-
-# Other dependencies
-npm install
-```
-
-### Build Steps
-
-```bash
-# Compile the rustate crate to wasm
-wasm-pack build --target web --features wasm
-
-# Start the development server
-cd web
-python -m http.server
-# Or
-npx serve
-```
-
-## How to Run
-
-After building, access http://localhost:8000 or the URL displayed by the development server in your browser.
-
-## Demo Contents
-
-### Traffic Light
-
-A simple 3-state traffic light. When you click the "Send Timer Event" button, the following transitions occur:
+If you don't have Trunk installed:
 
 ```
-green → yellow → red → green → ...
+cargo install trunk
 ```
 
-### Music Player
+If you don't have wasm-bindgen-cli installed:
 
-A music player demo using a hierarchical state machine. It has the following states and transitions:
+```
+cargo install wasm-bindgen-cli
+```
 
-- Power off/on states
-- Play/stop/pause states
-- Normal speed/high speed playback states
-- Track change functionality
+Make sure the wasm32-unknown-unknown target is installed:
+
+```
+rustup target add wasm32-unknown-unknown
+```
+
+## Building and Running
+
+### Development Mode
+
+To run the development server:
+
+```
+trunk serve
+```
+
+This will:
+1. Compile the Rust code to WebAssembly
+2. Generate the JavaScript bindings
+3. Bundle the assets
+4. Start a development server at http://localhost:8080
+
+### Production Build
+
+To create a production build:
+
+```
+trunk build --release
+```
+
+The output will be in the `dist` directory.
+
+## Project Structure
+
+- `src/` - Rust source code
+  - `lib.rs` - Main WebAssembly library that exposes the RuState functionality to JavaScript
+  - `main.rs` - Application entry point
+
+- `static/` - Static assets
+- `Trunk.toml` - Trunk configuration
+- `index.html` - Main HTML entry point
+- `style.css` - CSS styles
+
+## Rebuilding rustate WASM module
+
+If you've made changes to the RuState library and want to update the web demo:
+
+```
+./rebuild-wasm.sh
+```
+
+This script will rebuild the RuState library with WebAssembly support and copy the generated files to the web/pkg directory.
 
 ## Troubleshooting
 
-If you encounter issues, check the following:
+If you encounter any issues:
 
-1. Make sure Rust and wasm-pack are up to date
-2. Check if there are any error messages in the console
-3. Verify that the `pkg` directory has been generated correctly
+1. Make sure you have the latest version of Trunk and wasm-bindgen-cli
+2. Try clearing the Trunk cache: `trunk clean`
+3. If you modified the RuState library, make sure to run `./rebuild-wasm.sh`
+4. Check the browser console for any JavaScript errors
+5. Verify that the WebAssembly module is loaded correctly
 
-## Notes
+## Resources
 
-- This demo is for educational purposes and does not include actual music playback functionality
-- A modern browser compatible with WebAssembly is required 
+- [Trunk Documentation](https://trunkrs.dev/)
+- [wasm-bindgen Documentation](https://rustwasm.github.io/docs/wasm-bindgen/)
+- [RuState Documentation](https://docs.rs/rustate) 

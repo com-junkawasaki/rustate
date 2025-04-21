@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RuState WebAssembly Direct Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status {
+            padding: 1rem;
+            background-color: #f4f4f4;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 0.5rem;
+        }
+        button:hover {
+            background-color: #0055aa;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RuState WebAssembly Direct Test</h1>
+        
+        <div class="status" id="status">Loading WebAssembly module...</div>
+        
+        <div>
+            <button id="init-traffic">Initialize Traffic Light</button>
+            <button id="send-timer">Send Timer Event</button>
+        </div>
+        
+        <div>
+            <button id="init-music">Initialize Music Player</button>
+            <button id="send-power">Send Power Event</button>
+            <button id="send-play">Send Play Event</button>
+        </div>
+        
+        <h2>Console Output:</h2>
+        <pre id="console"></pre>
+    </div>
+
+    <script type="module">
+        // Import directly from the rustate.js file
+        import * as wasm from './pkg/rustate.js';
+        
+        const status = document.getElementById('status');
+        const consoleOutput = document.getElementById('console');
+        
+        // Log function that writes to both browser console and our UI
+        function log(message) {
+            console.log(message);
+            consoleOutput.textContent += message + '\n';
+        }
+        
+        // Error logger
+        function logError(error) {
+            const message = `ERROR: ${error.message}\n${error.stack || ''}`;
+            console.error(error);
+            consoleOutput.textContent += message + '\n';
+            status.textContent = `Error: ${error.message}`;
+            status.style.backgroundColor = '#ffdddd';
+        }
+        
+        // Set up window functions for callbacks from Rust
+        window.updateTrafficLightUI = (state) => {
+            log(`Traffic light state updated: ${state}`);
+            status.textContent = `Traffic light state: ${state}`;
+        };
+        
+        window.updateMusicPlayerUI = (statesJson) => {
+            try {
+                const states = JSON.parse(statesJson);
+                log(`Music player states updated: ${states.join(', ')}`);
+                status.textContent = `Music player states: ${states.join(', ')}`;
+            } catch (error) {
+                logError(error);
+            }
+        };
+        
+        // Initialize Wasm
+        try {
+            await wasm.init();
+            log('WebAssembly module initialized successfully');
+            status.textContent = 'WebAssembly module loaded';
+            status.style.backgroundColor = '#ddffdd';
+            
+            // List available exports from the Wasm module
+            log('\nAvailable exports from WebAssembly module:');
+            for (const key in wasm) {
+                log(`- ${key}: ${typeof wasm[key]}`);
+            }
+        } catch (error) {
+            logError(error);
+        }
+        
+        // Set up event listeners
+        document.getElementById('init-traffic').addEventListener('click', async () => {
+            try {
+                log('\nInitializing traffic light...');
+                await wasm.init_traffic_light();
+                log('Traffic light initialized successfully');
+            } catch (error) {
+                logError(error);
+            }
+        });
+        
+        document.getElementById('send-timer').addEventListener('click', () => {
+            try {
+                log('\nSending TIMER event to traffic light...');
+                wasm.send_traffic_light_event('TIMER');
+                log('TIMER event sent');
+            } catch (error) {
+                logError(error);
+            }
+        });
+        
+        document.getElementById('init-music').addEventListener('click', async () => {
+            try {
+                log('\nInitializing music player...');
+                await wasm.init_music_player();
+                log('Music player initialized successfully');
+            } catch (error) {
+                logError(error);
+            }
+        });
+        
+        document.getElementById('send-power').addEventListener('click', () => {
+            try {
+                log('\nSending POWER event to music player...');
+                wasm.send_music_player_event('POWER');
+                log('POWER event sent');
+            } catch (error) {
+                logError(error);
+            }
+        });
+        
+        document.getElementById('send-play').addEventListener('click', () => {
+            try {
+                log('\nSending PLAY event to music player...');
+                wasm.send_music_player_event('PLAY');
+                log('PLAY event sent');
+            } catch (error) {
+                logError(error);
+            }
+        });
+    </script>
+</body>
+</html> 

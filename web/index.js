@@ -1,10 +1,14 @@
-// Import RuState Wasm module
+// Import RuState Wasm module directly with correct path
 import {
     Machine,
     State,
     Transition,
     init,
-} from '../crates/rustate/pkg/rustate.js'; // Changed path to relative
+    init_traffic_light,
+    init_music_player,
+    send_traffic_light_event,
+    send_music_player_event
+} from './pkg/rustate.js';
 
 let currentTrack = 0;
 
@@ -68,21 +72,46 @@ window.updateMusicPlayerUI = (statesJson) => {
 // Wasm initialization and event listener setup
 async function initWasm() {
     try {
+        console.log('Attempting to initialize Wasm module...');
         // Initialize Wasm module
         await init();
-        console.log('Wasm module loaded');
+        console.log('Wasm module loaded successfully');
         
-        // Initialize traffic light
-        await init_traffic_light();
+        // Check if initialization functions exist
+        console.log('Checking for init_traffic_light function:', typeof init_traffic_light);
+        console.log('Checking for init_music_player function:', typeof init_music_player);
         
-        // Initialize music player
-        await init_music_player();
+        // Initialize traffic light - with catch block to handle errors
+        try {
+            console.log('Starting traffic light initialization...');
+            await init_traffic_light();
+            console.log('Traffic light initialized');
+        } catch (error) {
+            console.error('Error initializing traffic light:', error);
+            document.getElementById('traffic-state').textContent = `Error: ${error.message}`;
+        }
+        
+        // Initialize music player - with catch block to handle errors
+        try {
+            console.log('Starting music player initialization...');
+            await init_music_player();
+            console.log('Music player initialized');
+        } catch (error) {
+            console.error('Error initializing music player:', error);
+            document.getElementById('player-status').textContent = `Error: ${error.message}`;
+        }
         
         // Set up event listeners
         setupEventListeners();
+        console.log('Event listeners set up');
     } catch (error) {
         console.error('Failed to initialize Wasm:', error);
-        document.body.innerHTML = `<h1>Error</h1><p>Failed to initialize Wasm: ${error.message}</p>`;
+        console.error('Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+        document.body.innerHTML = `<h1>Error</h1><p>Failed to initialize Wasm: ${error.message}</p><pre>${error.stack}</pre>`;
     }
 }
 
@@ -90,6 +119,7 @@ function setupEventListeners() {
     // Traffic light event listeners
     document.getElementById('traffic-timer-btn').addEventListener('click', () => {
         try {
+            console.log('Sending traffic light TIMER event');
             send_traffic_light_event('TIMER');
         } catch (error) {
             console.error('Failed to send traffic light event:', error);
