@@ -1,19 +1,28 @@
 use gloo::console::log;
-use serde_json::json;
 use std::rc::Rc;
+use std::cell::RefCell;
 use yew::prelude::*;
-use rustate::{Action, ActionType, Guard, Machine, MachineBuilder, State, Transition};
+use rustate::{Action, ActionType, Machine, MachineBuilder, State, Transition, StateTrait};
 
 // MachineView component
-#[derive(Properties, PartialEq)]
-struct MachineViewProps {
-    machine: Rc<Machine>,
+#[derive(Properties, Clone)]
+pub struct MachineViewProps {
+    machine: Rc<RefCell<Machine>>,
+}
+
+// Implement manual PartialEq since Machine doesn't implement it
+impl PartialEq for MachineViewProps {
+    fn eq(&self, _other: &Self) -> bool {
+        // We can't compare machines directly, so we'll consider them always equal
+        // This is just for Yew's component rendering system
+        true
+    }
 }
 
 #[function_component(MachineView)]
-fn machine_view(props: &MachineViewProps) -> Html {
+pub fn machine_view(props: &MachineViewProps) -> Html {
     let machine = props.machine.clone();
-    let current_state = use_state(|| machine.current_state().to_string());
+    let current_state = use_state(|| machine.borrow().current_state().id().to_string());
     let history = use_state(Vec::new);
     
     let on_send_event = {
@@ -31,9 +40,9 @@ fn machine_view(props: &MachineViewProps) -> Html {
                 new_history
             });
             
-            match machine.send(&event) {
+            match machine.borrow_mut().send(&event) {
                 Ok(_) => {
-                    let new_state = machine.current_state().to_string();
+                    let new_state = machine.borrow().current_state().id().to_string();
                     log!("Transitioned to:", &new_state);
                     
                     // Add state change to history
@@ -87,7 +96,7 @@ fn machine_view(props: &MachineViewProps) -> Html {
 
 // Demo App
 #[function_component(App)]
-fn app() -> Html {
+pub fn app() -> Html {
     // Create traffic light state machine
     let machine = {
         // Create states
@@ -102,8 +111,7 @@ fn app() -> Html {
         let red_to_green = Transition::new("red", "TIMER", "green");
         
         // Power transitions
-        let on_to_off = Transition::new("green", "POWER", "off")
-            .add_guard(Guard::new("powerCutGuard", |_, _| true));
+        let on_to_off = Transition::new("green", "POWER", "off");
         let off_to_on = Transition::new("off", "POWER", "green");
         
         // Define actions
@@ -150,35 +158,30 @@ fn app() -> Html {
             .build()
             .unwrap();
             
-        Rc::new(machine)
+        Rc::new(RefCell::new(machine))
     };
     
-    // Create hierarchical machine
-    let hierarchical_machine = {
-        // Create parent state
-        let parent = State::new("parent").compound();
-        
-        // Create child states
-        let child1 = State::new("child1");
-        let child2 = State::new("child2");
-        
-        // Add child states to parent
-        let parent = parent.add_child(child1).add_child(child2);
+    // Create simple machine
+    let simple_machine = {
+        // Create states
+        let state1 = State::new("state1");
+        let state2 = State::new("state2");
         
         // Create transitions
-        let child1_to_child2 = Transition::new("child1", "NEXT", "child2");
-        let child2_to_child1 = Transition::new("child2", "PREV", "child1");
+        let state1_to_state2 = Transition::new("state1", "NEXT", "state2");
+        let state2_to_state1 = Transition::new("state2", "PREV", "state1");
         
         // Build the machine
-        let machine = MachineBuilder::new("hierarchicalMachine")
-            .state(parent)
-            .initial("child1")
-            .transition(child1_to_child2)
-            .transition(child2_to_child1)
+        let machine = MachineBuilder::new("simpleMachine")
+            .state(state1)
+            .state(state2)
+            .initial("state1")
+            .transition(state1_to_state2)
+            .transition(state2_to_state1)
             .build()
             .unwrap();
             
-        Rc::new(machine)
+        Rc::new(RefCell::new(machine))
     };
 
     html! {
@@ -196,16 +199,22 @@ fn app() -> Html {
                 </div>
                 
                 <div class="demo-section">
-                    <h2>{"Hierarchical State Machine"}</h2>
-                    <p>{"A hierarchical state machine with a parent state containing two child states."}</p>
-                    <MachineView machine={hierarchical_machine.clone()} />
+                    <h2>{"Simple State Machine"}</h2>
+                    <p>{"A basic state machine with simple state transitions."}</p>
+                    <MachineView machine={simple_machine.clone()} />
                 </div>
             </div>
         </>
     }
 }
 
+// We no longer need the main function, as it's moved to lib.rs
+// The main function still exists for standalone binary usage
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    wasm_logger::init(wasm_logger::Config::default());
-    yew::Renderer::<App>::new().render();
-} 
+    println!("This demo is designed for WebAssembly and can't run directly as a binary.");
+}
+
+// When compiling for wasm, we keep an empty main function
+#[cfg(target_arch = "wasm32")]
+fn main() {} 

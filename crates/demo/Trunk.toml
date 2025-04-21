@@ -13,8 +13,8 @@ public_url = "/"
 watch = ["src/", "index.html", "styles.scss", "public/"]
 
 [serve]
-# The address to serve on.
-address = "127.0.0.1"
+# The addresses to serve on.
+addresses = ["127.0.0.1"]
 # The port to serve on.
 port = 8080
 # Open a browser tab once the initial build is complete.
