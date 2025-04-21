@@ -30,7 +30,7 @@ where
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
-        filter: Option<fn(&Observation<S, E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Observation<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError>;
 
@@ -43,7 +43,7 @@ where
     /// 条件に一致する決定を検索します
     async fn find_decisions(
         &self,
-        filter: Option<fn(&Decision<E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Decision<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError>;
 
@@ -56,7 +56,7 @@ where
     /// 条件に一致する洞察を検索します
     async fn find_insights(
         &self,
-        filter: Option<fn(&Insight) -> bool>,
+        filter: Option<for<'a> fn(&'a Insight) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError>;
 
@@ -69,7 +69,7 @@ where
     /// 条件に一致するエピソードを検索します
     async fn find_episodes(
         &self,
-        filter: Option<fn(&Episode<S, E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Episode<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError>;
 
@@ -82,7 +82,7 @@ where
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
-        filter: Option<fn(&Feedback<E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Feedback<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError>;
 }
@@ -221,7 +221,7 @@ where
 
     async fn find_observations(
         &self,
-        filter: Option<fn(&Observation<S, E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Observation<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Observation<S, E>>, AgentError> {
         let observations = self.observations.lock().map_err(|e| {
@@ -231,7 +231,7 @@ where
         let mut result: Vec<Observation<S, E>> = observations.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|obs| filter_fn(obs)).collect();
+            result = result.into_iter().filter(|item| filter_fn(item)).collect();
         }
 
         if let Some(limit) = limit {
@@ -262,7 +262,7 @@ where
 
     async fn find_decisions(
         &self,
-        filter: Option<fn(&Decision<E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Decision<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Decision<E>>, AgentError> {
         let decisions = self.decisions.lock().map_err(|e| {
@@ -272,7 +272,7 @@ where
         let mut result: Vec<Decision<E>> = decisions.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|dec| filter_fn(dec)).collect();
+            result = result.into_iter().filter(|item| filter_fn(item)).collect();
         }
 
         if let Some(limit) = limit {
@@ -303,7 +303,7 @@ where
 
     async fn find_insights(
         &self,
-        filter: Option<fn(&Insight) -> bool>,
+        filter: Option<for<'a> fn(&'a Insight) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Insight>, AgentError> {
         let insights = self.insights.lock().map_err(|e| {
@@ -313,7 +313,7 @@ where
         let mut result: Vec<Insight> = insights.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|insight| filter_fn(insight)).collect();
+            result = result.into_iter().filter(|item| filter_fn(item)).collect();
         }
 
         if let Some(limit) = limit {
@@ -347,7 +347,7 @@ where
 
     async fn find_episodes(
         &self,
-        filter: Option<fn(&Episode<S, E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Episode<S, E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Episode<S, E>>, AgentError> {
         let episodes = self.episodes.lock().map_err(|e| {
@@ -357,7 +357,7 @@ where
         let mut result: Vec<Episode<S, E>> = episodes.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|ep| filter_fn(ep)).collect();
+            result = result.into_iter().filter(|item| filter_fn(item)).collect();
         }
 
         if let Some(limit) = limit {
@@ -388,7 +388,7 @@ where
     
     async fn find_feedback(
         &self,
-        filter: Option<fn(&Feedback<E>) -> bool>,
+        filter: Option<for<'a> fn(&'a Feedback<E>) -> bool>,
         limit: Option<usize>,
     ) -> Result<Vec<Feedback<E>>, AgentError> {
         let feedback = self.feedback.lock().map_err(|e| {
@@ -398,7 +398,7 @@ where
         let mut result: Vec<Feedback<E>> = feedback.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|fb| filter_fn(fb)).collect();
+            result = result.into_iter().filter(|item| filter_fn(item)).collect();
         }
 
         if let Some(limit) = limit {
