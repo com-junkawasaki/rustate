@@ -114,7 +114,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait};
+    use rustate::{EventTrait};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     enum TestEvent {

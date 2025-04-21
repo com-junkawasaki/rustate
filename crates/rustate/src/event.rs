@@ -83,7 +83,7 @@ impl IntoEvent for String {
     }
 }
 
-impl<'a> IntoEvent for &'a String {
+impl IntoEvent for &String {
     fn into_event(self) -> Event {
         Event::new(self)
     }

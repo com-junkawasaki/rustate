@@ -400,7 +400,7 @@ where
         let action = action.into_action(ActionType::Entry);
         self.entry_actions
             .entry(state_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(action);
         self
     }
@@ -411,7 +411,7 @@ where
         let action = action.into_action(ActionType::Exit);
         self.exit_actions
             .entry(state_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(action);
         self
     }

@@ -198,7 +198,7 @@ impl<'a> TestGenerator<'a> {
         path: &mut Vec<String>,
         loops: &mut Vec<Vec<String>>,
     ) {
-        if path.len() > 0 && current == start {
+        if !path.is_empty() && current == start {
             loops.push(path.clone());
             return;
         }

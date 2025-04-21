@@ -6,7 +6,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json::Value;
 
 /// エージェントの決定の文脈を表す構造体
 #[derive(Clone, Debug)]

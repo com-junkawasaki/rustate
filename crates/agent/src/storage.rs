@@ -100,6 +100,12 @@ pub struct StorageQuery {
     pub to_timestamp: Option<u64>,
 }
 
+impl Default for StorageQuery {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StorageQuery {
     /// 新しいクエリを作成します
     pub fn new() -> Self {
@@ -189,6 +195,28 @@ where
     feedback: Arc<Mutex<Vec<Feedback<E>>>>,
 }
 
+impl<S, E> Default for MemoryStorage<S, E>
+where
+    S: StateTrait
+        + Clone
+        + Debug
+        + Send
+        + Sync
+        + for<'deserialize> Deserialize<'deserialize>
+        + 'static,
+    E: EventTrait
+        + Clone
+        + Debug
+        + Send
+        + Sync
+        + for<'deserialize> Deserialize<'deserialize>
+        + 'static,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<S, E> MemoryStorage<S, E>
 where
     S: StateTrait
@@ -270,7 +298,7 @@ where
         let mut result: Vec<Observation<S, E>> = observations.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|item| filter_fn(item)).collect();
+            result = result.into_iter().filter(filter_fn).collect();
         }
 
         if let Some(limit) = limit {
@@ -314,7 +342,7 @@ where
         let mut result: Vec<Decision<E>> = decisions.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|item| filter_fn(item)).collect();
+            result = result.into_iter().filter(filter_fn).collect();
         }
 
         if let Some(limit) = limit {
@@ -358,7 +386,7 @@ where
         let mut result: Vec<Insight> = insights.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|item| filter_fn(item)).collect();
+            result = result.into_iter().filter(filter_fn).collect();
         }
 
         if let Some(limit) = limit {
@@ -408,7 +436,7 @@ where
         let mut result: Vec<Episode<S, E>> = episodes.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|item| filter_fn(item)).collect();
+            result = result.into_iter().filter(filter_fn).collect();
         }
 
         if let Some(limit) = limit {
@@ -454,7 +482,7 @@ where
         let mut result: Vec<Feedback<E>> = feedback.clone();
 
         if let Some(filter_fn) = filter {
-            result = result.into_iter().filter(|item| filter_fn(item)).collect();
+            result = result.into_iter().filter(filter_fn).collect();
         }
 
         if let Some(limit) = limit {

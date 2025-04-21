@@ -190,8 +190,8 @@ where
             if rule.matches(
                 &context.current_state,
                 context.goal_state.as_ref(),
-                &context.observations,
-                &context.insights,
+                context.observations,
+                context.insights,
             ) {
                 rule_matches.push(rule);
             }
