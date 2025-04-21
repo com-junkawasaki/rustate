@@ -960,13 +960,15 @@ dependencies = [
 
 [[package]]
 name = "rustate"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "async-trait",
  "console_error_panic_hook",
  "js-sys",
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
  "uuid",
  "wasm-bindgen",
  "web-sys",
@@ -1023,18 +1025,6 @@ dependencies = [
  "web-sys",
  "wee_alloc",
  "yew",
-]
-
-[[package]]
-name = "rustate-integration"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "rustate",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
 ]
 
 [[package]]
