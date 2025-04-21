@@ -5,6 +5,7 @@ members = [
     "crates/agent",
     "crates/editor",
     "crates/demo",
+    "crates/integration",
 ]
 
 [workspace.package]
