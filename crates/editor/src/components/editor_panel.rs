@@ -1,6 +1,7 @@
 use crate::editor::EditorState;
 use yew::prelude::*;
 use wasm_bindgen::JsCast;
+use rustate::machine::Machine;
 
 #[derive(Properties, PartialEq)]
 pub struct EditorPanelProps {
@@ -25,7 +26,7 @@ pub fn editor_panel(props: &EditorPanelProps) -> Html {
         let editor_state = props.editor_state.clone();
         
         Callback::from(move |_: MouseEvent| {
-            match serde_json::from_str::<rustate::machine::StateMachine>(&json_text) {
+            match serde_json::from_str::<Machine>(&json_text) {
                 Ok(machine) => {
                     editor_state.set(EditorState {
                         machine,

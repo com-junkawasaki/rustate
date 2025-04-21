@@ -1,5 +1,5 @@
 use crate::editor::EditorState;
-use rustate::machine::StateMachine;
+use rustate::machine::Machine;
 use web_sys::MouseEvent;
 use yew::prelude::*;
 use wasm_bindgen::JsCast;

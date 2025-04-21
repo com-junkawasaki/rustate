@@ -23,15 +23,16 @@ console_error_panic_hook = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen-futures = "0.4"
-yew = "0.21"
+yew = { version = "0.21", features = ["csr"] }
 gloo = "0.10"
-wee_alloc = "0.4"
+wee_alloc = { version = "0.4", optional = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 
 [features]
-default = ["console_error_panic_hook"]
+default = ["console_error_panic_hook", "wee_alloc"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]

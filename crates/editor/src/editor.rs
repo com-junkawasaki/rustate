@@ -1,4 +1,4 @@
-use rustate::machine::StateMachine;
+use rustate::machine::Machine;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -26,7 +26,7 @@ impl Editor {
     }
 
     pub fn load_from_json(&mut self, json: &str) -> Result<(), JsValue> {
-        match serde_json::from_str::<StateMachine>(json) {
+        match serde_json::from_str::<Machine>(json) {
             Ok(machine) => {
                 self.state.machine = machine;
                 Ok(())
@@ -41,15 +41,24 @@ impl Editor {
 // エディタの状態
 #[derive(Clone, PartialEq)]
 pub struct EditorState {
-    pub machine: StateMachine,
+    pub machine: Machine,
     pub selected_element: Option<String>,
     pub mode: EditorMode,
 }
 
 impl EditorState {
     pub fn new() -> Self {
+        // Create a default machine
+        let machine = Machine::new(
+            rustate::MachineBuilder::new("default_machine")
+                .initial("initial")
+                .state(rustate::State::new("initial", rustate::state::StateType::Normal))
+                .build()
+                .unwrap_or_else(|_| panic!("Failed to create default machine"))
+        );
+
         Self {
-            machine: StateMachine::default(),
+            machine,
             selected_element: None,
             mode: EditorMode::Select,
         }

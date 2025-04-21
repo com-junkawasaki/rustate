@@ -1,5 +1,5 @@
 use crate::editor::EditorState;
-use rustate::machine::State;
+use rustate::state::State;
 use rustate::transition::Transition;
 use serde_json::json;
 use uuid::Uuid;
@@ -21,20 +21,7 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
             let mut new_editor_state = (*editor_state).clone();
             let state_id = Uuid::new_v4().to_string();
             
-            let new_state = State {
-                name: format!("State_{}", state_id.split('-').next().unwrap_or("new")),
-                initial: false,
-                is_final: false,
-                substates: Vec::new(),
-                transitions: Vec::new(),
-                on_entry: None,
-                on_exit: None,
-                invoke: None,
-                metadata: json!({
-                    "x": 200,
-                    "y": 150
-                }),
-            };
+            let new_state = State::new(&state_id, rustate::state::StateType::Normal);
             
             new_editor_state.machine.states.insert(state_id, new_state);
             editor_state.set(new_editor_state);
@@ -64,12 +51,19 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
                 if new_editor_state.machine.states.contains_key(element_id) {
                     new_editor_state.machine.states.remove(element_id);
                     
-                    // 関連する遷移も削除
-                    new_editor_state.machine.transitions.retain(|_, t| {
-                        t.source != *element_id && t.target != *element_id
+                    new_editor_state.machine.transitions.retain(|t| {
+                        t.source != *element_id && t.target.as_ref().map_or(true, |target| target != element_id)
                     });
-                } else if new_editor_state.machine.transitions.contains_key(element_id) {
-                    new_editor_state.machine.transitions.remove(element_id);
+                } else {
+                    let transition_index = new_editor_state.machine.transitions.iter()
+                        .position(|t| {
+                            format!("{}-{}-{}", t.source, t.target.as_ref().unwrap_or(&String::new()),
+                                t.event.as_ref().unwrap_or(&String::new())) == *element_id
+                        });
+                        
+                    if let Some(index) = transition_index {
+                        new_editor_state.machine.transitions.remove(index);
+                    }
                 }
                 
                 new_editor_state.selected_element = None;
@@ -100,7 +94,7 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
                 </button>
                 <button 
                     onclick={on_delete_element}
-                    disabled={editor_state.selected_element.is_none()}
+                    disabled={props.editor_state.selected_element.is_none()}
                 >
                     {"削除"}
                 </button>
