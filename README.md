@@ -2,6 +2,16 @@
 
 RuState is a type-safe state machine and statechart library implemented in Rust. Inspired by XState, it follows the principles of model-based testing (MBT).
 
+## Demo
+
+Check out the live demo: [RuState Demo](https://jun784.github.io/rustate/)
+
+The demo features:
+- Interactive state machine visualization
+- Traffic light state machine example
+- Hierarchical state machine example
+- Real-time state transition tracking
+
 ## Overview
 
 RuState provides the following features:
