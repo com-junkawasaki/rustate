@@ -117,7 +117,7 @@ pub mod coordination {
     ) -> Action
     where
         C: ChildMachine + 'static,
-        E: IntoEvent + Clone + 'static,
+        E: IntoEvent + Clone + Send + Sync + 'static,
     {
         let parent_event = parent_event.into();
         Action::new(

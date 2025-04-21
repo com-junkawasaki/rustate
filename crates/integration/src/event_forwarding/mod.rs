@@ -5,7 +5,7 @@
 //! アクションから他方のステートマシンにイベントを転送することができます。
 
 use std::sync::{Arc, Mutex};
-use rustate::{Event, IntoEvent, Machine};
+use rustate::{IntoEvent, Machine};
 use crate::error::{Result, LockResultExt};
 
 /// 共有ステートマシン参照
