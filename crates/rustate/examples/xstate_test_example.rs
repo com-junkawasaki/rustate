@@ -7,7 +7,6 @@ use rustate::{CodegenExt, JsonExportOptions};
 use rustate::ProtoExportOptions;
 
 use std::env;
-use std::path::PathBuf;
 
 fn main() -> rustate::Result<()> {
     // 現在の実行ディレクトリを取得

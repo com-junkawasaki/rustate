@@ -2,8 +2,11 @@ use crate::{Context, Event};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Type alias for the action executor function
+pub type ActionExecutor = Box<dyn Fn(&mut Context, &Event) + Send + Sync>;
+
 /// Type of action execution
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActionType {
     /// Action executed when entering a state
     Entry,
@@ -13,16 +16,15 @@ pub enum ActionType {
     Transition,
 }
 
-/// An action that can be executed during state transitions
-#[derive(Serialize, Deserialize)]
+/// Action executed during state transitions
+#[derive(Clone)]
 pub struct Action {
-    /// The name of this action
-    pub name: String,
-    /// The type of action execution
+    /// Unique identifier for the action
+    pub id: String,
+    /// Type of action (entry, exit, transition)
     pub action_type: ActionType,
-    /// Function pointer to execute the action
-    #[serde(skip)]
-    pub(crate) executor: Option<Box<dyn Fn(&mut Context, &Event) + Send + Sync>>,
+    /// Optional executor function
+    pub(crate) executor: Option<ActionExecutor>,
 }
 
 impl Clone for Action {
@@ -30,7 +32,7 @@ impl Clone for Action {
         // Note: We can't actually clone the executor function,
         // so this creates an action with the same name and type but no executor
         Self {
-            name: self.name.clone(),
+            id: self.id.clone(),
             action_type: self.action_type,
             executor: None,
         }
@@ -40,7 +42,7 @@ impl Clone for Action {
 impl fmt::Debug for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Action")
-            .field("name", &self.name)
+            .field("id", &self.id)
             .field("action_type", &self.action_type)
             .field(
                 "executor",
@@ -64,7 +66,7 @@ impl Action {
         F: Fn(&mut Context, &Event) + Send + Sync + 'static,
     {
         Self {
-            name: name.into(),
+            id: name.into(),
             action_type,
             executor: Some(Box::new(executor)),
         }
@@ -97,7 +99,7 @@ impl Action {
     /// Create a new action with a name only (for serialization)
     pub fn named(name: impl Into<String>, action_type: ActionType) -> Self {
         Self {
-            name: name.into(),
+            id: name.into(),
             action_type,
             executor: None,
         }
@@ -116,7 +118,7 @@ impl Action {
 
 impl fmt::Display for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Action({}, {:?})", self.name, self.action_type)
+        write!(f, "Action({}, {:?})", self.id, self.action_type)
     }
 }
 

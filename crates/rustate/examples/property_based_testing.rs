@@ -1,9 +1,18 @@
+#[cfg(feature = "property-testing")]
 use proptest::test_runner::Config;
+#[cfg(feature = "property-testing")]
 use rustate::{
     Action, ActionType, Context, Event, Machine, MachineBuilder, PropertyTestRunner, State,
     Transition,
 };
 
+#[cfg(not(feature = "property-testing"))]
+fn main() {
+    println!("This example requires the property-testing feature to be enabled.");
+    println!("Run with: cargo run --example property_based_testing --features property-testing");
+}
+
+#[cfg(feature = "property-testing")]
 fn main() {
     // 信号機の状態マシンを作成（マッパー付き）
     let machine = create_traffic_light_machine().with_state_mapper(|id| {
@@ -86,7 +95,7 @@ fn main() {
     println!("Message: {}", result3.message.unwrap_or_default());
 }
 
-// 信号機の状態マシンを作成する関数
+#[cfg(feature = "property-testing")]
 fn create_traffic_light_machine() -> Machine {
     // 状態の作成
     let green = State::new("green");

@@ -2,14 +2,16 @@ use crate::{Context, Event};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Type alias for the guard predicate function
+pub type GuardPredicate = Box<dyn Fn(&Context, &Event) -> bool + Send + Sync>;
+
 /// A guard condition for a transition
-#[derive(Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Guard {
-    /// The name of this guard
+    /// Unique identifier for this guard
     pub name: String,
-    /// Function pointer to evaluate the guard
-    #[serde(skip)]
-    pub(crate) predicate: Option<Box<dyn Fn(&Context, &Event) -> bool + Send + Sync>>,
+    /// Function pointer to evaluate the guard condition
+    pub(crate) predicate: Option<GuardPredicate>,
 }
 
 impl Clone for Guard {
