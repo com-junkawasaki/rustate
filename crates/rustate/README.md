@@ -15,6 +15,65 @@ implement finite state machines and statecharts in Rust, with full support for m
 - ✅ Serializable machines
 - ✅ Model-based testing support
 - ✅ Cross-crate integration patterns
+- ✅ Code generation (JSON and Protocol Buffers)
+
+## Code Generation Features
+
+RuState now supports code generation features to transform state machine definitions into different formats:
+
+1. **JSON Export**: Export statecharts to JSON format compatible with XState
+2. **Protocol Buffers Export**: Generate .proto files for cross-language compatibility
+3. **Rust AST Analysis**: Parse state machine definitions from Rust source code
+
+### Enable Code Generation
+
+```toml
+[dependencies]
+# For JSON export only
+rustate = { version = "0.2.5", features = ["codegen"] }
+
+# For Protocol Buffers generation
+rustate = { version = "0.2.5", features = ["proto"] }
+```
+
+### Export Example
+
+```rust
+use rustate::{Machine, MachineBuilder, State, Transition, CodegenExt, JsonExportOptions, ProtoExportOptions};
+
+// Create your state machine
+let machine = create_my_machine()?;
+
+// Export to JSON
+let json_options = JsonExportOptions {
+    output_path: "my_machine.json".to_string(),
+    pretty: true,
+    include_metadata: true,
+};
+machine.export_to_json(Some(json_options))?;
+
+// Export to Protocol Buffers
+let proto_options = ProtoExportOptions {
+    output_path: "my_machine.proto".to_string(),
+    package_name: "mymachines".to_string(), 
+    message_name: "MyStateMachine".to_string(),
+};
+machine.export_to_proto(Some(proto_options))?;
+```
+
+### Advanced Usage: Rust AST Analysis
+
+With the `codegen` feature, RuState can analyze Rust source code to extract state machine definitions:
+
+```rust
+use rustate::{Machine, CodegenExt};
+
+// Parse state machine definition from Rust source
+let machine = Machine::parse_from_rust_file("src/my_machine.rs")?;
+println!("Parsed machine name: {}", machine.name);
+```
+
+This feature enables powerful tooling for documentation generation, visual representation, and integration with other languages and frameworks.
 
 ## Model-Based Testing Integration
 

@@ -1,4 +1,12 @@
-use rustate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
+use rustate::{
+    Action, ActionType, Context, Machine, MachineBuilder, State, Transition,
+    #[cfg(feature = "codegen")]
+    CodegenExt,
+    #[cfg(feature = "codegen")]
+    JsonExportOptions,
+    #[cfg(feature = "proto")]
+    ProtoExportOptions,
+};
 
 fn main() -> rustate::Result<()> {
     // オンラインショッピングのステートマシンを作成
@@ -64,6 +72,40 @@ fn main() -> rustate::Result<()> {
     println!("\nNEW_ORDERイベントを送信");
     machine.send("NEW_ORDER")?;
     println!("現在の状態: {:?}", machine.current_states);
+
+    // codegen 機能が有効な場合、JSON と Proto ファイルを生成
+    #[cfg(feature = "codegen")]
+    {
+        println!("\nステートマシン定義を JSON としてエクスポート中...");
+        let json_options = JsonExportOptions {
+            output_path: "shopping_cart.json".to_string(),
+            pretty: true,
+            include_metadata: true,
+        };
+        machine.export_to_json(Some(json_options))?;
+        println!("JSON ファイルが生成されました: shopping_cart.json");
+    }
+
+    #[cfg(feature = "proto")]
+    {
+        println!("\nステートマシン定義を Protocol Buffers としてエクスポート中...");
+        let proto_options = ProtoExportOptions {
+            output_path: "shopping_cart.proto".to_string(),
+            package_name: "shopping".to_string(),
+            message_name: "ShoppingCart".to_string(),
+        };
+        machine.export_to_proto(Some(proto_options))?;
+        println!("Proto ファイルが生成されました: shopping_cart.proto");
+    }
+
+    // ソースコードからステートマシン定義をパースする例 (通常は別コマンドとして実装)
+    #[cfg(feature = "codegen")]
+    {
+        println!("\nRust ソースコードからステートマシン定義をパースする例（コメントアウト状態）");
+        // 注：この機能を使用するには、実装を完成させる必要があります
+        // let parsed_machine = Machine::parse_from_rust_file("examples/xstate_test_example.rs")?;
+        // println!("パースされたマシン名: {}", parsed_machine.name);
+    }
 
     Ok(())
 }

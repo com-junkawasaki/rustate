@@ -23,6 +23,11 @@ console_error_panic_hook = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
+syn = { version = "2.0", features = ["full", "extra-traits"], optional = true }
+quote = { version = "1.0", optional = true }
+proc-macro2 = { version = "1.0", optional = true }
+prost = { version = "0.12", optional = true }
+prost-build = { version = "0.12", optional = true }
 
 [dev-dependencies]
 proptest = "1.2"
@@ -39,6 +44,10 @@ property-testing = ["proptest"]
 integration = []
 # XState compatible features
 xstate-compat = []
+# Code generation features
+codegen = ["syn", "quote", "proc-macro2"]
+# Protocol buffers support
+proto = ["prost", "prost-build", "codegen"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

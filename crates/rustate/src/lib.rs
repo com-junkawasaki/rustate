@@ -15,6 +15,12 @@ mod wasm;
 #[cfg(feature = "wasm")]
 pub use wasm::*;
 
+#[cfg(feature = "codegen")]
+mod codegen;
+
+#[cfg(feature = "codegen")]
+pub use codegen::*;
+
 /// # 統合パターン機能
 ///
 /// このモジュールは複数のクレートにまたがるステートマシン間で
