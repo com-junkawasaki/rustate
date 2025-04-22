@@ -47,8 +47,8 @@ where
             id: id.into(),
             event,
             confidence,
-            state_context: state_context.map(|s| s.get_id()),
-            goal_context: goal_context.map(|s| s.get_id()),
+            state_context: state_context.map(|s| s.id().to_string()),
+            goal_context: goal_context.map(|s| s.id().to_string()),
             explanation: None,
             timestamp: SystemTime::now(),
             metadata: serde_json::Map::new(),
@@ -88,6 +88,20 @@ where
     /// 決定のタイムスタンプを取得します
     pub fn timestamp(&self) -> SystemTime {
         self.timestamp
+    }
+
+    // For tests, a simpler constructor that just takes a UUID string and event
+    pub fn simple(event: E, confidence: f64) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            event,
+            confidence,
+            state_context: None,
+            goal_context: None,
+            explanation: None,
+            timestamp: SystemTime::now(),
+            metadata: serde_json::Map::new(),
+        }
     }
 }
 
@@ -136,7 +150,7 @@ where
     pub fn state_history(&self) -> Vec<&S> {
         self.observations
             .iter()
-            .map(|o| o.previous_state())
+            .map(|o| &o.previous_state)
             .collect()
     }
 
@@ -145,13 +159,13 @@ where
         // 実際の実装では、過去の観測や状態遷移グラフを使用して
         // 現在の状態から目標状態までの最短パスを推定します
         // ここでは簡単な例として現在と目標の状態IDを返します
-        vec![self.current_state.get_id(), self.goal_state.get_id()]
+        vec![self.current_state.id().to_string(), self.goal_state.id().to_string()]
     }
 
     /// 観測から成功する可能性が高いアクションを推定します
     pub fn suggest_actions_from_observations(&self) -> Vec<&E> {
         // 過去の観測から、目標状態に近づいた成功したアクションを抽出
-        self.observations.iter().map(|o| o.event()).collect()
+        self.observations.iter().map(|o| &o.event).collect()
     }
 }
 
@@ -168,7 +182,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::Event;
+    use rustate::{Event, StateType};
+    use serde_json::Value;
 
     // テスト用の状態
     #[derive(Debug, Clone, PartialEq)]
@@ -177,8 +192,29 @@ mod tests {
     }
 
     impl StateTrait for TestState {
-        fn get_id(&self) -> String {
-            self.id.clone()
+        fn id(&self) -> &str {
+            &self.id
+        }
+
+        fn state_type(&self) -> &StateType {
+            static STATE_TYPE: StateType = StateType::Normal;
+            &STATE_TYPE
+        }
+
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+
+        fn children(&self) -> &[String] {
+            &[]
+        }
+
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+
+        fn data(&self) -> Option<&Value> {
+            None
         }
     }
 
@@ -189,8 +225,12 @@ mod tests {
     }
 
     impl EventTrait for TestEvent {
-        fn event_type(&self) -> String {
-            self.event_type.clone()
+        fn event_type(&self) -> &str {
+            &self.event_type
+        }
+
+        fn payload(&self) -> Option<&Value> {
+            None
         }
     }
 

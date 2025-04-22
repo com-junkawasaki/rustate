@@ -469,7 +469,7 @@ mod tests {
     use uuid::Uuid;
 
     // テスト用の状態
-    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     enum TestState {
         Idle,
         Processing,
@@ -479,23 +479,44 @@ mod tests {
 
     impl Default for TestState {
         fn default() -> Self {
-            TestState::Idle
+            Self::Idle
         }
     }
 
     impl StateTrait for TestState {
-        fn get_id(&self) -> String {
+        fn id(&self) -> &str {
             match self {
-                TestState::Idle => "idle".to_string(),
-                TestState::Processing => "processing".to_string(),
-                TestState::Completed => "completed".to_string(),
-                TestState::Error => "error".to_string(),
+                TestState::Idle => "idle",
+                TestState::Processing => "processing",
+                TestState::Completed => "completed",
+                TestState::Error => "error",
             }
+        }
+
+        fn state_type(&self) -> &rustate::StateType {
+            static STATE_TYPE: rustate::StateType = rustate::StateType::Normal;
+            &STATE_TYPE
+        }
+
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+
+        fn children(&self) -> &[String] {
+            &[]
+        }
+
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+
+        fn data(&self) -> Option<&serde_json::Value> {
+            None
         }
     }
 
     // テスト用のイベント
-    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Process,
@@ -505,14 +526,18 @@ mod tests {
     }
 
     impl EventTrait for TestEvent {
-        fn event_type(&self) -> String {
+        fn event_type(&self) -> &str {
             match self {
-                TestEvent::Start => "START".to_string(),
-                TestEvent::Process => "PROCESS".to_string(),
-                TestEvent::Complete => "COMPLETE".to_string(),
-                TestEvent::Retry => "RETRY".to_string(),
-                TestEvent::Abort => "ABORT".to_string(),
+                TestEvent::Start => "START",
+                TestEvent::Process => "PROCESS",
+                TestEvent::Complete => "COMPLETE",
+                TestEvent::Retry => "RETRY",
+                TestEvent::Abort => "ABORT",
             }
+        }
+        
+        fn payload(&self) -> Option<&serde_json::Value> {
+            None
         }
     }
 
@@ -732,5 +757,19 @@ mod tests {
         // 目標まで実行
         let success = agent.run_until_goal(Some(5)).await.unwrap();
         assert!(success);
+    }
+
+    #[test]
+    fn test_agent_with_invalid_episode_configuration() {
+        let agent: Agent<TestState, TestEvent> = Agent::new("Test Agent");
+
+        let decision = Decision::simple(TestEvent::Start, 0.9);
+
+        let result = agent.apply_decision(decision.clone(), None);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "No active episode to apply decision to"
+        );
     }
 }

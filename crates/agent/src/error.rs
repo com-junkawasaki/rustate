@@ -68,7 +68,7 @@ pub enum AgentError {
     IoError(#[from] std::io::Error),
 }
 
-/// 結果型エイリアス
+/// Result type for operations that can fail
 pub type Result<T> = std::result::Result<T, AgentError>;
 
 impl From<serde_json::Error> for AgentError {

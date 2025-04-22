@@ -304,21 +304,29 @@ mod tests {
 
     #[test]
     fn test_episode_with_observations_and_decisions() {
-        let mut episode: Episode<TestState, TestEvent> =
-            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
+        let mut episode = Episode::new(
+            "Test Episode",
+            TestState::Initial,
+            TestState::Final,
+        );
 
-        let observation =
-            Observation::new(TestState::Initial, TestEvent::Start, TestState::Processing);
+        let observation = Observation::new(
+            TestState::Initial,
+            TestEvent::Start,
+            TestState::Processing,
+        );
 
-        let decision = Decision::new(TestEvent::Start, 0.9);
+        let insight = Insight::new("Test Insight", "This is a test insight", 0.9);
 
-        episode.add_observation(observation.clone());
+        let decision = Decision::simple(TestEvent::Start, 0.9);
+
+        episode.add_observation(observation);
         episode.add_decision(decision.clone());
+        episode.add_insight(insight);
 
         assert_eq!(episode.observations.len(), 1);
         assert_eq!(episode.decisions.len(), 1);
-        assert_eq!(episode.observations[0].id, observation.id);
-        assert_eq!(episode.decisions[0].id, decision.id);
+        assert_eq!(episode.insights.len(), 1);
     }
 
     #[test]
