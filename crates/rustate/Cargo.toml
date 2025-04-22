@@ -35,6 +35,10 @@ wasm = ["wasm-bindgen", "js-sys", "web-sys", "console_error_panic_hook", "uuid/j
 mbt = ["property-testing"]
 # Property-Based Testing 
 property-testing = ["proptest"]
+# Integration feature for combined state machine patterns
+integration = []
+# XState compatible features
+xstate-compat = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]
