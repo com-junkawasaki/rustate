@@ -6,7 +6,14 @@ use rustate::{CodegenExt, JsonExportOptions};
 #[cfg(feature = "proto")]
 use rustate::ProtoExportOptions;
 
+use std::env;
+use std::path::PathBuf;
+
 fn main() -> rustate::Result<()> {
+    // 現在の実行ディレクトリを取得
+    let current_dir = env::current_dir().expect("カレントディレクトリの取得に失敗しました");
+    println!("現在のディレクトリ: {}", current_dir.display());
+
     // オンラインショッピングのステートマシンを作成
     let mut machine = create_shopping_machine()?;
     println!("ステートマシンを作成しました: {}", machine.name);
@@ -31,25 +38,27 @@ fn main() -> rustate::Result<()> {
     #[cfg(feature = "codegen")]
     {
         println!("\nステートマシン定義を JSON としてエクスポート中...");
+        let json_path = current_dir.join("shopping_cart.json");
         let json_options = JsonExportOptions {
-            output_path: "shopping_cart.json".to_string(),
+            output_path: json_path.to_string_lossy().to_string(),
             pretty: true,
             include_metadata: true,
         };
         machine.export_to_json(Some(json_options))?;
-        println!("JSON ファイルが生成されました: shopping_cart.json");
+        println!("JSON ファイルが生成されました: {}", json_path.display());
     }
 
     #[cfg(feature = "proto")]
     {
         println!("\nステートマシン定義を Protocol Buffers としてエクスポート中...");
+        let proto_path = current_dir.join("shopping_cart.proto");
         let proto_options = ProtoExportOptions {
-            output_path: "shopping_cart.proto".to_string(),
+            output_path: proto_path.to_string_lossy().to_string(),
             package_name: "shopping".to_string(),
             message_name: "ShoppingCart".to_string(),
         };
         machine.export_to_proto(Some(proto_options))?;
-        println!("Proto ファイルが生成されました: shopping_cart.proto");
+        println!("Proto ファイルが生成されました: {}", proto_path.display());
     }
 
     Ok(())
