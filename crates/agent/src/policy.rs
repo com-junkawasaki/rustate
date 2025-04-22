@@ -90,16 +90,19 @@ where
 
     async fn decide(&self, _context: DecisionContext<S, E>) -> Result<Decision<E>> {
         let mut rng = rand::thread_rng();
-        
+
         if self.available_events.is_empty() {
-            return Err(AgentError::PolicyError("利用可能なイベントがありません".to_string()));
+            return Err(AgentError::PolicyError(
+                "利用可能なイベントがありません".to_string(),
+            ));
         }
-        
-        let event = self.available_events
+
+        let event = self
+            .available_events
             .choose(&mut rng)
             .cloned()
             .ok_or_else(|| AgentError::PolicyError("イベント選択エラー".to_string()))?;
-        
+
         Ok(Decision::new(
             uuid::Uuid::new_v4().to_string(),
             event,
@@ -312,7 +315,10 @@ mod tests {
         );
 
         let current_state = TestState::Initial;
-        let decision = policy.decide(DecisionContext::new(current_state, None, &[], &[])).await.unwrap();
+        let decision = policy
+            .decide(DecisionContext::new(current_state, None, &[], &[]))
+            .await
+            .unwrap();
 
         assert!(matches!(
             decision.event,

@@ -1,4 +1,4 @@
-use rustate::{Action, ActionType, Context, Event, Machine, MachineBuilder, State, Transition};
+use rustate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
 
 fn main() -> rustate::Result<()> {
     // オンラインショッピングのステートマシンを作成
@@ -7,8 +7,11 @@ fn main() -> rustate::Result<()> {
     println!("現在の状態: {:?}", machine.current_states);
 
     // 初期状態のコンテキスト
-    println!("初期アイテム数: {:?}", machine.context.get::<i32>("itemCount"));
-    
+    println!(
+        "初期アイテム数: {:?}",
+        machine.context.get::<i32>("itemCount")
+    );
+
     // イベントを送信してステートマシンを実行
     println!("\nSTARTイベントを送信");
     machine.send("START")?;
@@ -17,15 +20,17 @@ fn main() -> rustate::Result<()> {
     println!("\nADD_ITEMイベントを送信");
     machine.send("ADD_ITEM")?;
     println!("現在の状態: {:?}", machine.current_states);
-    
+
     // カートの商品数を取得
     let item_count = machine.context.get::<i32>("itemCount").unwrap_or(0);
     println!("カート内の商品数: {}", item_count);
-    
+
     // カート内の商品数を手動で増やしてみる
     let _ = machine.context.set("itemCount", item_count + 5);
-    println!("手動で更新した後のカート内商品数: {}", 
-             machine.context.get::<i32>("itemCount").unwrap_or(0));
+    println!(
+        "手動で更新した後のカート内商品数: {}",
+        machine.context.get::<i32>("itemCount").unwrap_or(0)
+    );
 
     println!("\nCHECKOUTイベントを送信");
     machine.send("CHECKOUT")?;
@@ -34,15 +39,23 @@ fn main() -> rustate::Result<()> {
     println!("\nPAYイベントを送信");
     machine.send("PAY")?;
     println!("現在の状態: {:?}", machine.current_states);
-    
+
     // 決済状態を確認
-    let payment_processed = machine.context.get::<bool>("paymentProcessed").unwrap_or(false);
+    let payment_processed = machine
+        .context
+        .get::<bool>("paymentProcessed")
+        .unwrap_or(false);
     println!("決済処理完了: {}", payment_processed);
-    
+
     // 決済状態を手動で変更
     let _ = machine.context.set("paymentProcessed", true);
-    println!("手動で更新した後の決済状態: {}", 
-             machine.context.get::<bool>("paymentProcessed").unwrap_or(false));
+    println!(
+        "手動で更新した後の決済状態: {}",
+        machine
+            .context
+            .get::<bool>("paymentProcessed")
+            .unwrap_or(false)
+    );
 
     println!("\nCONFIRMイベントを送信");
     machine.send("CONFIRM")?;
@@ -74,7 +87,10 @@ fn create_shopping_machine() -> rustate::Result<Machine> {
     let add_to_cart = Action::new("addToCart", ActionType::Entry, |ctx, _| {
         let item_count = ctx.get::<i32>("itemCount").unwrap_or(0);
         let _ = ctx.set("itemCount", item_count + 1);
-        println!("カートに商品を追加しました。現在の商品数: {}", item_count + 1);
+        println!(
+            "カートに商品を追加しました。現在の商品数: {}",
+            item_count + 1
+        );
     });
 
     let process_payment = Action::new("processPayment", ActionType::Entry, |ctx, _| {

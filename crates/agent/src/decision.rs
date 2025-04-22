@@ -145,19 +145,13 @@ where
         // 実際の実装では、過去の観測や状態遷移グラフを使用して
         // 現在の状態から目標状態までの最短パスを推定します
         // ここでは簡単な例として現在と目標の状態IDを返します
-        vec![
-            self.current_state.get_id(),
-            self.goal_state.get_id(),
-        ]
+        vec![self.current_state.get_id(), self.goal_state.get_id()]
     }
 
     /// 観測から成功する可能性が高いアクションを推定します
     pub fn suggest_actions_from_observations(&self) -> Vec<&E> {
         // 過去の観測から、目標状態に近づいた成功したアクションを抽出
-        self.observations
-            .iter()
-            .map(|o| o.event())
-            .collect()
+        self.observations.iter().map(|o| o.event()).collect()
     }
 }
 
@@ -175,51 +169,51 @@ where
 mod tests {
     use super::*;
     use rustate::Event;
-    
+
     // テスト用の状態
     #[derive(Debug, Clone, PartialEq)]
     struct TestState {
         id: String,
     }
-    
+
     impl StateTrait for TestState {
         fn get_id(&self) -> String {
             self.id.clone()
         }
     }
-    
+
     // テスト用のイベント
     #[derive(Debug, Clone, PartialEq)]
     struct TestEvent {
         event_type: String,
     }
-    
+
     impl EventTrait for TestEvent {
         fn event_type(&self) -> String {
             self.event_type.clone()
         }
     }
-    
+
     impl rustate::IntoEvent for TestEvent {
         fn into_event(self) -> Event {
             Event::new(self.event_type())
         }
     }
-    
+
     #[test]
     fn test_decision_creation() {
         let event = TestEvent {
             event_type: "TEST_EVENT".to_string(),
         };
-        
+
         let current_state = TestState {
             id: "current".to_string(),
         };
-        
+
         let goal_state = TestState {
             id: "goal".to_string(),
         };
-        
+
         let decision = Decision::new(
             "test-decision-1",
             event.clone(),
@@ -227,20 +221,20 @@ mod tests {
             Some(current_state.clone()),
             Some(goal_state.clone()),
         );
-        
+
         assert_eq!(decision.id(), "test-decision-1");
         assert_eq!(decision.event().event_type, "TEST_EVENT");
         assert_eq!(decision.confidence(), 0.9);
         assert_eq!(decision.state_context, Some("current".to_string()));
         assert_eq!(decision.goal_context, Some("goal".to_string()));
     }
-    
+
     #[test]
     fn test_decision_with_metadata() {
         let event = TestEvent {
             event_type: "TEST_EVENT".to_string(),
         };
-        
+
         let decision = Decision::new(
             "test-decision-2",
             event,
@@ -250,41 +244,35 @@ mod tests {
         )
         .with_metadata("key1", "value1")
         .with_metadata("key2", 42);
-        
+
         assert!(decision.metadata.contains_key("key1"));
         assert!(decision.metadata.contains_key("key2"));
-        
+
         if let Some(serde_json::Value::String(v)) = decision.metadata.get("key1") {
             assert_eq!(v, "value1");
         } else {
             panic!("Expected String value for key1");
         }
-        
+
         if let Some(serde_json::Value::Number(v)) = decision.metadata.get("key2") {
             assert_eq!(v.as_i64().unwrap(), 42);
         } else {
             panic!("Expected Number value for key2");
         }
     }
-    
+
     #[test]
     fn test_decision_context() {
         let current_state = TestState {
             id: "current".to_string(),
         };
-        
+
         let goal_state = TestState {
             id: "goal".to_string(),
         };
-        
-        let context = DecisionContext::new(
-            current_state,
-            goal_state,
-            vec![],
-            vec![],
-            vec![],
-        );
-        
+
+        let context = DecisionContext::new(current_state, goal_state, vec![], vec![], vec![]);
+
         let path = context.estimate_path_to_goal();
         assert_eq!(path.len(), 2);
         assert_eq!(path[0], "current");

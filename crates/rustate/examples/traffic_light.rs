@@ -1,4 +1,4 @@
-use rustate::{Action, ActionType, Event, Machine, MachineBuilder, State, Transition};
+use rustate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
 use std::thread::sleep;
 use std::time::Duration;
 

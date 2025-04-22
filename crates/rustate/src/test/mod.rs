@@ -175,13 +175,13 @@ mod tests {
 mod advanced_tests {
     use super::*;
     use crate::{
-        Action, ActionType, Guard, Machine, MachineBuilder, State, Transition,
-        Context, Event, test::{runner::*, checker::*, generator::*}
+        test::{checker::*, generator::*, runner::*},
+        Action, ActionType, Context, Event, Guard, Machine, MachineBuilder, State, Transition,
     };
-    
+
     #[cfg(feature = "property-testing")]
     use crate::test::property::*;
-    
+
     // 信号機ステートマシンの例
     fn create_traffic_light_machine() -> Machine {
         // 状態を定義
@@ -194,30 +194,46 @@ mod advanced_tests {
         let timer_guard = Guard::new("timer_guard", |ctx: &Context, _evt: &Event| {
             ctx.get::<i32>("timer").unwrap_or(0) >= 5
         });
-        
+
         // メンテナンスモード用のガード
         let maintenance_guard = Guard::new("maintenance_guard", |ctx: &Context, _evt: &Event| {
             ctx.get::<bool>("maintenance").unwrap_or(false)
         });
 
         // アクションを定義
-        let increment_timer = Action::new("increment_timer", ActionType::Entry, |ctx: &mut Context, _evt: &Event| {
-            let current = ctx.get::<i32>("timer").unwrap_or(0);
-            let _ = ctx.set("timer", current + 1);
-        });
+        let increment_timer = Action::new(
+            "increment_timer",
+            ActionType::Entry,
+            |ctx: &mut Context, _evt: &Event| {
+                let current = ctx.get::<i32>("timer").unwrap_or(0);
+                let _ = ctx.set("timer", current + 1);
+            },
+        );
 
-        let reset_timer = Action::new("reset_timer", ActionType::Transition, |ctx: &mut Context, _evt: &Event| {
-            let _ = ctx.set("timer", 0);
-        });
+        let reset_timer = Action::new(
+            "reset_timer",
+            ActionType::Transition,
+            |ctx: &mut Context, _evt: &Event| {
+                let _ = ctx.set("timer", 0);
+            },
+        );
 
         // メンテナンスモードの設定と解除
-        let set_maintenance = Action::new("set_maintenance", ActionType::Transition, |ctx: &mut Context, _evt: &Event| {
-            let _ = ctx.set("maintenance", true);
-        });
+        let set_maintenance = Action::new(
+            "set_maintenance",
+            ActionType::Transition,
+            |ctx: &mut Context, _evt: &Event| {
+                let _ = ctx.set("maintenance", true);
+            },
+        );
 
-        let clear_maintenance = Action::new("clear_maintenance", ActionType::Transition, |ctx: &mut Context, _evt: &Event| {
-            let _ = ctx.set("maintenance", false);
-        });
+        let clear_maintenance = Action::new(
+            "clear_maintenance",
+            ActionType::Transition,
+            |ctx: &mut Context, _evt: &Event| {
+                let _ = ctx.set("maintenance", false);
+            },
+        );
 
         // 遷移を定義
         let mut green_to_yellow = Transition::new("green", "TIMER", "yellow");
@@ -267,19 +283,19 @@ mod advanced_tests {
         assert!(machine.is_in("green"));
 
         // タイマーイベントを5回送信してgreenからyellowへ遷移
-        for _ in 0..10 { 
+        for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
         assert!(machine.is_in("yellow"));
 
         // yellow → red
-        for _ in 0..10 { 
+        for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
         assert!(machine.is_in("red"));
 
         // red → green
-        for _ in 0..10 { 
+        for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
         assert!(machine.is_in("green"));
@@ -293,12 +309,12 @@ mod advanced_tests {
         // どの状態からでもメンテナンスモードに移行できる
         let current_state = machine.current_states.clone();
         println!("Current states before MAINTENANCE: {:?}", current_state);
-        
+
         machine.send("MAINTENANCE").unwrap();
-        
+
         let current_state = machine.current_states.clone();
         println!("Current states after MAINTENANCE: {:?}", current_state);
-        
+
         assert!(machine.is_in("maintenance"));
 
         // メンテナンスモードから復帰すると常にgreenになる
@@ -310,10 +326,10 @@ mod advanced_tests {
             machine.send("TIMER").unwrap();
         }
         assert!(machine.is_in("yellow"));
-        
+
         machine.send("MAINTENANCE").unwrap();
         assert!(machine.is_in("maintenance"));
-        
+
         machine.send("RESTORE").unwrap();
         assert!(machine.is_in("green"));
     }
@@ -358,19 +374,19 @@ mod advanced_tests {
     fn test_generate_test_cases_for_traffic_light() {
         let machine = create_traffic_light_machine();
         let mut generator = TestGenerator::new(&machine);
-        
+
         // すべての状態をカバーするテストケースを生成
         let state_tests = generator.generate_all_states();
         assert_eq!(state_tests.len(), 4, "Should generate test for all 4 states");
-        
+
         // すべての遷移をカバーするテストケースを生成
         let transition_tests = generator.generate_all_transitions();
         assert_eq!(transition_tests.len(), 5, "Should generate test for all 5 transitions");
-        
+
         // テストを実行
         let mut runner = TestRunner::new(&machine);
         let results = runner.run_tests(transition_tests);
-        
+
         // 全テストが成功することを検証
         assert!(results.all_passed(), "Not all transition tests passed: {:?}", results);
     }

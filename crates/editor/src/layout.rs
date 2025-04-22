@@ -92,13 +92,15 @@ mod tests {
     fn create_mock_element() -> web_sys::Element {
         let window = web_sys::window().expect("no global window exists");
         let document = window.document().expect("no document exists");
-        document.create_element("div").expect("could not create element")
+        document
+            .create_element("div")
+            .expect("could not create element")
     }
 
     #[wasm_bindgen_test]
     fn test_layout_creation() {
         let layout = Layout::new("test-layout");
-        
+
         assert_eq!(layout.id, "test-layout");
         assert_eq!(layout.regions.len(), 0);
     }
@@ -106,20 +108,20 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_add_region() {
         let mut layout = Layout::new("test-layout");
-        
+
         // 領域を追加
         layout.add_region("sidebar", RegionType::Sidebar, 25.0);
         layout.add_region("main", RegionType::Content, 75.0);
-        
+
         // 追加された領域の確認
         assert_eq!(layout.regions.len(), 2);
-        
+
         // サイドバー領域の確認
         let sidebar = layout.regions.get("sidebar").unwrap();
         assert_eq!(sidebar.id, "sidebar");
         assert_eq!(sidebar.region_type, RegionType::Sidebar);
         assert_eq!(sidebar.size, 25.0);
-        
+
         // メイン領域の確認
         let main = layout.regions.get("main").unwrap();
         assert_eq!(main.id, "main");
@@ -130,17 +132,17 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_remove_region() {
         let mut layout = Layout::new("test-layout");
-        
+
         // 領域を追加
         layout.add_region("sidebar", RegionType::Sidebar, 25.0);
         layout.add_region("main", RegionType::Content, 75.0);
-        
+
         // 追加確認
         assert_eq!(layout.regions.len(), 2);
-        
+
         // 領域を削除
         layout.remove_region("sidebar");
-        
+
         // 削除後の確認
         assert_eq!(layout.regions.len(), 1);
         assert!(!layout.regions.contains_key("sidebar"));
@@ -150,13 +152,13 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_update_region_size() {
         let mut layout = Layout::new("test-layout");
-        
+
         // 領域を追加
         layout.add_region("sidebar", RegionType::Sidebar, 25.0);
-        
+
         // サイズを更新
         layout.update_region_size("sidebar", 30.0);
-        
+
         // 更新確認
         let sidebar = layout.regions.get("sidebar").unwrap();
         assert_eq!(sidebar.size, 30.0);
@@ -165,17 +167,17 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_layout_render() {
         let mut layout = Layout::new("test-layout");
-        
+
         // 領域を追加
         layout.add_region("sidebar", RegionType::Sidebar, 25.0);
         layout.add_region("main", RegionType::Content, 75.0);
-        
+
         // コンテナ要素を作成
         let container = create_mock_element();
-        
+
         // レイアウトをレンダリング
         let result = layout.render(&container);
-        
+
         // エラーが発生しないことを確認
         assert!(result.is_ok());
     }
@@ -183,19 +185,19 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_get_region_element() {
         let mut layout = Layout::new("test-layout");
-        
+
         // 領域を追加
         layout.add_region("sidebar", RegionType::Sidebar, 25.0);
-        
+
         // コンテナ要素を作成
         let container = create_mock_element();
-        
+
         // レイアウトをレンダリング
         let _ = layout.render(&container);
-        
+
         // 領域要素の取得を試みる（実際にはレンダリングの制限があるためnull）
         let element = layout.get_region_element("sidebar");
-        
+
         // テスト環境では実際のDOM要素は取得できないため、Noneであることを確認
         assert!(element.is_none());
     }

@@ -8,8 +8,8 @@ use crate::{
     policy::Policy,
     storage::Storage,
 };
+use rustate::integration::{SharedContext, SharedMachineRef};
 use rustate::{Context, EventTrait, Machine, StateTrait};
-use rustate::integration::{SharedMachineRef, SharedContext};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -96,7 +96,11 @@ where
     }
 
     /// 共有状態機械参照を使用してエージェントを作成します
-    pub fn with_shared_machine(machine_ref: SharedMachineRef<S, E>, policy: P, storage: SM) -> Self {
+    pub fn with_shared_machine(
+        machine_ref: SharedMachineRef<S, E>,
+        policy: P,
+        storage: SM,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             machine_ref: Some(machine_ref),
@@ -133,9 +137,13 @@ where
         if let Some(ref machine) = self.machine {
             Ok(machine)
         } else if let Some(ref machine_ref) = self.machine_ref {
-            machine_ref.machine().map_err(|e| AgentError::IntegrationError(e.to_string()))
+            machine_ref
+                .machine()
+                .map_err(|e| AgentError::IntegrationError(e.to_string()))
         } else {
-            Err(AgentError::Other("状態機械が設定されていません".to_string()))
+            Err(AgentError::Other(
+                "状態機械が設定されていません".to_string(),
+            ))
         }
     }
 
@@ -144,11 +152,14 @@ where
         if let Some(ref machine) = self.machine {
             Ok(machine.current_state().clone())
         } else if let Some(ref machine_ref) = self.machine_ref {
-            machine_ref.current_state()
+            machine_ref
+                .current_state()
                 .map_err(|e| AgentError::IntegrationError(e.to_string()))
                 .map(|s| s.clone())
         } else {
-            Err(AgentError::Other("状態機械が設定されていません".to_string()))
+            Err(AgentError::Other(
+                "状態機械が設定されていません".to_string(),
+            ))
         }
     }
 
@@ -231,13 +242,16 @@ where
         } else if let Some(ref machine_ref) = self.machine_ref {
             // 共有参照の場合はsend_eventを使用
             match machine_ref.send_event(decision.event.clone()) {
-                Ok(_) => machine_ref.current_state()
+                Ok(_) => machine_ref
+                    .current_state()
                     .map_err(|e| AgentError::IntegrationError(e.to_string()))?
                     .clone(),
                 Err(e) => return Err(AgentError::IntegrationError(e.to_string())),
             }
         } else {
-            return Err(AgentError::Other("状態機械が設定されていません".to_string()));
+            return Err(AgentError::Other(
+                "状態機械が設定されていません".to_string(),
+            ));
         };
 
         // 自動観測記録が有効な場合
@@ -259,8 +273,12 @@ where
             // 共有コンテキストが有効な場合、観測データを保存
             if let Some(ref shared_ctx) = self.shared_context {
                 let observation_key = format!("observation_{}", Uuid::new_v4());
-                shared_ctx.set(&observation_key, &serde_json::to_string(&observation)
-                    .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+                shared_ctx
+                    .set(
+                        &observation_key,
+                        &serde_json::to_string(&observation)
+                            .map_err(|e| AgentError::SerializationError(e.to_string()))?,
+                    )
                     .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
             }
         }
@@ -289,8 +307,12 @@ where
                 // 共有コンテキストが有効な場合、洞察データを保存
                 if let Some(ref shared_ctx) = self.shared_context {
                     let insight_key = format!("insight_{}", Uuid::new_v4());
-                    shared_ctx.set(&insight_key, &serde_json::to_string(&insight)
-                        .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+                    shared_ctx
+                        .set(
+                            &insight_key,
+                            &serde_json::to_string(&insight)
+                                .map_err(|e| AgentError::SerializationError(e.to_string()))?,
+                        )
                         .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
                 }
             }
@@ -356,8 +378,12 @@ where
         // 共有コンテキストが有効な場合、洞察データを保存
         if let Some(ref shared_ctx) = self.shared_context {
             let insight_key = format!("insight_{}", Uuid::new_v4());
-            shared_ctx.set(&insight_key, &serde_json::to_string(&insight)
-                .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+            shared_ctx
+                .set(
+                    &insight_key,
+                    &serde_json::to_string(&insight)
+                        .map_err(|e| AgentError::SerializationError(e.to_string()))?,
+                )
                 .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
         }
 
@@ -377,8 +403,12 @@ where
         // 共有コンテキストが有効な場合、フィードバックデータを保存
         if let Some(ref shared_ctx) = self.shared_context {
             let feedback_key = format!("feedback_{}", Uuid::new_v4());
-            shared_ctx.set(&feedback_key, &serde_json::to_string(&feedback)
-                .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+            shared_ctx
+                .set(
+                    &feedback_key,
+                    &serde_json::to_string(&feedback)
+                        .map_err(|e| AgentError::SerializationError(e.to_string()))?,
+                )
                 .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
         }
 
@@ -424,18 +454,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::observation::Observation;
     use crate::decision::{Decision, DecisionMaker};
-    use crate::policy::Policy;
-    use crate::storage::MemoryStorage;
     use crate::feedback::Feedback;
     use crate::insight::Insight;
-    use rustate::{State as RuState, Machine, MachineBuilder, Transition};
+    use crate::observation::Observation;
+    use crate::policy::Policy;
+    use crate::storage::MemoryStorage;
+    use rustate::{Machine, MachineBuilder, State as RuState, Transition};
     use std::collections::HashMap;
     use std::sync::Mutex;
-    use uuid::Uuid;
     use std::time::Duration;
     use tokio::time::sleep;
+    use uuid::Uuid;
 
     // テスト用の状態
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -503,18 +533,24 @@ mod tests {
             map.insert(TestState::Processing, TestEvent::Complete);
             map.insert(TestState::Error, TestEvent::Retry);
             map.insert(TestState::Completed, TestEvent::Start); // ループ用
-            Self { state_action_map: map }
+            Self {
+                state_action_map: map,
+            }
         }
     }
 
     #[async_trait::async_trait]
     impl Policy<TestState, TestEvent> for TestPolicy {
-        async fn decide(&self, context: DecisionContext<TestState, TestEvent>) -> Result<Decision<TestEvent>, AgentError> {
-            let action = self.state_action_map
+        async fn decide(
+            &self,
+            context: DecisionContext<TestState, TestEvent>,
+        ) -> Result<Decision<TestEvent>, AgentError> {
+            let action = self
+                .state_action_map
                 .get(&context.current_state)
                 .cloned()
                 .unwrap_or(TestEvent::Abort);
-            
+
             Ok(Decision::new(
                 Uuid::new_v4().to_string(),
                 action,
@@ -561,33 +597,32 @@ mod tests {
     async fn test_agent_with_shared_machine() {
         // 状態機械の作成
         let machine = create_test_machine();
-        
+
         // 共有参照の作成
         let shared_machine = SharedMachineRef::new(machine);
-        
+
         // エージェントの作成
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::with_shared_machine(
-            shared_machine.clone(),
-            policy,
-            storage
-        );
-        
+        let mut agent = Agent::with_shared_machine(shared_machine.clone(), policy, storage);
+
         // 目標状態設定
         let goal_state = TestState::Completed;
-        
+
         // エピソード開始
-        agent.start_episode("テストエピソード", Some(goal_state)).await.unwrap();
-        
+        agent
+            .start_episode("テストエピソード", Some(goal_state))
+            .await
+            .unwrap();
+
         // ステップ実行
         let next_state = agent.step().await.unwrap();
         assert_eq!(next_state, TestState::Processing);
-        
+
         // もう一度ステップ実行
         let final_state = agent.step().await.unwrap();
         assert_eq!(final_state, TestState::Completed);
-        
+
         // エピソードを完了
         let episode = agent.complete_episode(true).await.unwrap().unwrap();
         assert!(episode.is_completed());
@@ -599,29 +634,32 @@ mod tests {
     async fn test_agent_with_shared_context() {
         // 状態機械の作成
         let machine = create_test_machine();
-        
+
         // 共有コンテキストの作成
         let shared_context = SharedContext::new();
-        
+
         // エージェントの作成
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(machine, policy, storage)
-            .with_shared_context(shared_context.clone());
-        
+        let mut agent =
+            Agent::new(machine, policy, storage).with_shared_context(shared_context.clone());
+
         // 共有コンテキストに値を設定
         shared_context.set("test_key", "test_value").unwrap();
-        
+
         // 目標状態設定
         let goal_state = TestState::Completed;
-        
+
         // エピソード開始
-        agent.start_episode("テストエピソード", Some(goal_state)).await.unwrap();
-        
+        agent
+            .start_episode("テストエピソード", Some(goal_state))
+            .await
+            .unwrap();
+
         // 目標状態まで実行
         let success = agent.run_until_goal(Some(5)).await.unwrap();
         assert!(success);
-        
+
         // 共有コンテキストから値を取得
         let value: Option<String> = shared_context.get("test_key").unwrap();
         assert_eq!(value, Some("test_value".to_string()));
@@ -646,7 +684,8 @@ mod tests {
         let mut agent = Agent::new(machine, policy, storage);
 
         // エピソードを開始
-        agent.start_episode("テスト", Some(TestState::Completed))
+        agent
+            .start_episode("テスト", Some(TestState::Completed))
             .await
             .unwrap();
 
@@ -663,13 +702,14 @@ mod tests {
         let mut agent = Agent::new(machine, policy, storage);
 
         // エピソードを開始
-        agent.start_episode("テスト", Some(TestState::Completed))
+        agent
+            .start_episode("テスト", Some(TestState::Completed))
             .await
             .unwrap();
 
         // 決定を取得
         let decision = agent.next_decision().await.unwrap();
-        
+
         // 決定を適用
         let next_state = agent.apply_decision(&decision).await.unwrap();
         assert_eq!(next_state, TestState::Processing);
@@ -683,7 +723,8 @@ mod tests {
         let mut agent = Agent::new(machine, policy, storage);
 
         // エピソードを開始
-        agent.start_episode("テスト", Some(TestState::Completed))
+        agent
+            .start_episode("テスト", Some(TestState::Completed))
             .await
             .unwrap();
 

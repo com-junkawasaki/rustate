@@ -67,14 +67,16 @@ mod tests {
     fn create_mock_element() -> web_sys::Element {
         let window = web_sys::window().expect("no global window exists");
         let document = window.document().expect("no document exists");
-        document.create_element("div").expect("could not create element")
+        document
+            .create_element("div")
+            .expect("could not create element")
     }
 
     #[wasm_bindgen_test]
     fn test_editor_initialization() {
         // モック要素を作成
         let container = create_mock_element();
-        
+
         // エディタの初期化オプション
         let options = EditorOptions {
             theme: "light".to_string(),
@@ -82,16 +84,16 @@ mod tests {
             read_only: false,
             auto_save: true,
         };
-        
+
         // エディタの初期化
         let editor = Editor::new(options);
-        
+
         // 属性の確認
         assert_eq!(editor.options.theme, "light");
         assert!(editor.options.show_toolbar);
         assert!(!editor.options.read_only);
         assert!(editor.options.auto_save);
-        
+
         // 初期状態の確認
         assert!(editor.layout.is_none());
         assert!(editor.components.is_empty());
@@ -107,11 +109,11 @@ mod tests {
             auto_save: true,
         };
         let mut editor = Editor::new(options);
-        
+
         // レイアウトを設定
         let layout = layout::Layout::new("test-layout");
         editor.set_layout(layout);
-        
+
         // レイアウトが設定されたことを確認
         assert!(editor.layout.is_some());
         assert_eq!(editor.layout.as_ref().unwrap().id, "test-layout");
@@ -122,16 +124,19 @@ mod tests {
         // エディタインスタンスを作成
         let options = EditorOptions::default();
         let mut editor = Editor::new(options);
-        
+
         // コンポーネントを作成
         let component_id = "test-component";
-        
+
         // コンポーネント追加前の確認
         assert_eq!(editor.components.len(), 0);
-        
+
         // コンポーネントを追加
-        editor.add_component(component_id.to_string(), Box::new(MockComponent::new(component_id)));
-        
+        editor.add_component(
+            component_id.to_string(),
+            Box::new(MockComponent::new(component_id)),
+        );
+
         // コンポーネントが追加されたことを確認
         assert_eq!(editor.components.len(), 1);
         assert!(editor.components.contains_key(component_id));
@@ -142,17 +147,20 @@ mod tests {
         // エディタインスタンスを作成
         let options = EditorOptions::default();
         let mut editor = Editor::new(options);
-        
+
         // コンポーネントを追加
         let component_id = "test-component";
-        editor.add_component(component_id.to_string(), Box::new(MockComponent::new(component_id)));
-        
+        editor.add_component(
+            component_id.to_string(),
+            Box::new(MockComponent::new(component_id)),
+        );
+
         // 追加後の確認
         assert_eq!(editor.components.len(), 1);
-        
+
         // コンポーネントを削除
         editor.remove_component(component_id);
-        
+
         // 削除後の確認
         assert_eq!(editor.components.len(), 0);
         assert!(!editor.components.contains_key(component_id));
@@ -163,23 +171,26 @@ mod tests {
         // エディタインスタンスを作成
         let options = EditorOptions::default();
         let mut editor = Editor::new(options);
-        
+
         // コンポーネントを追加
         let component_id = "test-component";
-        editor.add_component(component_id.to_string(), Box::new(MockComponent::new(component_id)));
-        
+        editor.add_component(
+            component_id.to_string(),
+            Box::new(MockComponent::new(component_id)),
+        );
+
         // レイアウトを設定
         let layout = layout::Layout::new("test-layout");
         editor.set_layout(layout);
-        
+
         // コンテナ要素を作成
         let container = create_mock_element();
-        
+
         // エディタをレンダリング（エラーが発生しないことを確認）
         let result = std::panic::catch_unwind(|| {
             editor.render(&container);
         });
-        
+
         assert!(!result.is_err(), "Editor rendering panicked");
     }
 
@@ -188,26 +199,26 @@ mod tests {
         // エディタインスタンスを作成
         let options = EditorOptions::default();
         let mut editor = Editor::new(options);
-        
+
         // モックイベントハンドラのカウンタ
         let counter = std::rc::Rc::new(std::cell::RefCell::new(0));
         let counter_clone = counter.clone();
-        
+
         // イベントハンドラを設定
         editor.on_save(Box::new(move || {
             let mut count = counter_clone.borrow_mut();
             *count += 1;
         }));
-        
+
         // イベント発火
         editor.trigger_save();
-        
+
         // ハンドラが呼び出されたことを確認
         assert_eq!(*counter.borrow(), 1);
-        
+
         // 再度イベント発火
         editor.trigger_save();
-        
+
         // 再度ハンドラが呼び出されたことを確認
         assert_eq!(*counter.borrow(), 2);
     }
@@ -216,25 +227,23 @@ mod tests {
     struct MockComponent {
         id: String,
     }
-    
+
     impl MockComponent {
         fn new(id: &str) -> Self {
-            Self {
-                id: id.to_string(),
-            }
+            Self { id: id.to_string() }
         }
     }
-    
+
     impl Component for MockComponent {
         fn id(&self) -> &str {
             &self.id
         }
-        
+
         fn render(&self, _container: &web_sys::Element) -> Result<(), JsValue> {
             // レンダリングの実装（テスト用にダミー）
             Ok(())
         }
-        
+
         fn update(&self) -> Result<(), JsValue> {
             // 更新の実装（テスト用にダミー）
             Ok(())
