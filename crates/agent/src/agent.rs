@@ -11,6 +11,7 @@ use crate::{
 use rustate::integration::{SharedContext, SharedMachineRef};
 use rustate::{Context, EventTrait, Machine, StateTrait};
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -49,8 +50,8 @@ impl Default for AgentConfig {
 /// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, SM, P>
 where
-    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + PartialEq + 'static + Default,
-    E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static + rustate::IntoEvent,
+    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + PartialEq + 'static + Default + Serialize,
+    E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static + rustate::IntoEvent + Serialize,
     SM: Storage<S, E>,
     P: Policy<S, E>,
 {
@@ -75,8 +76,8 @@ where
 
 impl<S, E, SM, P> Agent<S, E, SM, P>
 where
-    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static + Default,
-    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static + rustate::IntoEvent,
+    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static + Default + Serialize,
+    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static + rustate::IntoEvent + Serialize,
     SM: Storage<S, E>,
     P: Policy<S, E>,
 {
@@ -340,7 +341,7 @@ where
         };
 
         // 目標状態を取得
-        let goal_state = episode.goal_state().clone();
+        let goal_state = episode.goal_state.clone();
 
         // 最大ステップ数
         let max_iterations = max_steps.unwrap_or(100);
@@ -438,10 +439,10 @@ where
         // 決定コンテキストを作成
         let context = DecisionContext {
             current_state: current_state.clone(),
-            goal_state: episode.goal_state().clone(),
-            observations: episode.observations().to_vec(),
-            feedbacks: episode.feedbacks().to_vec(),
-            insights: episode.insights().to_vec(),
+            goal_state: episode.goal_state.clone(),
+            observations: episode.observations.clone(),
+            feedbacks: episode.feedback.clone().into_iter().collect(),
+            insights: episode.insights.clone(),
         };
 
         // ポリシーを使用して決定を生成

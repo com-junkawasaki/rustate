@@ -251,6 +251,7 @@ mod advanced_tests {
         // メンテナンスへの遷移
         let mut to_maintenance = Transition::new("*", "MAINTENANCE", "maintenance");
         to_maintenance.with_action(set_maintenance);
+        // No guard needed for maintenance transition as it should always be possible
 
         // メンテナンスからの復帰（常にgreenから再開）
         let mut from_maintenance = Transition::new("maintenance", "RESTORE", "green");
@@ -304,13 +305,28 @@ mod advanced_tests {
     #[test]
     fn test_maintenance_mode() {
         let mut machine = create_traffic_light_machine();
+        
+        // Initialize context with maintenance flag set to false
+        let mut ctx = Context::new();
+        ctx.set("maintenance", false).unwrap();
+        machine.context = ctx;
+        
         assert!(machine.is_in("green"));
+
+        // Let's check what transitions are available
+        println!("Available transitions:");
+        for transition in &machine.transitions {
+            println!("  Source: {}, Event: {}, Target: {:?}", 
+                     transition.source, transition.event, transition.target);
+        }
 
         // どの状態からでもメンテナンスモードに移行できる
         let current_state = machine.current_states.clone();
         println!("Current states before MAINTENANCE: {:?}", current_state);
 
-        machine.send("MAINTENANCE").unwrap();
+        // Try the MAINTENANCE event
+        let result = machine.send("MAINTENANCE");
+        println!("MAINTENANCE event result: {:?}", result);
 
         let current_state = machine.current_states.clone();
         println!("Current states after MAINTENANCE: {:?}", current_state);

@@ -13,6 +13,7 @@ use std::fmt::Debug;
 use std::marker::Send;
 use std::marker::Sync;
 use std::sync::Arc;
+use uuid;
 
 /// ポリシートレイト - エージェントの決定プロセスを定義します
 #[async_trait]
@@ -77,7 +78,7 @@ where
 #[async_trait]
 impl<S, E> Policy<S, E> for RandomPolicy<E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static + Clone,
     E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
@@ -116,7 +117,7 @@ where
 /// ヒューリスティックルールによって決定を行うポリシー
 pub struct HeuristicPolicy<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static + Clone,
     E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     rules: Vec<Box<dyn HeuristicRule<S, E> + Send + Sync>>,
@@ -127,7 +128,7 @@ where
 
 impl<S, E> HeuristicPolicy<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static + Clone,
     E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     pub fn new(fallback_policy: impl Policy<S, E> + Send + Sync + 'static) -> Self {
@@ -158,7 +159,7 @@ where
 /// ヒューリスティックルールのトレイト
 pub trait HeuristicRule<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static + Clone,
     E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     /// ルールの名前
@@ -186,7 +187,7 @@ where
 #[async_trait]
 impl<S, E> Policy<S, E> for HeuristicPolicy<S, E>
 where
-    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static,
+    S: StateTrait + DeserializeOwned + Debug + Send + Sync + 'static + Clone,
     E: EventTrait + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
     fn name(&self) -> &str {
@@ -198,36 +199,39 @@ where
     }
 
     async fn decide(&self, context: DecisionContext<S, E>) -> Result<Decision<E>> {
-        // マッチするルールを探す
-        let mut rule_matches = Vec::new();
-
-        for rule in &self.rules {
-            if rule.matches(
-                &context.current_state,
-                context.goal_state.as_ref(),
-                context.observations,
-                context.insights,
-            ) {
-                rule_matches.push(rule);
-            }
-        }
-
-        if rule_matches.is_empty() {
-            // マッチするルールがない場合はフォールバックポリシーを使用
-            return self.fallback_policy.decide(context);
-        }
-
-        // 優先度が最も高いルールを選択
-        let best_rule = rule_matches
+        // Apply each rule in priority order
+        let mut applicable_rules: Vec<&Box<dyn HeuristicRule<S, E> + Send + Sync>> = self
+            .rules
             .iter()
-            .max_by_key(|rule| rule.priority())
-            .unwrap();
+            .filter(|rule| {
+                rule.matches(
+                    &context.current_state,
+                    Some(&context.goal_state),
+                    &context.observations,
+                    &context.insights,
+                )
+            })
+            .collect();
 
-        // 選択されたルールからイベントを取得
-        let event = best_rule.get_event(&context.current_state, context.goal_state.as_ref());
-        let confidence = best_rule.confidence();
+        // Sort by priority (highest first)
+        applicable_rules.sort_by(|a, b| b.priority().cmp(&a.priority()));
 
-        Ok(Decision::new(event, confidence))
+        // Apply the highest priority rule
+        if let Some(rule) = applicable_rules.first() {
+            let event = rule.get_event(&context.current_state, Some(&context.goal_state));
+            let confidence = rule.confidence();
+
+            return Ok(Decision::new(
+                uuid::Uuid::new_v4().to_string(),
+                event,
+                confidence,
+                Some(context.current_state.clone()),
+                Some(context.goal_state.clone()),
+            ));
+        }
+
+        // If no rule applies, use the fallback policy
+        self.fallback_policy.decide(context).await
     }
 }
 

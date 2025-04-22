@@ -132,11 +132,20 @@ where
     /// Process an event for a specific state
     fn process_state_event(&mut self, state_id: &str, event: &Event) -> Result<bool> {
         // Find enabled transitions for this state
-        let enabled_transition = self
+        let mut enabled_transition = self
             .transitions
             .iter()
             .find(|t| t.source == state_id && t.is_enabled(&self.context, event))
             .cloned();
+
+        // If no transition found, check for wildcard source transitions
+        if enabled_transition.is_none() {
+            enabled_transition = self
+                .transitions
+                .iter()
+                .find(|t| t.source == "*" && t.is_enabled(&self.context, event))
+                .cloned();
+        }
 
         if let Some(transition) = enabled_transition {
             // Execute the transition
@@ -154,7 +163,16 @@ where
 
     /// Execute a transition
     fn execute_transition(&mut self, transition: &Transition, event: &Event) -> Result<()> {
-        let source_id = transition.source.clone();
+        let source_id = if transition.source == "*" {
+            // For wildcard transitions, use the current state
+            if let Some(current_state) = self.current_states.iter().next() {
+                current_state.clone()
+            } else {
+                return Err(Error::InvalidConfiguration("No current state for wildcard transition".into()));
+            }
+        } else {
+            transition.source.clone()
+        };
 
         // For internal transitions, just execute the actions
         if transition.target.is_none() {
