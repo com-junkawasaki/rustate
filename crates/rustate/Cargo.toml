@@ -23,15 +23,9 @@ console_error_panic_hook = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
-prost = "0.11"
-tonic = "0.9"
-prost-types = "0.11"
 
 [dev-dependencies]
 proptest = "1.2"
-
-[build-dependencies]
-tonic-build = "0.9"
 
 [features]
 default = []
@@ -45,8 +39,6 @@ property-testing = ["proptest"]
 integration = []
 # XState compatible features
 xstate-compat = []
-# Protocol Buffer support for XState compatibility
-proto = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -111,7 +111,3 @@ mod tests {
         assert_eq!(result, 4);
     }
 }
-
-// Protocol Buffer support for XState compatibility
-#[cfg(feature = "proto")]
-pub mod proto;
