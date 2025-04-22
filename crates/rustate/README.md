@@ -297,6 +297,81 @@ rustate-grpc = { version = "0.1.0", features = ["full"] }
 
 See the [rustate-grpc documentation](https://github.com/jun784/rustate/tree/main/crates/rustate-grpc) for detailed usage examples.
 
+## XState Protocol Buffer Integration
+
+RuState now provides full compatibility with XState's statechart definitions through Protocol Buffers (`.proto`). This allows you to:
+
+1. Define state machines using `.proto` files in an XState-compatible format
+2. Import existing XState JSON definitions
+3. Seamlessly convert between RuState and XState formats
+4. Use the same state machine definitions across Rust and JavaScript/TypeScript
+
+### Using Protocol Buffer Definitions
+
+```rust
+use rustate::proto::{import_machine_from_file, import_machine_from_proto};
+
+// Import from a .proto file
+let machine = import_machine_from_file("path/to/machine.proto")?;
+
+// Use the machine as normal
+machine.send("SOME_EVENT")?;
+```
+
+### Converting XState JSON to RuState
+
+```rust
+use rustate::proto::{
+    xstate_machine::{ImportMachineRequest, StateMachineConfig},
+    import_machine_from_proto,
+};
+use prost::Message;
+use std::collections::HashMap;
+
+// XState JSON definition
+let xstate_json = r#"
+{
+  "id": "toggle",
+  "initial": "inactive",
+  "states": {
+    "inactive": {
+      "on": {
+        "TOGGLE": "active"
+      }
+    },
+    "active": {
+      "on": {
+        "TOGGLE": "inactive"
+      }
+    }
+  }
+}
+"#;
+
+// Parse and convert to Protocol Buffer format
+let xstate_value: serde_json::Value = serde_json::from_str(xstate_json)?;
+// ... conversion code ...
+
+// Import the machine
+let machine = import_machine_from_proto(&bytes)?;
+machine.send("TOGGLE")?;
+```
+
+### Protocol Buffer Schema
+
+The Proto schema supports all XState features:
+
+- Hierarchical and parallel states
+- Guards and conditions
+- Actions with different types (entry, exit, assign, etc.)
+- Delayed transitions
+- Invocations
+- History states
+- Context (extended state)
+- Metadata and tags
+
+See the full schema in `src/proto/xstate_machine.proto`.
+
 ## Installation
 
 Add this to your `Cargo.toml`:
