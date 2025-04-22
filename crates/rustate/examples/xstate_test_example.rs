@@ -1,12 +1,10 @@
-use rustate::{
-    Action, ActionType, Context, Machine, MachineBuilder, State, Transition,
-    #[cfg(feature = "codegen")]
-    CodegenExt,
-    #[cfg(feature = "codegen")]
-    JsonExportOptions,
-    #[cfg(feature = "proto")]
-    ProtoExportOptions,
-};
+use rustate::{Action, ActionType, Context, Machine, MachineBuilder, State, Transition};
+
+#[cfg(feature = "codegen")]
+use rustate::{CodegenExt, JsonExportOptions};
+
+#[cfg(feature = "proto")]
+use rustate::ProtoExportOptions;
 
 fn main() -> rustate::Result<()> {
     // オンラインショッピングのステートマシンを作成
@@ -29,51 +27,7 @@ fn main() -> rustate::Result<()> {
     machine.send("ADD_ITEM")?;
     println!("現在の状態: {:?}", machine.current_states);
 
-    // カートの商品数を取得
-    let item_count = machine.context.get::<i32>("itemCount").unwrap_or(0);
-    println!("カート内の商品数: {}", item_count);
-
-    // カート内の商品数を手動で増やしてみる
-    let _ = machine.context.set("itemCount", item_count + 5);
-    println!(
-        "手動で更新した後のカート内商品数: {}",
-        machine.context.get::<i32>("itemCount").unwrap_or(0)
-    );
-
-    println!("\nCHECKOUTイベントを送信");
-    machine.send("CHECKOUT")?;
-    println!("現在の状態: {:?}", machine.current_states);
-
-    println!("\nPAYイベントを送信");
-    machine.send("PAY")?;
-    println!("現在の状態: {:?}", machine.current_states);
-
-    // 決済状態を確認
-    let payment_processed = machine
-        .context
-        .get::<bool>("paymentProcessed")
-        .unwrap_or(false);
-    println!("決済処理完了: {}", payment_processed);
-
-    // 決済状態を手動で変更
-    let _ = machine.context.set("paymentProcessed", true);
-    println!(
-        "手動で更新した後の決済状態: {}",
-        machine
-            .context
-            .get::<bool>("paymentProcessed")
-            .unwrap_or(false)
-    );
-
-    println!("\nCONFIRMイベントを送信");
-    machine.send("CONFIRM")?;
-    println!("現在の状態: {:?}", machine.current_states);
-
-    println!("\nNEW_ORDERイベントを送信");
-    machine.send("NEW_ORDER")?;
-    println!("現在の状態: {:?}", machine.current_states);
-
-    // codegen 機能が有効な場合、JSON と Proto ファイルを生成
+    // codegen 機能が有効な場合、JSON ファイルを生成
     #[cfg(feature = "codegen")]
     {
         println!("\nステートマシン定義を JSON としてエクスポート中...");
@@ -96,15 +50,6 @@ fn main() -> rustate::Result<()> {
         };
         machine.export_to_proto(Some(proto_options))?;
         println!("Proto ファイルが生成されました: shopping_cart.proto");
-    }
-
-    // ソースコードからステートマシン定義をパースする例 (通常は別コマンドとして実装)
-    #[cfg(feature = "codegen")]
-    {
-        println!("\nRust ソースコードからステートマシン定義をパースする例（コメントアウト状態）");
-        // 注：この機能を使用するには、実装を完成させる必要があります
-        // let parsed_machine = Machine::parse_from_rust_file("examples/xstate_test_example.rs")?;
-        // println!("パースされたマシン名: {}", parsed_machine.name);
     }
 
     Ok(())

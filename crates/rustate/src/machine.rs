@@ -481,3 +481,23 @@ where
         Machine::new(self)
     }
 }
+
+impl<S, E> Clone for MachineBuilder<S, E>
+where
+    S: Clone + 'static + Default,
+    E: Clone + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            states: self.states.clone(),
+            transitions: self.transitions.clone(),
+            initial: self.initial.clone(),
+            context: self.context.clone(),
+            entry_actions: self.entry_actions.clone(),
+            exit_actions: self.exit_actions.clone(),
+            _phantom_s: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
+        }
+    }
+}
