@@ -248,121 +248,150 @@ fn create_process_b_controller(
     });
 
     // 進捗状況を更新するアクション
-    let update_progress = Action::new(
-        "updateProgress",
-        ActionType::Transition,
-        move |_ctx, _evt| {
-            if let Ok(child) = child_for_action.lock() {
-                let progress = if child.is_in("initial") {
-                    0
-                } else if child.is_in("processing") {
-                    50
-                } else if child.is_in_final_state() {
-                    100
-                } else {
-                    0
-                };
-
-                let _ = context.set("processB.progress", progress);
+    let update_progress = Action::new("updateProgress", ActionType::Transition, move |_ctx, _evt| {
+        // 進捗状況を更新
+        if let Ok(child) = child_for_action.lock() {
+            if child.is_in("processing") {
+                for i in (0..=100).step_by(20) {
+                    let _ = context.set("processB.progress", i);
+                    thread::sleep(Duration::from_millis(100));
+                }
             }
-        },
-    );
+        }
+    });
 
-    // モニタリング遷移
-    let mut monitoring_transition = Transition::new("monitoring", "MONITOR", "monitoring");
-    monitoring_transition.with_action(update_progress.clone());
+    // 完了イベントを親に送信するアクション（子→親）
+    let notify_completion =
+        Action::new("notifyCompletion", ActionType::Transition, |_ctx, _evt| {
+            println!("プロセスBが完了し、親に通知します");
+        });
 
-    // 完了遷移
-    let mut complete_transition = Transition::new("monitoring", "COMPLETE", "completed");
-    complete_transition.with_guard(child_completed);
+    // 完了への遷移（内部遷移）
+    let mut monitor_to_complete = Transition::new("monitoring", "*", "completed");
+    monitor_to_complete
+        .with_guard(child_completed)
+        .with_action(notify_completion);
 
     MachineBuilder::new("processBController")
         .state(monitoring)
         .state(completed)
         .initial("monitoring")
+        .transition(monitor_to_complete)
         .on_entry("monitoring", monitor_child)
         .on_entry("monitoring", start_child)
-        .transition(monitoring_transition)
-        .transition(complete_transition)
-        .on_entry("completed", update_progress)
+        .on_entry("monitoring", update_progress)
         .build()
         .unwrap()
 }
 
-/// ワークフローからプロセスAへの接続
+/// ワークフローとプロセスAを接続（イベント転送パターン）
 fn connect_workflow_to_process_a(
     workflow: SharedMachineRef,
     process_a: SharedMachineRef,
 ) -> Result<Machine> {
-    // イベント転送を行うコネクタマシン
-    let connector_state = State::new("connector");
+    // イベント転送用ステートマシン
+    let initial = State::new("initial");
+    let forwarder = State::new("forwarder");
 
-    // ワークフローがprocessA状態に入ったら、process_aにSTARTイベントを送る
-    let forward_action = Action::new(
+    // アクション - ワークフローからプロセスAへのイベント転送
+    let forward_event = Action::new(
         "forwardToProcessA",
         ActionType::Transition,
         move |_ctx, evt| {
-            if evt.event_type == "MONITOR" {
-                if let Ok(is_in_process_a) = workflow.is_in("processA") {
-                    if is_in_process_a {
-                        let _ = process_a.send_event("START");
-                    }
-                }
+            println!("ワークフローからプロセスAにイベントを転送: {}", evt.event_type);
+            if evt.event_type == "START" {
+                let _ = process_a.send_event("START");
             }
         },
     );
 
-    // 内部遷移を使って定期的にモニタリング
-    let mut monitor_transition = Transition::internal_transition("connector", "MONITOR");
-    monitor_transition.with_action(forward_action);
+    // アクション - プロセスAの状態変化を監視
+    let monitor_process_a = Action::new(
+        "monitorProcessA",
+        ActionType::Entry,
+        move |_ctx, _evt| {
+            // プロセスAの状態を定期的に監視する
+            let process_a_ref = workflow.clone();
+            thread::spawn(move || {
+                loop {
+                    thread::sleep(Duration::from_millis(500));
+                    if let Ok(true) = process_a_ref.is_in("processA") {
+                        if let Ok(true) = process_a.is_in("done") {
+                            println!("プロセスAが完了を検出 - ワークフローにNEXTを送信");
+                            let _ = process_a_ref.send_event("NEXT");
+                            break;
+                        }
+                    } else {
+                        break; // プロセスAが非アクティブになったら終了
+                    }
+                }
+            });
+        },
+    );
 
-    let mut machine = MachineBuilder::new("workflowToProcessAConnector")
-        .state(connector_state)
-        .initial("connector")
-        .transition(monitor_transition)
-        .build()?;
+    let start = Transition::new("initial", "START", "forwarder").with_action(forward_event);
 
-    // モニタリングイベントを送信して開始
-    machine.send("MONITOR")?;
-
-    Ok(machine)
+    MachineBuilder::new("workflow_to_process_a")
+        .state(initial)
+        .state(forwarder)
+        .initial("initial")
+        .transition(start)
+        .on_entry("forwarder", monitor_process_a)
+        .build()
 }
 
-/// ワークフローからプロセスBへの接続
+/// ワークフローとプロセスBを接続（イベント転送パターン）
 fn connect_workflow_to_process_b(
     workflow: SharedMachineRef,
     process_b: SharedMachineRef,
 ) -> Result<Machine> {
-    // イベント転送を行うコネクタマシン
-    let connector_state = State::new("connector");
+    // イベント転送用ステートマシン
+    let initial = State::new("initial");
+    let forwarder = State::new("forwarder");
 
-    // ワークフローがprocessB状態に入ったら、process_bにSTARTイベントを送る
-    let forward_action = Action::new(
+    // アクション - ワークフローからプロセスBへのイベント転送
+    let forward_event = Action::new(
         "forwardToProcessB",
         ActionType::Transition,
         move |_ctx, evt| {
-            if evt.event_type == "MONITOR" {
-                if let Ok(is_in_process_b) = workflow.is_in("processB") {
-                    if is_in_process_b {
-                        let _ = process_b.send_event("START");
-                    }
-                }
+            println!("ワークフローからプロセスBにイベントを転送: {}", evt.event_type);
+            if evt.event_type == "NEXT" {
+                let _ = process_b.send_event("START");
             }
         },
     );
 
-    // 内部遷移を使って定期的にモニタリング
-    let mut monitor_transition = Transition::internal_transition("connector", "MONITOR");
-    monitor_transition.with_action(forward_action);
+    // アクション - プロセスBの状態変化を監視
+    let monitor_process_b = Action::new(
+        "monitorProcessB",
+        ActionType::Entry,
+        move |_ctx, _evt| {
+            // プロセスBの状態を定期的に監視する
+            let process_b_ref = workflow.clone();
+            thread::spawn(move || {
+                loop {
+                    thread::sleep(Duration::from_millis(500));
+                    if let Ok(true) = process_b_ref.is_in("processB") {
+                        if let Ok(true) = process_b.is_in("completed") {
+                            println!("プロセスBが完了を検出 - ワークフローにCOMPLETEを送信");
+                            let _ = process_b_ref.send_event("COMPLETE");
+                            break;
+                        }
+                    } else {
+                        break; // プロセスBが非アクティブになったら終了
+                    }
+                }
+            });
+        },
+    );
 
-    let mut machine = MachineBuilder::new("workflowToProcessBConnector")
-        .state(connector_state)
-        .initial("connector")
-        .transition(monitor_transition)
-        .build()?;
+    let start = Transition::new("initial", "NEXT", "forwarder").with_action(forward_event);
 
-    // モニタリングイベントを送信して開始
-    machine.send("MONITOR")?;
-
-    Ok(machine)
+    MachineBuilder::new("workflow_to_process_b")
+        .state(initial)
+        .state(forwarder)
+        .initial("initial")
+        .transition(start)
+        .on_entry("forwarder", monitor_process_b)
+        .build()
 }

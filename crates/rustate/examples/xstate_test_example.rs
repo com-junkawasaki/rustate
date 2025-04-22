@@ -1,5 +1,5 @@
 use rustate::{
-    create_test_model, execute_test_plan, Action, ActionType, Machine, MachineBuilder, State,
+    create_test_model, execute_test_plan, Action, ActionType, Event, Machine, MachineBuilder, State,
     Transition, XStatePathSegment, XStateTestModel, XStateTestPath, XStateTestPlan,
 };
 

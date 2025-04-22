@@ -1447,12 +1447,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustate"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97911fa4a0a9b2d22469103b4a6fb1b2888efa864341b4c66dc88d188e24e22f"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "rustate-agent"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "rand",
- "rustate",
+ "rustate 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "thiserror",
@@ -1469,7 +1482,7 @@ dependencies = [
  "gloo 0.10.0",
  "js-sys",
  "log",
- "rustate",
+ "rustate 0.2.4",
  "serde",
  "serde_json",
  "uuid",
@@ -1487,7 +1500,7 @@ dependencies = [
  "console_error_panic_hook",
  "gloo 0.10.0",
  "js-sys",
- "rustate",
+ "rustate 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "uuid",
@@ -1506,7 +1519,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "prost",
- "rustate",
+ "rustate 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "thiserror",
