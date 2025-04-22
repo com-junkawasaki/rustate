@@ -1,6 +1,6 @@
 [package]
 name = "rustate"
-version = "0.2.4"
+version = "0.2.5"
 edition.workspace = true
 description = "A Rust implementation of statecharts with model-based testing support"
 license.workspace = true
