@@ -41,7 +41,14 @@ pub mod prelude {
     pub use crate::storage::Storage;
 
     // rustate の必要な型も再エクスポートする
-    pub use rustate::{Context, Event, Machine, State};
+    pub use rustate::{Context, Event, EventTrait, Machine, State, StateTrait};
+    
+    // rustate integration の型も再エクスポートする
+    #[cfg(feature = "integration")]
+    pub use rustate::integration::{
+        SharedContext, SharedMachineRef, ChildMachine,
+        context_sharing, event_forwarding, hierarchical,
+    };
 }
 
 // ユーティリティ関数

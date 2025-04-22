@@ -1,199 +1,293 @@
-use crate::prelude::Result;
-use crate::{insight::Insight, observation::Observation};
-use async_trait::async_trait;
+use crate::feedback::Feedback;
+use crate::insight::Insight;
+use crate::observation::Observation;
 use rustate::{EventTrait, StateTrait};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
+use uuid::Uuid;
 
-/// エージェントの決定の文脈を表す構造体
-#[derive(Clone, Debug)]
-pub struct DecisionContext<'a, S, E>
+/// エージェントが行う決定
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Decision<E>
 where
-    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    E: EventTrait + Clone + Debug,
+{
+    /// 決定の一意ID
+    pub id: String,
+    /// 決定されたイベント
+    pub event: E,
+    /// 決定の信頼度（0.0 - 1.0）
+    pub confidence: f64,
+    /// 決定時の状態（オプション）
+    pub state_context: Option<String>,
+    /// 決定時のゴール状態（オプション）
+    pub goal_context: Option<String>,
+    /// 決定の説明理由（オプション）
+    pub explanation: Option<String>,
+    /// 決定が行われたタイムスタンプ
+    pub timestamp: SystemTime,
+    /// メタデータ
+    pub metadata: serde_json::Map<String, serde_json::Value>,
+}
+
+impl<E> Decision<E>
+where
+    E: EventTrait + Clone + Debug,
+{
+    /// 新しい決定を作成します
+    pub fn new(
+        id: impl Into<String>,
+        event: E,
+        confidence: f64,
+        state_context: Option<impl StateTrait>,
+        goal_context: Option<impl StateTrait>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            event,
+            confidence,
+            state_context: state_context.map(|s| s.get_id()),
+            goal_context: goal_context.map(|s| s.get_id()),
+            explanation: None,
+            timestamp: SystemTime::now(),
+            metadata: serde_json::Map::new(),
+        }
+    }
+
+    /// 説明を追加します
+    pub fn with_explanation(mut self, explanation: impl Into<String>) -> Self {
+        self.explanation = Some(explanation.into());
+        self
+    }
+
+    /// メタデータを追加します
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Serialize) -> Self {
+        let key = key.into();
+        if let Ok(value) = serde_json::to_value(value) {
+            self.metadata.insert(key, value);
+        }
+        self
+    }
+
+    /// 決定の信頼度を取得します
+    pub fn confidence(&self) -> f64 {
+        self.confidence
+    }
+
+    /// 決定されたイベントを参照で取得します
+    pub fn event(&self) -> &E {
+        &self.event
+    }
+
+    /// 決定のIDを取得します
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// 決定のタイムスタンプを取得します
+    pub fn timestamp(&self) -> SystemTime {
+        self.timestamp
+    }
+}
+
+/// 決定を行うためのコンテキスト情報
+#[derive(Debug, Clone)]
+pub struct DecisionContext<S, E>
+where
+    S: StateTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug,
 {
     /// 現在の状態
     pub current_state: S,
-    /// 目標状態（オプション）
-    pub goal_state: Option<S>,
-    /// 観測データの参照
-    pub observations: &'a [Observation<S, E>],
-    /// インサイト（洞察）の参照
-    pub insights: &'a [Insight],
+    /// 目標状態
+    pub goal_state: S,
+    /// 過去の観測
+    pub observations: Vec<Observation<S, E>>,
+    /// 過去のフィードバック
+    pub feedbacks: Vec<Feedback<E>>,
+    /// 洞察
+    pub insights: Vec<Insight>,
 }
 
-impl<'a, S, E> DecisionContext<'a, S, E>
+impl<S, E> DecisionContext<S, E>
 where
-    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    S: StateTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug,
 {
-    /// 新しい決定文脈を作成します
+    /// 新しい決定コンテキストを作成します
     pub fn new(
         current_state: S,
-        goal_state: Option<S>,
-        observations: &'a [Observation<S, E>],
-        insights: &'a [Insight],
+        goal_state: S,
+        observations: Vec<Observation<S, E>>,
+        feedbacks: Vec<Feedback<E>>,
+        insights: Vec<Insight>,
     ) -> Self {
         Self {
             current_state,
             goal_state,
             observations,
+            feedbacks,
             insights,
         }
     }
-}
 
-/// エージェントの決定を表す構造体
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "E: Serialize + for<'deserialize> Deserialize<'deserialize>")]
-pub struct Decision<E>
-where
-    E: EventTrait + Debug + Send + Sync + 'static,
-{
-    /// 一意の決定ID
-    pub id: String,
-    /// 決定のタイムスタンプ
-    pub timestamp: u64,
-    /// 決定されたイベント
-    pub event: E,
-    /// 決定の信頼度 (0.0-1.0)
-    pub confidence: f64,
-    /// 追加のメタデータ
-    pub metadata: HashMap<String, String>,
-}
-
-/// 決定の新規作成と管理のメソッド
-impl<E> Decision<E>
-where
-    E: EventTrait + Debug + Send + Sync + 'static,
-{
-    /// 新しい決定を作成します
-    pub fn new(event: E, confidence: f64) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("時間が取得できませんでした")
-            .as_secs();
-
-        Self {
-            id: format!("decision-{}", uuid::Uuid::new_v4()),
-            timestamp,
-            event,
-            confidence,
-            metadata: HashMap::new(),
-        }
+    /// 過去の観測から状態遷移の履歴を取得します
+    pub fn state_history(&self) -> Vec<&S> {
+        self.observations
+            .iter()
+            .map(|o| o.previous_state())
+            .collect()
     }
 
-    /// メタデータを追加します
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.metadata.insert(key.into(), value.into());
-        self
+    /// 目標状態までの最短パスを推定します（実装例）
+    pub fn estimate_path_to_goal(&self) -> Vec<String> {
+        // 実際の実装では、過去の観測や状態遷移グラフを使用して
+        // 現在の状態から目標状態までの最短パスを推定します
+        // ここでは簡単な例として現在と目標の状態IDを返します
+        vec![
+            self.current_state.get_id(),
+            self.goal_state.get_id(),
+        ]
     }
 
-    /// 決定の信頼度を設定します
-    pub fn with_confidence(mut self, confidence: f64) -> Self {
-        self.confidence = confidence.clamp(0.0, 1.0);
-        self
+    /// 観測から成功する可能性が高いアクションを推定します
+    pub fn suggest_actions_from_observations(&self) -> Vec<&E> {
+        // 過去の観測から、目標状態に近づいた成功したアクションを抽出
+        self.observations
+            .iter()
+            .map(|o| o.event())
+            .collect()
     }
 }
 
-/// 決定を作成するためのトレイト
-#[async_trait]
+/// 決定を作成するトレイト
 pub trait DecisionMaker<S, E>
 where
-    S: StateTrait + Debug + Send + Sync + DeserializeOwned + 'static,
-    E: EventTrait + Debug + Send + Sync + DeserializeOwned + 'static,
+    S: StateTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug,
 {
-    /// 現在の状態と目標状態から次の決定を行います
-    async fn decide(&self, context: DecisionContext<'_, S, E>) -> Result<Decision<E>>;
+    /// コンテキストに基づいて決定を行います
+    fn make_decision(&self, context: DecisionContext<S, E>) -> Decision<E>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait};
-    use serde_json::Value;
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    enum TestState {
-        Initial,
-        Processing,
-        Final,
+    use rustate::Event;
+    
+    // テスト用の状態
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestState {
+        id: String,
     }
-
+    
     impl StateTrait for TestState {
-        fn id(&self) -> &str {
-            match self {
-                TestState::Initial => "initial",
-                TestState::Processing => "processing",
-                TestState::Final => "final",
-            }
-        }
-
-        fn state_type(&self) -> &rustate::StateType {
-            static STATE_TYPE: rustate::StateType = rustate::StateType::Normal;
-            &STATE_TYPE
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            static EMPTY: [String; 0] = [];
-            &EMPTY
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
+        fn get_id(&self) -> String {
+            self.id.clone()
         }
     }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    enum TestEvent {
-        Start,
-        Process,
-        Finish,
+    
+    // テスト用のイベント
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestEvent {
+        event_type: String,
     }
-
+    
     impl EventTrait for TestEvent {
-        fn event_type(&self) -> &str {
-            match self {
-                TestEvent::Start => "start",
-                TestEvent::Process => "process",
-                TestEvent::Finish => "finish",
-            }
-        }
-
-        fn payload(&self) -> Option<&Value> {
-            None
+        fn event_type(&self) -> String {
+            self.event_type.clone()
         }
     }
-
+    
+    impl rustate::IntoEvent for TestEvent {
+        fn into_event(self) -> Event {
+            Event::new(self.event_type())
+        }
+    }
+    
     #[test]
     fn test_decision_creation() {
-        let decision = Decision::new(TestEvent::Start, 0.8);
-
-        assert_eq!(decision.event, TestEvent::Start);
-        assert_eq!(decision.confidence, 0.8);
-        assert!(decision.metadata.is_empty());
+        let event = TestEvent {
+            event_type: "TEST_EVENT".to_string(),
+        };
+        
+        let current_state = TestState {
+            id: "current".to_string(),
+        };
+        
+        let goal_state = TestState {
+            id: "goal".to_string(),
+        };
+        
+        let decision = Decision::new(
+            "test-decision-1",
+            event.clone(),
+            0.9,
+            Some(current_state.clone()),
+            Some(goal_state.clone()),
+        );
+        
+        assert_eq!(decision.id(), "test-decision-1");
+        assert_eq!(decision.event().event_type, "TEST_EVENT");
+        assert_eq!(decision.confidence(), 0.9);
+        assert_eq!(decision.state_context, Some("current".to_string()));
+        assert_eq!(decision.goal_context, Some("goal".to_string()));
     }
-
+    
     #[test]
     fn test_decision_with_metadata() {
-        let decision = Decision::new(TestEvent::Process, 0.8)
-            .with_metadata("priority", "high")
-            .with_metadata("source", "user input");
-
-        assert_eq!(decision.metadata.get("priority"), Some(&"high".to_string()));
-        assert_eq!(
-            decision.metadata.get("source"),
-            Some(&"user input".to_string())
+        let event = TestEvent {
+            event_type: "TEST_EVENT".to_string(),
+        };
+        
+        let decision = Decision::new(
+            "test-decision-2",
+            event,
+            0.8,
+            None as Option<TestState>,
+            None as Option<TestState>,
+        )
+        .with_metadata("key1", "value1")
+        .with_metadata("key2", 42);
+        
+        assert!(decision.metadata.contains_key("key1"));
+        assert!(decision.metadata.contains_key("key2"));
+        
+        if let Some(serde_json::Value::String(v)) = decision.metadata.get("key1") {
+            assert_eq!(v, "value1");
+        } else {
+            panic!("Expected String value for key1");
+        }
+        
+        if let Some(serde_json::Value::Number(v)) = decision.metadata.get("key2") {
+            assert_eq!(v.as_i64().unwrap(), 42);
+        } else {
+            panic!("Expected Number value for key2");
+        }
+    }
+    
+    #[test]
+    fn test_decision_context() {
+        let current_state = TestState {
+            id: "current".to_string(),
+        };
+        
+        let goal_state = TestState {
+            id: "goal".to_string(),
+        };
+        
+        let context = DecisionContext::new(
+            current_state,
+            goal_state,
+            vec![],
+            vec![],
+            vec![],
         );
+        
+        let path = context.estimate_path_to_goal();
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0], "current");
+        assert_eq!(path[1], "goal");
     }
 }

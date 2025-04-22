@@ -4,11 +4,11 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum AgentError {
     /// 状態機械関連のエラー
-    #[error("状態機械エラー: {0}")]
+    #[error("Machine error: {0}")]
     MachineError(#[from] rustate::Error),
 
     /// 決定作成時のエラー
-    #[error("決定エラー: {0}")]
+    #[error("Decision error: {0}")]
     DecisionError(String),
 
     /// LLMとの通信エラー
@@ -24,15 +24,15 @@ pub enum AgentError {
     FeedbackError(String),
 
     /// 永続化/ストレージエラー
-    #[error("ストレージエラー: {0}")]
+    #[error("Storage error: {0}")]
     StorageError(String),
 
     /// シリアライズ/デシリアライズエラー
-    #[error("シリアライズエラー: {0}")]
+    #[error("Serialization error: {0}")]
     SerializationError(String),
 
     /// ポリシーエラー
-    #[error("ポリシーエラー: {0}")]
+    #[error("Policy error: {0}")]
     PolicyError(String),
 
     /// エピソードエラー
@@ -40,24 +40,46 @@ pub enum AgentError {
     EpisodeError(String),
 
     /// アクティブなエピソードがない
-    #[error("アクティブなエピソードがありません")]
+    #[error("No active episode")]
     NoActiveEpisode,
 
     /// 目標状態が定義されていない
-    #[error("目標状態が定義されていません")]
+    #[error("No goal defined")]
     NoGoalDefined,
 
     /// その他のエラー
-    #[error("その他のエラー: {0}")]
+    #[error("Other error: {0}")]
     Other(String),
+
+    /// 統合エラー
+    #[error("Integration error: {0}")]
+    IntegrationError(String),
+
+    /// 無効な状態エラー
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+
+    /// 無効な遷移エラー
+    #[error("Invalid transition: {0}")]
+    InvalidTransition(String),
+
+    /// I/Oエラー
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 /// 結果型エイリアス
-pub type Result<T, E = AgentError> = std::result::Result<T, E>;
+pub type Result<T> = std::result::Result<T, AgentError>;
 
 impl From<serde_json::Error> for AgentError {
     fn from(error: serde_json::Error) -> Self {
         AgentError::SerializationError(error.to_string())
+    }
+}
+
+impl From<rustate::integration::Error> for AgentError {
+    fn from(err: rustate::integration::Error) -> Self {
+        AgentError::IntegrationError(err.to_string())
     }
 }
 
@@ -67,7 +89,14 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = AgentError::DecisionError("テストエラー".to_string());
-        assert_eq!(err.to_string(), "決定エラー: テストエラー");
+        let err = AgentError::Other("テストエラー".to_string());
+        assert_eq!(err.to_string(), "Other error: テストエラー");
+    }
+
+    #[test]
+    fn test_error_conversion() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "ファイルが見つかりません");
+        let agent_err: AgentError = io_err.into();
+        assert!(matches!(agent_err, AgentError::IoError(_)));
     }
 }

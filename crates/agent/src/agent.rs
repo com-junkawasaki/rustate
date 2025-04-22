@@ -9,10 +9,12 @@ use crate::{
     storage::Storage,
 };
 use rustate::{Context, EventTrait, Machine, StateTrait};
+use rustate::integration::{SharedMachineRef, SharedContext};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -27,6 +29,8 @@ pub struct AgentConfig {
     pub auto_record_observations: bool,
     /// 状態遷移時に自動的に洞察を生成するかどうか
     pub auto_generate_insights: bool,
+    /// 共有コンテキストを使用するかどうか
+    pub use_shared_context: bool,
 }
 
 impl Default for AgentConfig {
@@ -37,6 +41,7 @@ impl Default for AgentConfig {
             max_observations: Some(100),
             auto_record_observations: true,
             auto_generate_insights: true,
+            use_shared_context: false,
         }
     }
 }
@@ -49,8 +54,11 @@ where
     SM: Storage<S, E>,
     P: Policy<S, E>,
 {
-    /// エージェントの状態機械
-    pub machine: Machine<S, E>,
+    /// エージェントの一意ID
+    pub id: Uuid,
+    /// エージェントの状態機械（共有参照または所有）
+    machine_ref: Option<SharedMachineRef<S, E>>,
+    machine: Option<Machine<S, E>>,
     /// エージェントの設定
     pub config: AgentConfig,
     /// エージェントの決定ポリシー
@@ -59,6 +67,8 @@ where
     storage: Arc<SM>,
     /// 現在のエピソード（ある場合）
     current_episode: Option<Episode<S, E>>,
+    /// 共有コンテキスト（設定されている場合）
+    shared_context: Option<SharedContext>,
     /// 型パラメータのマーカー
     _phantom: PhantomData<(S, E)>,
 }
@@ -73,19 +83,73 @@ where
     /// 新しいエージェントを作成します
     pub fn new(machine: Machine<S, E>, policy: P, storage: SM) -> Self {
         Self {
-            machine,
+            id: Uuid::new_v4(),
+            machine_ref: None,
+            machine: Some(machine),
             config: AgentConfig::default(),
             policy: Arc::new(policy),
             storage: Arc::new(storage),
             current_episode: None,
+            shared_context: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// 共有状態機械参照を使用してエージェントを作成します
+    pub fn with_shared_machine(machine_ref: SharedMachineRef<S, E>, policy: P, storage: SM) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            machine_ref: Some(machine_ref),
+            machine: None,
+            config: AgentConfig::default(),
+            policy: Arc::new(policy),
+            storage: Arc::new(storage),
+            current_episode: None,
+            shared_context: None,
             _phantom: PhantomData,
         }
     }
 
     /// エージェントの設定を変更します
     pub fn with_config(mut self, config: AgentConfig) -> Self {
+        // 共有コンテキストの設定
+        if config.use_shared_context && self.shared_context.is_none() {
+            self.shared_context = Some(SharedContext::new());
+        }
         self.config = config;
         self
+    }
+
+    /// 共有コンテキストを追加します
+    pub fn with_shared_context(mut self, context: SharedContext) -> Self {
+        self.shared_context = Some(context);
+        // 設定も更新
+        self.config.use_shared_context = true;
+        self
+    }
+
+    /// 現在の状態機械を取得します
+    pub fn machine(&self) -> Result<&Machine<S, E>, AgentError> {
+        if let Some(ref machine) = self.machine {
+            Ok(machine)
+        } else if let Some(ref machine_ref) = self.machine_ref {
+            machine_ref.machine().map_err(|e| AgentError::IntegrationError(e.to_string()))
+        } else {
+            Err(AgentError::Other("状態機械が設定されていません".to_string()))
+        }
+    }
+
+    /// 現在の状態を取得します
+    pub fn current_state(&self) -> Result<S, AgentError> {
+        if let Some(ref machine) = self.machine {
+            Ok(machine.current_state().clone())
+        } else if let Some(ref machine_ref) = self.machine_ref {
+            machine_ref.current_state()
+                .map_err(|e| AgentError::IntegrationError(e.to_string()))
+                .map(|s| s.clone())
+        } else {
+            Err(AgentError::Other("状態機械が設定されていません".to_string()))
+        }
     }
 
     /// 新しいエピソードを開始します
@@ -95,7 +159,7 @@ where
         goal_state: Option<S>,
     ) -> Result<(), AgentError> {
         // 初期状態を取得
-        let initial_state = self.machine.current_state().clone();
+        let initial_state = self.current_state()?;
 
         // 目標状態が指定されていない場合はエラー
         let goal = match goal_state {
@@ -147,160 +211,212 @@ where
 
     /// 決定に基づいてイベントを適用します
     pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S, AgentError> {
-        let previous_state = self.machine.current_state().clone();
+        let previous_state = self.current_state()?;
+        let context = if let Some(ref shared_ctx) = self.shared_context {
+            // 共有コンテキストから値を取得してContextに変換
+            let mut ctx = Context::default();
+            // 必要なキーに基づいて共有コンテキストから値を取得
+            // この例では簡単のため空のコンテキストを返しています
+            ctx
+        } else {
+            Context::default()
+        };
 
         // イベントを適用
-        match self
-            .machine
-            .transition(decision.event.clone(), Context::default())
-        {
-            Ok(next_state) => {
-                // 自動観測記録が有効な場合
-                if self.config.auto_record_observations {
-                    let observation = Observation::new(
-                        previous_state.clone(),
-                        decision.event.clone(),
-                        next_state.clone(),
-                    )
-                    .with_metadata("decision_id", &decision.id);
-
-                    self.storage.save_observation(&observation).await?;
-
-                    // エピソードに観測を追加
-                    if let Some(episode) = &mut self.current_episode {
-                        episode.add_observation(observation);
-                    }
-                }
-
-                // 自動洞察生成が有効な場合
-                if self.config.auto_generate_insights {
-                    // ここでは簡単な洞察生成の例を示します
-                    // 実際の実装ではより高度な洞察生成ロジックが必要です
-                    if previous_state != next_state {
-                        let insight = Insight::new(
-                            "状態遷移",
-                            format!(
-                                "{:?}から{:?}への遷移が観測されました",
-                                previous_state, next_state
-                            ),
-                            0.9,
-                        );
-
-                        self.storage.save_insight(&insight).await?;
-
-                        // エピソードに洞察を追加
-                        if let Some(episode) = &mut self.current_episode {
-                            episode.add_insight(insight);
-                        }
-                    }
-                }
-
-                Ok(next_state)
+        let next_state = if let Some(ref mut machine) = self.machine {
+            match machine.transition(decision.event.clone(), context) {
+                Ok(s) => s,
+                Err(e) => return Err(AgentError::MachineError(e)),
             }
-            Err(e) => Err(AgentError::MachineError(e)),
+        } else if let Some(ref machine_ref) = self.machine_ref {
+            // 共有参照の場合はsend_eventを使用
+            match machine_ref.send_event(decision.event.clone()) {
+                Ok(_) => machine_ref.current_state()
+                    .map_err(|e| AgentError::IntegrationError(e.to_string()))?
+                    .clone(),
+                Err(e) => return Err(AgentError::IntegrationError(e.to_string())),
+            }
+        } else {
+            return Err(AgentError::Other("状態機械が設定されていません".to_string()));
+        };
+
+        // 自動観測記録が有効な場合
+        if self.config.auto_record_observations {
+            let observation = Observation::new(
+                previous_state.clone(),
+                decision.event.clone(),
+                next_state.clone(),
+            )
+            .with_metadata("decision_id", &decision.id);
+
+            self.storage.save_observation(&observation).await?;
+
+            // エピソードに観測を追加
+            if let Some(episode) = &mut self.current_episode {
+                episode.add_observation(observation);
+            }
+
+            // 共有コンテキストが有効な場合、観測データを保存
+            if let Some(ref shared_ctx) = self.shared_context {
+                let observation_key = format!("observation_{}", Uuid::new_v4());
+                shared_ctx.set(&observation_key, &serde_json::to_string(&observation)
+                    .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+                    .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
+            }
         }
+
+        // 自動洞察生成が有効な場合
+        if self.config.auto_generate_insights {
+            // ここでは簡単な洞察生成の例を示します
+            // 実際の実装ではより高度な洞察生成ロジックが必要です
+            if previous_state != next_state {
+                let insight = Insight::new(
+                    "状態遷移",
+                    format!(
+                        "{:?}から{:?}への遷移が観測されました",
+                        previous_state, next_state
+                    ),
+                    0.9,
+                );
+
+                self.storage.save_insight(&insight).await?;
+
+                // エピソードに洞察を追加
+                if let Some(episode) = &mut self.current_episode {
+                    episode.add_insight(insight.clone());
+                }
+
+                // 共有コンテキストが有効な場合、洞察データを保存
+                if let Some(ref shared_ctx) = self.shared_context {
+                    let insight_key = format!("insight_{}", Uuid::new_v4());
+                    shared_ctx.set(&insight_key, &serde_json::to_string(&insight)
+                        .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+                        .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
+                }
+            }
+        }
+
+        Ok(next_state)
     }
 
-    /// エージェントの自律的な実行ステップを1回実行します
+    /// 1ステップ実行します（決定して適用）
     pub async fn step(&mut self) -> Result<S, AgentError> {
         let decision = self.next_decision().await?;
         self.apply_decision(&decision).await
     }
 
-    /// エージェントを目標状態に到達するまで実行します
+    /// 目標状態に達するまで実行します
     pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool, AgentError> {
-        // 現在のエピソードを確認
+        // 現在のエピソードがなければエラー
         let episode = match &self.current_episode {
             Some(ep) => ep,
-            None => return Err(AgentError::NoActiveEpisode),
+            None => {
+                return Err(AgentError::Other(
+                    "エピソードが開始されていません".to_string(),
+                ))
+            }
         };
 
-        // ゴール状態を取得
-        let goal_state = episode.goal_state.clone();
+        // 目標状態を取得
+        let goal_state = episode.goal_state().clone();
 
-        // 最大ステップ数または無制限にステップを実行
-        let mut steps = 0;
-        while max_steps.is_none_or(|max| steps < max) {
-            // 現在の状態がゴール状態と一致しているか確認
-            if self.machine.current_state() == goal_state {
-                // ゴールに到達、エピソードを成功として完了
-                self.complete_episode(true).await?;
-                return Ok(true);
-            }
+        // 最大ステップ数
+        let max_iterations = max_steps.unwrap_or(100);
+        let mut iteration = 0;
 
+        // 現在の状態を取得
+        let mut current_state = self.current_state()?;
+
+        // 目標状態に達するまで繰り返す
+        while current_state != goal_state && iteration < max_iterations {
             // 次のステップを実行
-            let result = self.step().await;
-
-            match result {
-                Ok(_) => {
-                    steps += 1;
-                }
-                Err(err) => {
-                    // エピソードを失敗としてマーク
-                    if let Some(episode) = &mut self.current_episode {
-                        episode.complete(false);
-                        self.storage.save_episode(episode).await?;
-                    }
-                    return Err(err);
-                }
-            }
+            current_state = self.step().await?;
+            iteration += 1;
         }
 
-        // 最大ステップ数に達した場合は失敗とする
-        if let Some(episode) = &mut self.current_episode {
-            episode.complete(false);
-            self.storage.save_episode(episode).await?;
-        }
+        // 目標状態に達したかどうかを返す
+        let success = current_state == goal_state;
 
-        Ok(false)
+        // エピソードを完了
+        self.complete_episode(success).await?;
+
+        Ok(success)
     }
 
-    /// 新しい洞察を追加します
+    /// 洞察を追加します
     pub async fn add_insight(&mut self, insight: Insight) -> Result<(), AgentError> {
+        // 洞察を保存
         self.storage.save_insight(&insight).await?;
 
         // エピソードに洞察を追加
         if let Some(episode) = &mut self.current_episode {
-            episode.add_insight(insight);
+            episode.add_insight(insight.clone());
+        }
+
+        // 共有コンテキストが有効な場合、洞察データを保存
+        if let Some(ref shared_ctx) = self.shared_context {
+            let insight_key = format!("insight_{}", Uuid::new_v4());
+            shared_ctx.set(&insight_key, &serde_json::to_string(&insight)
+                .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+                .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
         }
 
         Ok(())
     }
 
-    /// 新しいフィードバックを追加します
+    /// フィードバックを追加します
     pub async fn add_feedback(&mut self, feedback: Feedback<E>) -> Result<(), AgentError> {
+        // フィードバックを保存
         self.storage.save_feedback(&feedback).await?;
 
         // エピソードにフィードバックを追加
         if let Some(episode) = &mut self.current_episode {
-            episode.add_feedback(feedback);
+            episode.add_feedback(feedback.clone());
+        }
+
+        // 共有コンテキストが有効な場合、フィードバックデータを保存
+        if let Some(ref shared_ctx) = self.shared_context {
+            let feedback_key = format!("feedback_{}", Uuid::new_v4());
+            shared_ctx.set(&feedback_key, &serde_json::to_string(&feedback)
+                .map_err(|e| AgentError::SerializationError(e.to_string()))?)
+                .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
         }
 
         Ok(())
     }
 
     /// 現在のエピソードを取得します
-    pub fn current_episode(&self) -> Option<Episode<S, E>> {
-        self.current_episode.clone()
+    pub fn current_episode(&self) -> Option<&Episode<S, E>> {
+        self.current_episode.as_ref()
     }
 
-    /// 現在の状態に基づいて決定を行います
+    /// 決定を生成します
     pub async fn make_decision(&self) -> Result<Decision<E>, AgentError> {
-        let state = self.machine.current_state();
-        let goal_state = self
-            .current_episode
-            .as_ref()
-            .map(|ep| ep.goal_state.clone());
-        let observations = self.storage.find_observations(None, None).await?;
-        let insights = self.storage.find_insights(None, None).await?;
+        // 現在のエピソードがなければエラー
+        let episode = match &self.current_episode {
+            Some(ep) => ep,
+            None => {
+                return Err(AgentError::Other(
+                    "エピソードが開始されていません".to_string(),
+                ))
+            }
+        };
 
-        // 現在の状態を基に新しい決定を生成
-        let context = DecisionContext::new(state.clone(), goal_state, &observations, &insights);
+        // 現在の状態を取得
+        let current_state = self.current_state()?;
 
-        let decision = self.policy.decide(context);
+        // 決定コンテキストを作成
+        let context = DecisionContext {
+            current_state: current_state.clone(),
+            goal_state: episode.goal_state().clone(),
+            observations: episode.observations().to_vec(),
+            feedbacks: episode.feedbacks().to_vec(),
+            insights: episode.insights().to_vec(),
+        };
 
-        // 決定を保存
-        self.storage.save_decision(&decision).await?;
+        // ポリシーを使用して決定を生成
+        let decision = self.policy.decide(context).await?;
+
         Ok(decision)
     }
 }
@@ -308,16 +424,21 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decision::Decision;
-    use crate::episode::Episode;
-    use crate::error::AgentError;
+    use crate::observation::Observation;
+    use crate::decision::{Decision, DecisionMaker};
+    use crate::policy::Policy;
+    use crate::storage::MemoryStorage;
     use crate::feedback::Feedback;
     use crate::insight::Insight;
-    use crate::observation::Observation;
-    use crate::policy::Policy;
+    use rustate::{State as RuState, Machine, MachineBuilder, Transition};
     use std::collections::HashMap;
+    use std::sync::Mutex;
+    use uuid::Uuid;
+    use std::time::Duration;
+    use tokio::time::sleep;
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    // テスト用の状態
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     enum TestState {
         Idle,
         Processing,
@@ -325,8 +446,26 @@ mod tests {
         Error,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    enum TestAction {
+    impl Default for TestState {
+        fn default() -> Self {
+            TestState::Idle
+        }
+    }
+
+    impl StateTrait for TestState {
+        fn get_id(&self) -> String {
+            match self {
+                TestState::Idle => "idle".to_string(),
+                TestState::Processing => "processing".to_string(),
+                TestState::Completed => "completed".to_string(),
+                TestState::Error => "error".to_string(),
+            }
+        }
+    }
+
+    // テスト用のイベント
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    enum TestEvent {
         Start,
         Process,
         Complete,
@@ -334,389 +473,222 @@ mod tests {
         Abort,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    struct TestObservation {
-        state: TestState,
-        data: String,
-    }
-
-    impl Observation for TestObservation {
-        type State = TestState;
-        
-        fn state(&self) -> &Self::State {
-            &self.state
-        }
-        
-        fn timestamp() -> chrono::DateTime<chrono::Utc> {
-            chrono::Utc::now()
+    impl EventTrait for TestEvent {
+        fn event_type(&self) -> String {
+            match self {
+                TestEvent::Start => "START".to_string(),
+                TestEvent::Process => "PROCESS".to_string(),
+                TestEvent::Complete => "COMPLETE".to_string(),
+                TestEvent::Retry => "RETRY".to_string(),
+                TestEvent::Abort => "ABORT".to_string(),
+            }
         }
     }
 
-    #[derive(Debug, Clone)]
-    struct TestDecision {
-        action: TestAction,
-        confidence: f64,
-    }
-
-    impl Decision for TestDecision {
-        type Action = TestAction;
-        
-        fn action(&self) -> &Self::Action {
-            &self.action
-        }
-        
-        fn confidence(&self) -> f64 {
-            self.confidence
-        }
-        
-        fn timestamp() -> chrono::DateTime<chrono::Utc> {
-            chrono::Utc::now()
+    impl rustate::IntoEvent for TestEvent {
+        fn into_event(self) -> rustate::Event {
+            rustate::Event::new(self.event_type())
         }
     }
 
-    #[derive(Debug, Clone)]
+    // テスト用ポリシー
     struct TestPolicy {
-        state_action_map: HashMap<TestState, TestAction>,
-        fallback_action: TestAction,
+        state_action_map: HashMap<TestState, TestEvent>,
     }
 
-    impl Policy for TestPolicy {
-        type State = TestState;
-        type Action = TestAction;
-        type Observation = TestObservation;
-        type Decision = TestDecision;
-        
-        fn decide(&self, observation: &Self::Observation) -> Self::Decision {
+    impl TestPolicy {
+        fn new() -> Self {
+            let mut map = HashMap::new();
+            map.insert(TestState::Idle, TestEvent::Start);
+            map.insert(TestState::Processing, TestEvent::Complete);
+            map.insert(TestState::Error, TestEvent::Retry);
+            map.insert(TestState::Completed, TestEvent::Start); // ループ用
+            Self { state_action_map: map }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Policy<TestState, TestEvent> for TestPolicy {
+        async fn decide(&self, context: DecisionContext<TestState, TestEvent>) -> Result<Decision<TestEvent>, AgentError> {
             let action = self.state_action_map
-                .get(observation.state())
+                .get(&context.current_state)
                 .cloned()
-                .unwrap_or_else(|| self.fallback_action.clone());
-                
-            TestDecision {
+                .unwrap_or(TestEvent::Abort);
+            
+            Ok(Decision::new(
+                Uuid::new_v4().to_string(),
                 action,
-                confidence: 0.9,
-            }
+                0.9,
+                Some(context.current_state.clone()),
+                Some(context.goal_state.clone()),
+            ))
         }
     }
 
-    #[derive(Debug, Clone)]
-    struct TestFeedback {
-        success: bool,
-        score: f64,
-        message: String,
+    // テスト用の状態機械を作成
+    fn create_test_machine() -> Machine<TestState, TestEvent> {
+        // 状態の作成
+        let idle = RuState::new("idle", TestState::Idle);
+        let processing = RuState::new("processing", TestState::Processing);
+        let completed = RuState::new("completed", TestState::Completed);
+        let error = RuState::new("error", TestState::Error);
+
+        // 遷移の作成
+        let idle_to_processing = Transition::new("idle", "START", "processing");
+        let processing_to_completed = Transition::new("processing", "COMPLETE", "completed");
+        let processing_to_error = Transition::new("processing", "ABORT", "error");
+        let error_to_processing = Transition::new("error", "RETRY", "processing");
+        let completed_to_idle = Transition::new("completed", "START", "idle");
+
+        // 状態機械の構築
+        MachineBuilder::new("test_machine")
+            .state(idle)
+            .state(processing)
+            .state(completed)
+            .state(error)
+            .initial("idle")
+            .transition(idle_to_processing)
+            .transition(processing_to_completed)
+            .transition(processing_to_error)
+            .transition(error_to_processing)
+            .transition(completed_to_idle)
+            .build()
+            .unwrap()
     }
 
-    impl Feedback for TestFeedback {
-        fn success(&self) -> bool {
-            self.success
-        }
+    // 統合機能を使用した共有状態機械のテスト
+    #[tokio::test]
+    async fn test_agent_with_shared_machine() {
+        // 状態機械の作成
+        let machine = create_test_machine();
         
-        fn score(&self) -> f64 {
-            self.score
-        }
+        // 共有参照の作成
+        let shared_machine = SharedMachineRef::new(machine);
         
-        fn timestamp() -> chrono::DateTime<chrono::Utc> {
-            chrono::Utc::now()
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    struct TestInsight {
-        key: String,
-        value: String,
-    }
-
-    impl Insight for TestInsight {
-        fn key(&self) -> &str {
-            &self.key
-        }
-        
-        fn value(&self) -> &str {
-            &self.value
-        }
-        
-        fn timestamp() -> chrono::DateTime<chrono::Utc> {
-            chrono::Utc::now()
-        }
-    }
-
-    // ポリシーの作成ヘルパー関数
-    fn create_test_policy() -> TestPolicy {
-        let mut state_action_map = HashMap::new();
-        state_action_map.insert(TestState::Idle, TestAction::Start);
-        state_action_map.insert(TestState::Processing, TestAction::Process);
-        state_action_map.insert(TestState::Completed, TestAction::Complete);
-        state_action_map.insert(TestState::Error, TestAction::Retry);
-        
-        TestPolicy {
-            state_action_map,
-            fallback_action: TestAction::Abort,
-        }
-    }
-
-    #[test]
-    fn test_agent_creation() {
-        let policy = create_test_policy();
-        let agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent",
-            Box::new(policy),
+        // エージェントの作成
+        let storage = MemoryStorage::new();
+        let policy = TestPolicy::new();
+        let mut agent = Agent::with_shared_machine(
+            shared_machine.clone(),
+            policy,
+            storage
         );
         
-        assert_eq!(agent.name(), "test_agent");
-        assert_eq!(agent.episodes().len(), 0);
+        // 目標状態設定
+        let goal_state = TestState::Completed;
+        
+        // エピソード開始
+        agent.start_episode("テストエピソード", Some(goal_state)).await.unwrap();
+        
+        // ステップ実行
+        let next_state = agent.step().await.unwrap();
+        assert_eq!(next_state, TestState::Processing);
+        
+        // もう一度ステップ実行
+        let final_state = agent.step().await.unwrap();
+        assert_eq!(final_state, TestState::Completed);
+        
+        // エピソードを完了
+        let episode = agent.complete_episode(true).await.unwrap().unwrap();
+        assert!(episode.is_completed());
+        assert!(episode.is_successful());
     }
 
-    #[test]
-    fn test_agent_observe_and_decide() {
-        let policy = create_test_policy();
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent",
-            Box::new(policy),
-        );
+    // 共有コンテキストを使用したテスト
+    #[tokio::test]
+    async fn test_agent_with_shared_context() {
+        // 状態機械の作成
+        let machine = create_test_machine();
         
-        let observation = TestObservation {
-            state: TestState::Idle,
-            data: "初期状態".to_string(),
-        };
+        // 共有コンテキストの作成
+        let shared_context = SharedContext::new();
         
-        let decision = agent.observe_and_decide(observation.clone());
+        // エージェントの作成
+        let storage = MemoryStorage::new();
+        let policy = TestPolicy::new();
+        let mut agent = Agent::new(machine, policy, storage)
+            .with_shared_context(shared_context.clone());
         
-        // 期待される判断: Idleに対してはStartアクション
-        assert_eq!(*decision.action(), TestAction::Start);
+        // 共有コンテキストに値を設定
+        shared_context.set("test_key", "test_value").unwrap();
         
-        // エピソードが作成されたことを確認
-        assert_eq!(agent.episodes().len(), 1);
+        // 目標状態設定
+        let goal_state = TestState::Completed;
         
-        // 最新のエピソードを取得
-        let episode = agent.latest_episode().unwrap();
+        // エピソード開始
+        agent.start_episode("テストエピソード", Some(goal_state)).await.unwrap();
         
-        // エピソードに観測と判断が記録されていることを確認
-        assert_eq!(episode.observations().len(), 1);
-        assert_eq!(episode.decisions().len(), 1);
+        // 目標状態まで実行
+        let success = agent.run_until_goal(Some(5)).await.unwrap();
+        assert!(success);
         
-        // 観測の状態を確認
-        let recorded_observation = &episode.observations()[0];
-        assert_eq!(recorded_observation.state(), &TestState::Idle);
+        // 共有コンテキストから値を取得
+        let value: Option<String> = shared_context.get("test_key").unwrap();
+        assert_eq!(value, Some("test_value".to_string()));
     }
 
-    #[test]
-    fn test_agent_multiple_observations() {
-        let policy = create_test_policy();
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent", 
-            Box::new(policy),
-        );
-        
-        // 状態遷移シーケンス: Idle -> Processing -> Completed
-        let observations = vec![
-            TestObservation { state: TestState::Idle, data: "初期状態".to_string() },
-            TestObservation { state: TestState::Processing, data: "処理中".to_string() },
-            TestObservation { state: TestState::Completed, data: "完了".to_string() },
-        ];
-        
-        // 各状態を観測し判断
-        for observation in observations {
-            let decision = agent.observe_and_decide(observation);
-            assert!(matches!(decision.action(), 
-                TestAction::Start | TestAction::Process | TestAction::Complete
-            ));
-        }
-        
-        // 一つのエピソードが存在し、3つの観測と判断が記録されていることを確認
-        assert_eq!(agent.episodes().len(), 1);
-        let episode = agent.latest_episode().unwrap();
-        assert_eq!(episode.observations().len(), 3);
-        assert_eq!(episode.decisions().len(), 3);
-        
-        // 状態の遷移順序を確認
-        assert_eq!(episode.observations()[0].state(), &TestState::Idle);
-        assert_eq!(episode.observations()[1].state(), &TestState::Processing);
-        assert_eq!(episode.observations()[2].state(), &TestState::Completed);
+    #[tokio::test]
+    async fn test_agent_creation() {
+        let machine = create_test_machine();
+        let storage = MemoryStorage::new();
+        let policy = TestPolicy::new();
+        let agent = Agent::new(machine, policy, storage);
+
+        assert_eq!(agent.config.name, "汎用エージェント");
+        assert_eq!(agent.config.auto_record_observations, true);
     }
 
-    #[test]
-    fn test_agent_feedback() {
-        let policy = create_test_policy();
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent", 
-            Box::new(policy),
-        );
-        
-        // 観測と判断
-        let observation = TestObservation {
-            state: TestState::Idle,
-            data: "初期状態".to_string(),
-        };
-        
-        let decision = agent.observe_and_decide(observation);
-        assert_eq!(*decision.action(), TestAction::Start);
-        
-        // フィードバックを提供
-        let feedback = TestFeedback {
-            success: true,
-            score: 0.95,
-            message: "良好な判断".to_string(),
-        };
-        
-        agent.provide_feedback(feedback);
-        
-        // エピソードにフィードバックが記録されていることを確認
-        let episode = agent.latest_episode().unwrap();
-        assert_eq!(episode.feedbacks().len(), 1);
-        assert!(episode.feedbacks()[0].success());
-        assert_eq!(episode.feedbacks()[0].score(), 0.95);
+    #[tokio::test]
+    async fn test_agent_make_decision() {
+        let machine = create_test_machine();
+        let storage = MemoryStorage::new();
+        let policy = TestPolicy::new();
+        let mut agent = Agent::new(machine, policy, storage);
+
+        // エピソードを開始
+        agent.start_episode("テスト", Some(TestState::Completed))
+            .await
+            .unwrap();
+
+        // 決定を取得
+        let decision = agent.next_decision().await.unwrap();
+        assert_eq!(decision.event, TestEvent::Start);
     }
 
-    #[test]
-    fn test_agent_insights() {
-        let policy = create_test_policy();
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent", 
-            Box::new(policy),
-        );
+    #[tokio::test]
+    async fn test_agent_apply_decision() {
+        let machine = create_test_machine();
+        let storage = MemoryStorage::new();
+        let policy = TestPolicy::new();
+        let mut agent = Agent::new(machine, policy, storage);
+
+        // エピソードを開始
+        agent.start_episode("テスト", Some(TestState::Completed))
+            .await
+            .unwrap();
+
+        // 決定を取得
+        let decision = agent.next_decision().await.unwrap();
         
-        // 観測と判断
-        let observation = TestObservation {
-            state: TestState::Idle,
-            data: "初期状態".to_string(),
-        };
-        
-        agent.observe_and_decide(observation);
-        
-        // インサイトを追加
-        let insight = TestInsight {
-            key: "performance".to_string(),
-            value: "高速に応答".to_string(),
-        };
-        
-        agent.add_insight(insight);
-        
-        // エピソードにインサイトが記録されていることを確認
-        let episode = agent.latest_episode().unwrap();
-        assert_eq!(episode.insights().len(), 1);
-        assert_eq!(episode.insights()[0].key(), "performance");
-        assert_eq!(episode.insights()[0].value(), "高速に応答");
+        // 決定を適用
+        let next_state = agent.apply_decision(&decision).await.unwrap();
+        assert_eq!(next_state, TestState::Processing);
     }
 
-    #[test]
-    fn test_agent_new_episode() {
-        let policy = create_test_policy();
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent", 
-            Box::new(policy),
-        );
-        
-        // 最初のエピソード
-        let observation1 = TestObservation {
-            state: TestState::Idle,
-            data: "エピソード1".to_string(),
-        };
-        
-        agent.observe_and_decide(observation1);
-        assert_eq!(agent.episodes().len(), 1);
-        
-        // 新しいエピソードを開始
-        agent.start_new_episode();
-        
-        // 二つ目のエピソードの観測と判断
-        let observation2 = TestObservation {
-            state: TestState::Processing,
-            data: "エピソード2".to_string(),
-        };
-        
-        agent.observe_and_decide(observation2);
-        
-        // 2つのエピソードが存在することを確認
-        assert_eq!(agent.episodes().len(), 2);
-        
-        // 最新のエピソードを確認
-        let latest_episode = agent.latest_episode().unwrap();
-        assert_eq!(latest_episode.observations().len(), 1);
-        assert_eq!(latest_episode.observations()[0].state(), &TestState::Processing);
-    }
+    #[tokio::test]
+    async fn test_agent_run_until_goal() {
+        let machine = create_test_machine();
+        let storage = MemoryStorage::new();
+        let policy = TestPolicy::new();
+        let mut agent = Agent::new(machine, policy, storage);
 
-    #[test]
-    fn test_agent_episode_retrieval() {
-        let policy = create_test_policy();
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent", 
-            Box::new(policy),
-        );
-        
-        // 3つのエピソードを生成
-        for i in 0..3 {
-            if i > 0 {
-                agent.start_new_episode();
-            }
-            
-            let state = match i {
-                0 => TestState::Idle,
-                1 => TestState::Processing,
-                _ => TestState::Completed,
-            };
-            
-            let observation = TestObservation {
-                state,
-                data: format!("エピソード{}", i + 1),
-            };
-            
-            agent.observe_and_decide(observation);
-        }
-        
-        // エピソード数を確認
-        assert_eq!(agent.episodes().len(), 3);
-        
-        // インデックスでエピソードを取得
-        let episode0 = agent.get_episode(0).unwrap();
-        let episode1 = agent.get_episode(1).unwrap();
-        let episode2 = agent.get_episode(2).unwrap();
-        
-        // 各エピソードの状態を確認
-        assert_eq!(episode0.observations()[0].state(), &TestState::Idle);
-        assert_eq!(episode1.observations()[0].state(), &TestState::Processing);
-        assert_eq!(episode2.observations()[0].state(), &TestState::Completed);
-        
-        // 存在しないインデックスのエピソード取得を試みる
-        let result = agent.get_episode(3);
-        assert!(result.is_none());
-    }
+        // エピソードを開始
+        agent.start_episode("テスト", Some(TestState::Completed))
+            .await
+            .unwrap();
 
-    #[test]
-    fn test_agent_error_handling() {
-        // エラー状態を処理するポリシーを作成
-        let mut policy = create_test_policy();
-        policy.state_action_map.insert(TestState::Error, TestAction::Retry);
-        
-        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
-            "test_agent", 
-            Box::new(policy),
-        );
-        
-        // エラー状態の観測
-        let observation = TestObservation {
-            state: TestState::Error,
-            data: "エラー発生".to_string(),
-        };
-        
-        // エージェントの判断を取得
-        let decision = agent.observe_and_decide(observation);
-        
-        // エラー状態に対してRetryアクションが選択されることを確認
-        assert_eq!(*decision.action(), TestAction::Retry);
-        
-        // 失敗フィードバックを提供
-        let feedback = TestFeedback {
-            success: false,
-            score: 0.1,
-            message: "エラー処理が必要".to_string(),
-        };
-        
-        agent.provide_feedback(feedback);
-        
-        // エピソードのフィードバックを確認
-        let episode = agent.latest_episode().unwrap();
-        assert_eq!(episode.feedbacks().len(), 1);
-        assert!(!episode.feedbacks()[0].success());
-        assert_eq!(episode.feedbacks()[0].score(), 0.1);
+        // 目標まで実行
+        let success = agent.run_until_goal(Some(5)).await.unwrap();
+        assert!(success);
     }
 }
