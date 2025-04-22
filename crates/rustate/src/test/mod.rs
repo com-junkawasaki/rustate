@@ -174,7 +174,13 @@ mod tests {
 #[cfg(test)]
 mod advanced_tests {
     use super::*;
-    use crate::{Action, ActionType, Event, Guard, Machine, MachineBuilder, State, Transition};
+    use crate::{
+        Action, ActionType, Guard, Machine, MachineBuilder, State, Transition,
+        machine, test::{runner::*, checker::*, property::*, generator::*}
+    };
+    
+    #[cfg(feature = "property-testing")]
+    use crate::Event;
     
     // 信号機ステートマシンの例
     // より複雑な状態遷移をテストするためのサンプル
@@ -185,36 +191,33 @@ mod advanced_tests {
         let red_state = State::new("red");
         let maintenance_state = State::new("maintenance");
 
-        // タイマーをインクリメントするアクション
-        let increment_timer = Action::new("increment_timer", ActionType::Entry, |ctx, _evt| {
-            let timer = ctx.get::<i32>("timer").unwrap_or(0);
-            let _ = ctx.set("timer", timer + 1);
+        // ガードを定義（タイマーの値が5以上かどうか）
+        let timer_guard = Guard::new("timer_guard", |ctx: &Context, _evt: &Event| {
+            ctx.get::<i32>("timer").unwrap_or(0) >= 5
         });
-
-        // タイマーをリセットするアクション
-        let reset_timer = Action::new("reset_timer", ActionType::Exit, |ctx, _evt| {
-            let _ = ctx.set("timer", 0);
-        });
-
-        // 故障フラグを設定するアクション
-        let set_maintenance = Action::new("set_maintenance", ActionType::Transition, |ctx, _evt| {
-            let _ = ctx.set("maintenance", true);
-        });
-
-        // 故障フラグをクリアするアクション
-        let clear_maintenance = Action::new("clear_maintenance", ActionType::Transition, |ctx, _evt| {
-            let _ = ctx.set("maintenance", false);
-        });
-
-        // 遷移ガード: タイマーが閾値を超えた場合のみ遷移
-        let timer_guard = Guard::new("timer_guard", |ctx, _evt| {
-            let timer = ctx.get::<i32>("timer").unwrap_or(0);
-            timer >= 5
-        });
-
-        // メンテナンスモードガード: メンテナンスが必要なときのみ遷移
-        let maintenance_guard = Guard::new("maintenance_guard", |ctx, _evt| {
+        
+        // メンテナンスモード用のガード
+        let maintenance_guard = Guard::new("maintenance_guard", |ctx: &Context, _evt: &Event| {
             ctx.get::<bool>("maintenance").unwrap_or(false)
+        });
+
+        // アクションを定義
+        let increment_timer = Action::new("increment_timer", |ctx: &mut Context, _evt: &Event| {
+            let current = ctx.get::<i32>("timer").unwrap_or(0);
+            ctx.set("timer", current + 1);
+        });
+
+        let reset_timer = Action::new("reset_timer", |ctx: &mut Context, _evt: &Event| {
+            ctx.set("timer", 0);
+        });
+
+        // メンテナンスモードの設定と解除
+        let set_maintenance = Action::new("set_maintenance", |ctx: &mut Context, _evt: &Event| {
+            ctx.set("maintenance", true);
+        });
+
+        let clear_maintenance = Action::new("clear_maintenance", |ctx: &mut Context, _evt: &Event| {
+            ctx.set("maintenance", false);
         });
 
         // 遷移を定義
@@ -250,15 +253,13 @@ mod advanced_tests {
             .transition(red_to_green)
             .transition(to_maintenance)
             .transition(from_maintenance)
+            .on_entry("green", increment_timer.clone())
+            .on_entry("yellow", increment_timer.clone())
+            .on_entry("red", increment_timer.clone())
             .build()
             .unwrap();
 
-        // 状態のアクションを設定
-        machine.add_state_action("green", ActionType::Entry, increment_timer);
-        machine.add_state_action("yellow", ActionType::Entry, increment_timer);
-        machine.add_state_action("red", ActionType::Entry, increment_timer);
-
-        machine
+        machine.with_state_mapper(|s| s.to_string().into());  // ステートマッパーを追加
     }
 
     #[test]
@@ -347,13 +348,14 @@ mod advanced_tests {
     fn test_property_based_testing() {
         use proptest::prelude::*;
         
-        let machine = create_traffic_light_machine();
+        let machine = create_traffic_light_machine()
+            .with_state_mapper(|s| s.to_string().into());  // ステートマッパーを追加
         let runner = PropertyTestRunner::new(machine.clone());
         
         // 循環性の検証: green → yellow → red → green の循環が常に維持される
         let property = Machine::property("Traffic light cycle follows correct sequence")
             .description("Green → Yellow → Red → Green cycle should be maintained")
-            .given(|m| m.is_in("green"))
+            .given(|m: &Machine| m.is_in("green"))
             .when(|m| {
                 // green → yellow
                 for _ in 0..5 { m.send("TIMER").unwrap(); }
@@ -361,7 +363,7 @@ mod advanced_tests {
                 for _ in 0..5 { m.send("TIMER").unwrap(); }
                 // red → green
                 for _ in 0..5 { m.send("TIMER").unwrap(); }
-                Ok(m.current_state().unwrap().clone())
+                Ok(m.current_state())
             })
             .then(|m| m.is_in("green"));
         
@@ -374,17 +376,18 @@ mod advanced_tests {
     fn test_property_maintenance_recovery() {
         use proptest::prelude::*;
         
-        let machine = create_traffic_light_machine();
+        let machine = create_traffic_light_machine()
+            .with_state_mapper(|s| s.to_string().into());  // ステートマッパーを追加
         let runner = PropertyTestRunner::new(machine.clone());
         
         // メンテナンスモードからの復帰検証: どの状態からメンテナンスモードに入っても、復帰後はgreenになる
         let property = Machine::property("Maintenance recovery always returns to green")
             .description("After maintenance mode, system should always restart from green")
-            .given(|_| true) // 任意の状態から開始
+            .given(|_: &Machine| true) // 任意の状態から開始
             .when(|m| {
                 m.send("MAINTENANCE").unwrap(); // メンテナンスモードに移行
                 m.send("RESTORE").unwrap();     // 復帰
-                Ok(m.current_state().unwrap().clone())
+                Ok(m.current_state())
             })
             .then(|m| m.is_in("green"));
         
@@ -407,7 +410,7 @@ mod advanced_tests {
         
         // テストを実行
         let mut runner = TestRunner::new(&machine);
-        let results = runner.run_tests(&transition_tests);
+        let results = runner.run_tests(transition_tests);
         
         // 全テストが成功することを検証
         assert!(results.all_passed(), "Not all transition tests passed: {:?}", results);

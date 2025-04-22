@@ -89,6 +89,11 @@ impl TestResults {
 
         (self.success_count() as f64 / self.total_count() as f64) * 100.0
     }
+
+    /// 全てのテストが成功したかどうかを確認
+    pub fn all_passed(&self) -> bool {
+        self.failure_count() == 0 && self.total_count() > 0
+    }
 }
 
 /// テストを実行するランナー
