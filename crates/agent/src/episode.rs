@@ -304,17 +304,10 @@ mod tests {
 
     #[test]
     fn test_episode_with_observations_and_decisions() {
-        let mut episode = Episode::new(
-            "Test Episode",
-            TestState::Initial,
-            TestState::Final,
-        );
+        let mut episode = Episode::new("Test Episode", TestState::Initial, TestState::Final);
 
-        let observation = Observation::new(
-            TestState::Initial,
-            TestEvent::Start,
-            TestState::Processing,
-        );
+        let observation =
+            Observation::new(TestState::Initial, TestEvent::Start, TestState::Processing);
 
         let insight = Insight::new("Test Insight", "This is a test insight", 0.9);
 

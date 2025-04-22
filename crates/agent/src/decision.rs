@@ -159,7 +159,10 @@ where
         // 実際の実装では、過去の観測や状態遷移グラフを使用して
         // 現在の状態から目標状態までの最短パスを推定します
         // ここでは簡単な例として現在と目標の状態IDを返します
-        vec![self.current_state.id().to_string(), self.goal_state.id().to_string()]
+        vec![
+            self.current_state.id().to_string(),
+            self.goal_state.id().to_string(),
+        ]
     }
 
     /// 観測から成功する可能性が高いアクションを推定します

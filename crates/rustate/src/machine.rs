@@ -168,7 +168,9 @@ where
             if let Some(current_state) = self.current_states.iter().next() {
                 current_state.clone()
             } else {
-                return Err(Error::InvalidConfiguration("No current state for wildcard transition".into()));
+                return Err(Error::InvalidConfiguration(
+                    "No current state for wildcard transition".into(),
+                ));
             }
         } else {
             transition.source.clone()

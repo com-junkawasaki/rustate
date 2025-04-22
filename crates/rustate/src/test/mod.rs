@@ -305,19 +305,21 @@ mod advanced_tests {
     #[test]
     fn test_maintenance_mode() {
         let mut machine = create_traffic_light_machine();
-        
+
         // Initialize context with maintenance flag set to false
         let mut ctx = Context::new();
         ctx.set("maintenance", false).unwrap();
         machine.context = ctx;
-        
+
         assert!(machine.is_in("green"));
 
         // Let's check what transitions are available
         println!("Available transitions:");
         for transition in &machine.transitions {
-            println!("  Source: {}, Event: {}, Target: {:?}", 
-                     transition.source, transition.event, transition.target);
+            println!(
+                "  Source: {}, Event: {}, Target: {:?}",
+                transition.source, transition.event, transition.target
+            );
         }
 
         // どの状態からでもメンテナンスモードに移行できる

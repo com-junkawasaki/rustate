@@ -50,8 +50,25 @@ impl Default for AgentConfig {
 /// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, SM, P>
 where
-    S: StateTrait + Clone + Debug + DeserializeOwned + Send + Sync + PartialEq + 'static + Default + Serialize,
-    E: EventTrait + Clone + Debug + DeserializeOwned + Send + Sync + 'static + rustate::IntoEvent + Serialize,
+    S: StateTrait
+        + Clone
+        + Debug
+        + DeserializeOwned
+        + Send
+        + Sync
+        + PartialEq
+        + 'static
+        + Default
+        + Serialize,
+    E: EventTrait
+        + Clone
+        + Debug
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + rustate::IntoEvent
+        + Serialize,
     SM: Storage<S, E>,
     P: Policy<S, E>,
 {
@@ -76,8 +93,25 @@ where
 
 impl<S, E, SM, P> Agent<S, E, SM, P>
 where
-    S: StateTrait + DeserializeOwned + Debug + Clone + Send + Sync + PartialEq + 'static + Default + Serialize,
-    E: EventTrait + DeserializeOwned + Debug + Clone + Send + Sync + 'static + rustate::IntoEvent + Serialize,
+    S: StateTrait
+        + DeserializeOwned
+        + Debug
+        + Clone
+        + Send
+        + Sync
+        + PartialEq
+        + 'static
+        + Default
+        + Serialize,
+    E: EventTrait
+        + DeserializeOwned
+        + Debug
+        + Clone
+        + Send
+        + Sync
+        + 'static
+        + rustate::IntoEvent
+        + Serialize,
     SM: Storage<S, E>,
     P: Policy<S, E>,
 {
@@ -535,7 +569,7 @@ mod tests {
                 TestEvent::Abort => "ABORT",
             }
         }
-        
+
         fn payload(&self) -> Option<&serde_json::Value> {
             None
         }
