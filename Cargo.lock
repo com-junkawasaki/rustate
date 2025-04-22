@@ -1444,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "rustate"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "async-trait",
  "console_error_panic_hook",
@@ -1487,7 +1487,7 @@ dependencies = [
  "gloo 0.10.0",
  "js-sys",
  "log",
- "rustate 0.2.5",
+ "rustate 0.2.6",
  "serde",
  "serde_json",
  "uuid",
