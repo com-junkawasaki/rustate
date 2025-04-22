@@ -6,11 +6,12 @@ use std::fmt;
 pub type GuardPredicate = Box<dyn Fn(&Context, &Event) -> bool + Send + Sync>;
 
 /// A guard condition for a transition
-#[derive(Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Guard {
-    /// Unique identifier for this guard
+    /// The name of this guard
     pub name: String,
-    /// Function pointer to evaluate the guard condition
+    /// Function pointer to evaluate the guard
+    #[serde(skip)]
     pub(crate) predicate: Option<GuardPredicate>,
 }
 
