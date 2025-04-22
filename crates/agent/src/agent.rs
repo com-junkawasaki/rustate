@@ -308,198 +308,415 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::RandomPolicy;
-    use crate::storage::MemoryStorage;
-    use rustate::{Event, EventTrait, IntoEvent, State, StateTrait, StateType, Transition};
-    use serde::{Deserialize, Serialize};
-    use serde_json::Value;
+    use crate::decision::Decision;
+    use crate::episode::Episode;
+    use crate::error::AgentError;
+    use crate::feedback::Feedback;
+    use crate::insight::Insight;
+    use crate::observation::Observation;
+    use crate::policy::Policy;
+    use std::collections::HashMap;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     enum TestState {
-        Initial,
+        Idle,
         Processing,
-        Final,
+        Completed,
+        Error,
     }
 
-    impl Default for TestState {
-        fn default() -> Self {
-            TestState::Initial
-        }
-    }
-
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
-            match self {
-                TestState::Initial => "initial",
-                TestState::Processing => "processing",
-                TestState::Final => "final",
-            }
-        }
-
-        fn state_type(&self) -> &StateType {
-            static NORMAL: StateType = StateType::Normal;
-            &NORMAL
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            static EMPTY: [String; 0] = [];
-            &EMPTY
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    enum TestEvent {
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum TestAction {
         Start,
         Process,
-        Finish,
+        Complete,
+        Retry,
+        Abort,
     }
 
-    impl EventTrait for TestEvent {
-        fn event_type(&self) -> &str {
-            match self {
-                TestEvent::Start => "start",
-                TestEvent::Process => "process",
-                TestEvent::Finish => "finish",
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TestObservation {
+        state: TestState,
+        data: String,
+    }
+
+    impl Observation for TestObservation {
+        type State = TestState;
+        
+        fn state(&self) -> &Self::State {
+            &self.state
+        }
+        
+        fn timestamp() -> chrono::DateTime<chrono::Utc> {
+            chrono::Utc::now()
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestDecision {
+        action: TestAction,
+        confidence: f64,
+    }
+
+    impl Decision for TestDecision {
+        type Action = TestAction;
+        
+        fn action(&self) -> &Self::Action {
+            &self.action
+        }
+        
+        fn confidence(&self) -> f64 {
+            self.confidence
+        }
+        
+        fn timestamp() -> chrono::DateTime<chrono::Utc> {
+            chrono::Utc::now()
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestPolicy {
+        state_action_map: HashMap<TestState, TestAction>,
+        fallback_action: TestAction,
+    }
+
+    impl Policy for TestPolicy {
+        type State = TestState;
+        type Action = TestAction;
+        type Observation = TestObservation;
+        type Decision = TestDecision;
+        
+        fn decide(&self, observation: &Self::Observation) -> Self::Decision {
+            let action = self.state_action_map
+                .get(observation.state())
+                .cloned()
+                .unwrap_or_else(|| self.fallback_action.clone());
+                
+            TestDecision {
+                action,
+                confidence: 0.9,
             }
         }
+    }
 
-        fn payload(&self) -> Option<&Value> {
-            None
+    #[derive(Debug, Clone)]
+    struct TestFeedback {
+        success: bool,
+        score: f64,
+        message: String,
+    }
+
+    impl Feedback for TestFeedback {
+        fn success(&self) -> bool {
+            self.success
+        }
+        
+        fn score(&self) -> f64 {
+            self.score
+        }
+        
+        fn timestamp() -> chrono::DateTime<chrono::Utc> {
+            chrono::Utc::now()
         }
     }
 
-    impl IntoEvent for TestEvent {
-        fn into_event(self) -> Event {
-            Event::new(self.event_type())
+    #[derive(Debug, Clone)]
+    struct TestInsight {
+        key: String,
+        value: String,
+    }
+
+    impl Insight for TestInsight {
+        fn key(&self) -> &str {
+            &self.key
+        }
+        
+        fn value(&self) -> &str {
+            &self.value
+        }
+        
+        fn timestamp() -> chrono::DateTime<chrono::Utc> {
+            chrono::Utc::now()
         }
     }
 
-    fn create_test_machine() -> Machine<TestState, TestEvent> {
-        // 正しい実装に変更: StateオブジェクトとMachineBuilderを使用
-        let initial_state = State::new("initial");
-        let processing_state = State::new("processing");
-        let final_state = State::new("final");
+    // ポリシーの作成ヘルパー関数
+    fn create_test_policy() -> TestPolicy {
+        let mut state_action_map = HashMap::new();
+        state_action_map.insert(TestState::Idle, TestAction::Start);
+        state_action_map.insert(TestState::Processing, TestAction::Process);
+        state_action_map.insert(TestState::Completed, TestAction::Complete);
+        state_action_map.insert(TestState::Error, TestAction::Retry);
+        
+        TestPolicy {
+            state_action_map,
+            fallback_action: TestAction::Abort,
+        }
+    }
 
-        let start_transition = Transition::new("initial", "start", "processing");
-        let process_transition = Transition::new("processing", "process", "processing");
-        let finish_transition = Transition::new("processing", "finish", "final");
+    #[test]
+    fn test_agent_creation() {
+        let policy = create_test_policy();
+        let agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent",
+            Box::new(policy),
+        );
+        
+        assert_eq!(agent.name(), "test_agent");
+        assert_eq!(agent.episodes().len(), 0);
+    }
 
-        // 状態IDからTestStateへのマッパー関数
-        let state_mapper = |state_id: &str| -> TestState {
-            match state_id {
-                "initial" => TestState::Initial,
-                "processing" => TestState::Processing,
-                "final" => TestState::Final,
-                _ => panic!("不明な状態ID: {}", state_id),
-            }
+    #[test]
+    fn test_agent_observe_and_decide() {
+        let policy = create_test_policy();
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent",
+            Box::new(policy),
+        );
+        
+        let observation = TestObservation {
+            state: TestState::Idle,
+            data: "初期状態".to_string(),
         };
-
-        // ステートマシンを構築し、ステートマッパーを設定
-        rustate::MachineBuilder::new("TestMachine")
-            .state(initial_state)
-            .state(processing_state)
-            .state(final_state)
-            .initial("initial")
-            .transition(start_transition)
-            .transition(process_transition)
-            .transition(finish_transition)
-            .build()
-            .unwrap()
-            .with_state_mapper(state_mapper)
+        
+        let decision = agent.observe_and_decide(observation.clone());
+        
+        // 期待される判断: Idleに対してはStartアクション
+        assert_eq!(*decision.action(), TestAction::Start);
+        
+        // エピソードが作成されたことを確認
+        assert_eq!(agent.episodes().len(), 1);
+        
+        // 最新のエピソードを取得
+        let episode = agent.latest_episode().unwrap();
+        
+        // エピソードに観測と判断が記録されていることを確認
+        assert_eq!(episode.observations().len(), 1);
+        assert_eq!(episode.decisions().len(), 1);
+        
+        // 観測の状態を確認
+        let recorded_observation = &episode.observations()[0];
+        assert_eq!(recorded_observation.state(), &TestState::Idle);
     }
 
-    #[tokio::test]
-    async fn test_agent_creation() {
-        let machine = create_test_machine();
-        let policy = RandomPolicy::new(vec![
-            TestEvent::Start,
-            TestEvent::Process,
-            TestEvent::Finish,
-        ]);
-        let storage = MemoryStorage::new();
-
-        let agent = Agent::new(machine, policy, storage);
-        assert_eq!(agent.config.name, "汎用エージェント");
-        assert_eq!(agent.machine.current_state(), TestState::Initial);
+    #[test]
+    fn test_agent_multiple_observations() {
+        let policy = create_test_policy();
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent", 
+            Box::new(policy),
+        );
+        
+        // 状態遷移シーケンス: Idle -> Processing -> Completed
+        let observations = vec![
+            TestObservation { state: TestState::Idle, data: "初期状態".to_string() },
+            TestObservation { state: TestState::Processing, data: "処理中".to_string() },
+            TestObservation { state: TestState::Completed, data: "完了".to_string() },
+        ];
+        
+        // 各状態を観測し判断
+        for observation in observations {
+            let decision = agent.observe_and_decide(observation);
+            assert!(matches!(decision.action(), 
+                TestAction::Start | TestAction::Process | TestAction::Complete
+            ));
+        }
+        
+        // 一つのエピソードが存在し、3つの観測と判断が記録されていることを確認
+        assert_eq!(agent.episodes().len(), 1);
+        let episode = agent.latest_episode().unwrap();
+        assert_eq!(episode.observations().len(), 3);
+        assert_eq!(episode.decisions().len(), 3);
+        
+        // 状態の遷移順序を確認
+        assert_eq!(episode.observations()[0].state(), &TestState::Idle);
+        assert_eq!(episode.observations()[1].state(), &TestState::Processing);
+        assert_eq!(episode.observations()[2].state(), &TestState::Completed);
     }
 
-    #[tokio::test]
-    async fn test_agent_episode() {
-        let machine = create_test_machine();
-        let policy = RandomPolicy::new(vec![
-            TestEvent::Start,
-            TestEvent::Process,
-            TestEvent::Finish,
-        ]);
-        let storage = MemoryStorage::new();
-
-        let mut agent = Agent::new(machine, policy, storage);
-
-        // エピソードを開始
-        agent
-            .start_episode("テストエピソード", Some(TestState::Final))
-            .await
-            .unwrap();
-
-        assert!(agent.current_episode.is_some());
-        let episode = agent.current_episode.as_ref().unwrap();
-        assert_eq!(episode.name, "テストエピソード");
-        assert_eq!(episode.initial_state, TestState::Initial);
-        assert_eq!(&episode.goal_state, &TestState::Final);
+    #[test]
+    fn test_agent_feedback() {
+        let policy = create_test_policy();
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent", 
+            Box::new(policy),
+        );
+        
+        // 観測と判断
+        let observation = TestObservation {
+            state: TestState::Idle,
+            data: "初期状態".to_string(),
+        };
+        
+        let decision = agent.observe_and_decide(observation);
+        assert_eq!(*decision.action(), TestAction::Start);
+        
+        // フィードバックを提供
+        let feedback = TestFeedback {
+            success: true,
+            score: 0.95,
+            message: "良好な判断".to_string(),
+        };
+        
+        agent.provide_feedback(feedback);
+        
+        // エピソードにフィードバックが記録されていることを確認
+        let episode = agent.latest_episode().unwrap();
+        assert_eq!(episode.feedbacks().len(), 1);
+        assert!(episode.feedbacks()[0].success());
+        assert_eq!(episode.feedbacks()[0].score(), 0.95);
     }
 
-    #[tokio::test]
-    async fn test_agent_decision_and_apply() {
-        let machine = create_test_machine();
-        let policy = RandomPolicy::new(vec![TestEvent::Start]);
-        let storage = MemoryStorage::new();
-
-        let mut agent = Agent::new(machine, policy, storage);
-
-        // エピソードを開始
-        agent
-            .start_episode("テスト決定適用", Some(TestState::Final))
-            .await
-            .unwrap();
-
-        // 決定を取得して適用
-        let decision = agent.next_decision().await.unwrap();
-        assert_eq!(decision.event, TestEvent::Start);
-
-        let next_state = agent.apply_decision(&decision).await.unwrap();
-        assert_eq!(next_state, TestState::Processing);
-        assert_eq!(agent.machine.current_state(), TestState::Processing);
+    #[test]
+    fn test_agent_insights() {
+        let policy = create_test_policy();
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent", 
+            Box::new(policy),
+        );
+        
+        // 観測と判断
+        let observation = TestObservation {
+            state: TestState::Idle,
+            data: "初期状態".to_string(),
+        };
+        
+        agent.observe_and_decide(observation);
+        
+        // インサイトを追加
+        let insight = TestInsight {
+            key: "performance".to_string(),
+            value: "高速に応答".to_string(),
+        };
+        
+        agent.add_insight(insight);
+        
+        // エピソードにインサイトが記録されていることを確認
+        let episode = agent.latest_episode().unwrap();
+        assert_eq!(episode.insights().len(), 1);
+        assert_eq!(episode.insights()[0].key(), "performance");
+        assert_eq!(episode.insights()[0].value(), "高速に応答");
     }
 
-    #[tokio::test]
-    async fn test_agent_step() {
-        let machine = create_test_machine();
-        let policy = RandomPolicy::new(vec![TestEvent::Start]);
-        let storage = MemoryStorage::new();
+    #[test]
+    fn test_agent_new_episode() {
+        let policy = create_test_policy();
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent", 
+            Box::new(policy),
+        );
+        
+        // 最初のエピソード
+        let observation1 = TestObservation {
+            state: TestState::Idle,
+            data: "エピソード1".to_string(),
+        };
+        
+        agent.observe_and_decide(observation1);
+        assert_eq!(agent.episodes().len(), 1);
+        
+        // 新しいエピソードを開始
+        agent.start_new_episode();
+        
+        // 二つ目のエピソードの観測と判断
+        let observation2 = TestObservation {
+            state: TestState::Processing,
+            data: "エピソード2".to_string(),
+        };
+        
+        agent.observe_and_decide(observation2);
+        
+        // 2つのエピソードが存在することを確認
+        assert_eq!(agent.episodes().len(), 2);
+        
+        // 最新のエピソードを確認
+        let latest_episode = agent.latest_episode().unwrap();
+        assert_eq!(latest_episode.observations().len(), 1);
+        assert_eq!(latest_episode.observations()[0].state(), &TestState::Processing);
+    }
 
-        let mut agent = Agent::new(machine, policy, storage);
+    #[test]
+    fn test_agent_episode_retrieval() {
+        let policy = create_test_policy();
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent", 
+            Box::new(policy),
+        );
+        
+        // 3つのエピソードを生成
+        for i in 0..3 {
+            if i > 0 {
+                agent.start_new_episode();
+            }
+            
+            let state = match i {
+                0 => TestState::Idle,
+                1 => TestState::Processing,
+                _ => TestState::Completed,
+            };
+            
+            let observation = TestObservation {
+                state,
+                data: format!("エピソード{}", i + 1),
+            };
+            
+            agent.observe_and_decide(observation);
+        }
+        
+        // エピソード数を確認
+        assert_eq!(agent.episodes().len(), 3);
+        
+        // インデックスでエピソードを取得
+        let episode0 = agent.get_episode(0).unwrap();
+        let episode1 = agent.get_episode(1).unwrap();
+        let episode2 = agent.get_episode(2).unwrap();
+        
+        // 各エピソードの状態を確認
+        assert_eq!(episode0.observations()[0].state(), &TestState::Idle);
+        assert_eq!(episode1.observations()[0].state(), &TestState::Processing);
+        assert_eq!(episode2.observations()[0].state(), &TestState::Completed);
+        
+        // 存在しないインデックスのエピソード取得を試みる
+        let result = agent.get_episode(3);
+        assert!(result.is_none());
+    }
 
-        // エピソードを開始
-        agent
-            .start_episode("テストステップ", Some(TestState::Final))
-            .await
-            .unwrap();
-
-        // ステップを実行
-        let next_state = agent.step().await.unwrap();
-        assert_eq!(next_state, TestState::Processing);
-        assert_eq!(agent.machine.current_state(), TestState::Processing);
+    #[test]
+    fn test_agent_error_handling() {
+        // エラー状態を処理するポリシーを作成
+        let mut policy = create_test_policy();
+        policy.state_action_map.insert(TestState::Error, TestAction::Retry);
+        
+        let mut agent = Agent::<TestState, TestAction, TestObservation, TestDecision, TestFeedback, TestInsight>::new(
+            "test_agent", 
+            Box::new(policy),
+        );
+        
+        // エラー状態の観測
+        let observation = TestObservation {
+            state: TestState::Error,
+            data: "エラー発生".to_string(),
+        };
+        
+        // エージェントの判断を取得
+        let decision = agent.observe_and_decide(observation);
+        
+        // エラー状態に対してRetryアクションが選択されることを確認
+        assert_eq!(*decision.action(), TestAction::Retry);
+        
+        // 失敗フィードバックを提供
+        let feedback = TestFeedback {
+            success: false,
+            score: 0.1,
+            message: "エラー処理が必要".to_string(),
+        };
+        
+        agent.provide_feedback(feedback);
+        
+        // エピソードのフィードバックを確認
+        let episode = agent.latest_episode().unwrap();
+        assert_eq!(episode.feedbacks().len(), 1);
+        assert!(!episode.feedbacks()[0].success());
+        assert_eq!(episode.feedbacks()[0].score(), 0.1);
     }
 }

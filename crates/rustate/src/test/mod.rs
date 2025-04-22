@@ -170,3 +170,246 @@ mod tests {
         assert!(result.satisfied);
     }
 }
+
+#[cfg(test)]
+mod advanced_tests {
+    use super::*;
+    use crate::{Action, ActionType, Event, Guard, Machine, MachineBuilder, State, Transition};
+    
+    // 信号機ステートマシンの例
+    // より複雑な状態遷移をテストするためのサンプル
+    fn create_traffic_light_machine() -> Machine {
+        // 状態を定義
+        let green_state = State::new("green");
+        let yellow_state = State::new("yellow");
+        let red_state = State::new("red");
+        let maintenance_state = State::new("maintenance");
+
+        // タイマーをインクリメントするアクション
+        let increment_timer = Action::new("increment_timer", ActionType::Entry, |ctx, _evt| {
+            let timer = ctx.get::<i32>("timer").unwrap_or(0);
+            let _ = ctx.set("timer", timer + 1);
+        });
+
+        // タイマーをリセットするアクション
+        let reset_timer = Action::new("reset_timer", ActionType::Exit, |ctx, _evt| {
+            let _ = ctx.set("timer", 0);
+        });
+
+        // 故障フラグを設定するアクション
+        let set_maintenance = Action::new("set_maintenance", ActionType::Transition, |ctx, _evt| {
+            let _ = ctx.set("maintenance", true);
+        });
+
+        // 故障フラグをクリアするアクション
+        let clear_maintenance = Action::new("clear_maintenance", ActionType::Transition, |ctx, _evt| {
+            let _ = ctx.set("maintenance", false);
+        });
+
+        // 遷移ガード: タイマーが閾値を超えた場合のみ遷移
+        let timer_guard = Guard::new("timer_guard", |ctx, _evt| {
+            let timer = ctx.get::<i32>("timer").unwrap_or(0);
+            timer >= 5
+        });
+
+        // メンテナンスモードガード: メンテナンスが必要なときのみ遷移
+        let maintenance_guard = Guard::new("maintenance_guard", |ctx, _evt| {
+            ctx.get::<bool>("maintenance").unwrap_or(false)
+        });
+
+        // 遷移を定義
+        let mut green_to_yellow = Transition::new("green", "TIMER", "yellow");
+        green_to_yellow.with_guard(timer_guard.clone());
+        green_to_yellow.with_action(reset_timer.clone());
+
+        let mut yellow_to_red = Transition::new("yellow", "TIMER", "red");
+        yellow_to_red.with_guard(timer_guard.clone());
+        yellow_to_red.with_action(reset_timer.clone());
+
+        let mut red_to_green = Transition::new("red", "TIMER", "green");
+        red_to_green.with_guard(timer_guard.clone());
+        red_to_green.with_action(reset_timer.clone());
+
+        // メンテナンスへの遷移
+        let mut to_maintenance = Transition::new("*", "MAINTENANCE", "maintenance");
+        to_maintenance.with_action(set_maintenance);
+
+        // メンテナンスからの復帰（常にgreenから再開）
+        let mut from_maintenance = Transition::new("maintenance", "RESTORE", "green");
+        from_maintenance.with_action(clear_maintenance);
+
+        // マシンを構築
+        let mut machine = MachineBuilder::new("trafficLight")
+            .state(green_state)
+            .state(yellow_state)
+            .state(red_state)
+            .state(maintenance_state)
+            .initial("green")
+            .transition(green_to_yellow)
+            .transition(yellow_to_red)
+            .transition(red_to_green)
+            .transition(to_maintenance)
+            .transition(from_maintenance)
+            .build()
+            .unwrap();
+
+        // 状態のアクションを設定
+        machine.add_state_action("green", ActionType::Entry, increment_timer);
+        machine.add_state_action("yellow", ActionType::Entry, increment_timer);
+        machine.add_state_action("red", ActionType::Entry, increment_timer);
+
+        machine
+    }
+
+    #[test]
+    fn test_traffic_light_cycle() {
+        let mut machine = create_traffic_light_machine();
+        assert!(machine.is_in("green"));
+
+        // タイマーイベントを5回送信して全状態をサイクル
+        for _ in 0..5 {
+            machine.send("TIMER").unwrap();
+        }
+        assert!(machine.is_in("yellow"));
+
+        for _ in 0..5 {
+            machine.send("TIMER").unwrap();
+        }
+        assert!(machine.is_in("red"));
+
+        for _ in 0..5 {
+            machine.send("TIMER").unwrap();
+        }
+        assert!(machine.is_in("green"));
+    }
+
+    #[test]
+    fn test_maintenance_mode() {
+        let mut machine = create_traffic_light_machine();
+        assert!(machine.is_in("green"));
+
+        // どの状態からでもメンテナンスモードに移行できる
+        machine.send("MAINTENANCE").unwrap();
+        assert!(machine.is_in("maintenance"));
+
+        // メンテナンスモードから復帰すると常にgreenになる
+        machine.send("RESTORE").unwrap();
+        assert!(machine.is_in("green"));
+
+        // 別の状態でも同様にテスト
+        for _ in 0..5 {
+            machine.send("TIMER").unwrap();
+        }
+        assert!(machine.is_in("yellow"));
+        
+        machine.send("MAINTENANCE").unwrap();
+        assert!(machine.is_in("maintenance"));
+        
+        machine.send("RESTORE").unwrap();
+        assert!(machine.is_in("green"));
+    }
+
+    #[test]
+    fn test_model_checking_traffic_light() {
+        let machine = create_traffic_light_machine();
+        let mut checker = ModelChecker::new(&machine);
+
+        // 到達可能性: すべての状態に到達可能かチェック
+        let all_states_reachable = Property {
+            name: "All states are reachable".to_string(),
+            property_type: PropertyType::Reachability,
+            target_states: vec![
+                "green".to_string(),
+                "yellow".to_string(),
+                "red".to_string(),
+                "maintenance".to_string()
+            ],
+            description: Some("All defined states should be reachable".to_string()),
+        };
+
+        let result = checker.verify_property(&all_states_reachable);
+        assert!(result.satisfied, "Not all states are reachable: {:#?}", result);
+
+        // 安全性: 存在しない状態には到達しないことを検証
+        let invalid_states = Property {
+            name: "No invalid states".to_string(),
+            property_type: PropertyType::Safety,
+            target_states: vec!["invalid".to_string(), "error".to_string()],
+            description: Some("System should never reach undefined states".to_string()),
+        };
+
+        let result = checker.verify_property(&invalid_states);
+        assert!(result.satisfied, "System can reach invalid states: {:#?}", result);
+    }
+
+    #[cfg(feature = "property-testing")]
+    #[test]
+    fn test_property_based_testing() {
+        use proptest::prelude::*;
+        
+        let machine = create_traffic_light_machine();
+        let runner = PropertyTestRunner::new(machine.clone());
+        
+        // 循環性の検証: green → yellow → red → green の循環が常に維持される
+        let property = Machine::property("Traffic light cycle follows correct sequence")
+            .description("Green → Yellow → Red → Green cycle should be maintained")
+            .given(|m| m.is_in("green"))
+            .when(|m| {
+                // green → yellow
+                for _ in 0..5 { m.send("TIMER").unwrap(); }
+                // yellow → red
+                for _ in 0..5 { m.send("TIMER").unwrap(); }
+                // red → green
+                for _ in 0..5 { m.send("TIMER").unwrap(); }
+                Ok(m.current_state().unwrap().clone())
+            })
+            .then(|m| m.is_in("green"));
+        
+        let result = runner.verify_property(property, proptest::test_runner::Config::default());
+        assert!(result.success, "Property test failed: {:#?}", result);
+    }
+    
+    #[cfg(feature = "property-testing")]
+    #[test]
+    fn test_property_maintenance_recovery() {
+        use proptest::prelude::*;
+        
+        let machine = create_traffic_light_machine();
+        let runner = PropertyTestRunner::new(machine.clone());
+        
+        // メンテナンスモードからの復帰検証: どの状態からメンテナンスモードに入っても、復帰後はgreenになる
+        let property = Machine::property("Maintenance recovery always returns to green")
+            .description("After maintenance mode, system should always restart from green")
+            .given(|_| true) // 任意の状態から開始
+            .when(|m| {
+                m.send("MAINTENANCE").unwrap(); // メンテナンスモードに移行
+                m.send("RESTORE").unwrap();     // 復帰
+                Ok(m.current_state().unwrap().clone())
+            })
+            .then(|m| m.is_in("green"));
+        
+        let result = runner.verify_property(property, proptest::test_runner::Config::default());
+        assert!(result.success, "Property test failed: {:#?}", result);
+    }
+
+    #[test]
+    fn test_generate_test_cases_for_traffic_light() {
+        let machine = create_traffic_light_machine();
+        let mut generator = TestGenerator::new(&machine);
+        
+        // すべての状態をカバーするテストケースを生成
+        let state_tests = generator.generate_all_states();
+        assert_eq!(state_tests.len(), 4, "Should generate test for all 4 states");
+        
+        // すべての遷移をカバーするテストケースを生成
+        let transition_tests = generator.generate_all_transitions();
+        assert_eq!(transition_tests.len(), 5, "Should generate test for all 5 transitions");
+        
+        // テストを実行
+        let mut runner = TestRunner::new(&machine);
+        let results = runner.run_tests(&transition_tests);
+        
+        // 全テストが成功することを検証
+        assert!(results.all_passed(), "Not all transition tests passed: {:?}", results);
+    }
+}
