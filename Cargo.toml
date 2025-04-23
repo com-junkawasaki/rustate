@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rustate_core",
+    "crates/rustate_macros",
     "crates/agent",
     "crates/editor",
     "crates/demo",

@@ -1566,10 +1566,20 @@ name = "rustate_core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "rustate_macros",
  "serde",
  "thiserror",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "rustate_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
 ]
 
 [[package]]
