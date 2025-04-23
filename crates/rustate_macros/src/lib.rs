@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput}; // まずは DeriveInput を使ってみる
+// use syn::{parse_macro_input, DeriveInput}; // 一時的にコメントアウト
 
 /// XState v5 ライクな定義から ActorLogic を実装する構造体を生成する（予定の）マクロ。
 /// 現時点ではダミーの実装です。
