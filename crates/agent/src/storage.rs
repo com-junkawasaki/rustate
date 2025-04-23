@@ -591,7 +591,13 @@ mod tests {
     #[tokio::test]
     async fn test_decision_storage() {
         let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let decision = Decision::new(TestEvent::Start, 0.9);
+        let decision = Decision::new(
+            "decision_test_1",
+            TestEvent::Start,
+            0.9,
+            None::<TestState>,
+            None::<TestState>
+        );
 
         storage.save_decision(&decision).await.unwrap();
 
@@ -604,7 +610,13 @@ mod tests {
         let storage = MemoryStorage::<TestState, TestEvent>::new();
 
         // Create and store a decision
-        let decision = Decision::new(TestEvent::Start, 0.9);
+        let decision = Decision::new(
+            "memory_test_decision_1",
+            TestEvent::Start,
+            0.9,
+            None::<TestState>,
+            None::<TestState>
+        );
         storage.save_decision(&decision).await.unwrap();
 
         // Retrieve and verify
