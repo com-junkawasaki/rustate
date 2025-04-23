@@ -15,12 +15,16 @@ pub use system::ActorSystem;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simple_counter::{CounterActor, CounterEvent, CounterState};
+    use simple_counter::{CounterActor, CounterEvent};
     use tokio::time::{sleep, Duration};
 
-    // rustate_macros クレートを開発依存関係に追加する必要がある
-    // use rustate_macros::create_machine;
+    // Import the macro
+    use rustate_macros::create_machine;
+    // Import necessary traits for derived types in the macro test
+    use serde::{Serialize, Deserialize};
+    use async_trait::async_trait; // For manual Actor impl if needed
 
+    // --- Test for original counter actor ---
     #[tokio::test]
     async fn test_counter_actor_with_system() {
         println!("Creating ActorSystem...");
@@ -28,11 +32,9 @@ mod tests {
         println!("ActorSystem created: {:?}", system);
 
         println!("Spawning CounterActor using system...");
-        // ActorSystem の spawn_default を使用
         let counter_ref = system.spawn_default(CounterActor::default());
         println!("CounterActor spawned with ref: {:?}", counter_ref);
 
-        // 少し待機してアクターが初期化される時間を与える（デバッグ用）
         sleep(Duration::from_millis(10)).await;
 
         println!("Sending Increment event...");
@@ -40,7 +42,6 @@ mod tests {
         assert!(res1.is_ok());
         println!("Increment event sent.");
 
-        // 状態が更新されるのを少し待つ
         sleep(Duration::from_millis(10)).await;
 
         println!("Sending Increment event again...");
@@ -55,40 +56,116 @@ mod tests {
         assert!(res3.is_ok());
         println!("Print event sent.");
 
-        // アクターがイベントを処理するのを待つ
         sleep(Duration::from_millis(50)).await;
 
-        // TODO: 状態を取得する ask パターンなどを実装して、アサーションを追加する
-        // 例: let state = counter_ref.ask_state().await.unwrap();
-        // assert_eq!(state, CounterState { count: 2 });
-
-        println!("Test finished. Check logs for actor output.");
+        // TODO: Add assertions using an 'ask' pattern
+        println!("Original counter test finished. Check logs for actor output.");
     }
 
-    // 新しいテスト関数
+    // --- Test for the create_machine macro ---
+
+    // Define dummy types needed for the macro invocation
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+    struct MySimpleContext { count: i32 }
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    enum MySimpleEvent { Increment, Decrement } // Added Decrement for potential future use
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    enum MySimpleState { Idle, Active }
+
     #[test]
-    fn test_dummy_create_machine_macro() {
-        // マクロを呼び出す（が、まだ rustate_core の Cargo.toml に追加されていない）
-        // rustate_macros::create_machine! {
-        //     // ここに本来のマクロ入力が入る
-        //     context: { value: 0 },
-        //     initial: Initial,
-        //     states: {
-        //         Initial: { }
-        //     }
-        // };
+    fn test_simple_create_machine_macro_generation() {
+        // Invoke the macro with the defined types and initial state
+        create_machine!(
+            MySimpleMachine, // Generated logic struct name
+            Context = MySimpleContext,
+            Event = MySimpleEvent,
+            State = MySimpleState,
+            initial: MySimpleState::Idle { // Initial state variant and context
+                count: 0
+            },
+            // transitions, states etc. to be added later
+        );
 
-        println!("Attempting to invoke dummy create_machine macro (requires dependency setup)...");
+        println!("Invoked create_machine macro.");
 
-        // マクロがダミーの構造体と型を生成するはず
-        // let _logic = MyGeneratedMachineLogic::default();
-        // let _context = MyContext::default();
-        // let _event = MyEvent::DummyEvent;
-        // let _state = MyState::Initial;
+        // Instantiate the generated logic struct
+        let logic = MySimpleMachine::default();
+        println!("Instantiated generated logic: {:?}", logic);
 
-        // 現時点では、コンパイル時にマクロからの println! が表示されることを期待する
-        // （そしてコンパイルエラーになるはず、依存関係がないため）
-        assert!(true); // とりあえず成功させる
-        println!("Dummy macro test placeholder finished. Check compile logs for macro output (if dependency is added).");
+        // Test the generated initial() method
+        let (initial_state, initial_context) = logic.initial();
+        assert_eq!(initial_state, MySimpleState::Idle, "Initial state should be Idle");
+        assert_eq!(initial_context, MySimpleContext { count: 0 }, "Initial context should match");
+
+        println!("Generated initial state and context verified successfully.");
+
+        // We can't easily test the async transition method here without a runtime
+        // and more setup, but we know it's just a dummy print for now.
     }
+
+    // Optional: Test using the generated logic with the spawn system (requires more setup)
+    /*
+    #[tokio::test]
+    async fn test_spawn_generated_machine() {
+        // Re-declare the types or put them in a common place
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+        struct TestContext { val: String }
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+        enum TestEvent { Ping }
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+        enum TestState { Start }
+
+        create_machine!(
+            MyTestMachineLogic,
+            Context = TestContext,
+            Event = TestEvent,
+            State = TestState,
+            initial: TestState::Start { val: "init".to_string() }
+        );
+
+        // Need an Actor wrapper around the generated ActorLogic
+        // This design needs refinement: How does ActorLogic (with State enum) map to Actor (with State = Context)?
+        // Option 1: Actor holds both logic and current State enum
+        // Option 2: Actor's State becomes (StateEnum, Context) tuple
+        // Option 3: ActorLogic is the Actor itself (might complicate Actor trait)
+
+        // --- Placeholder for Actor wrapper ---
+        #[derive(Clone)]
+        struct MyTestActor { logic: MyTestMachineLogic } // Simplistic wrapper
+
+        // Manually implement Actor for the wrapper for now
+        #[async_trait]
+        impl Actor for MyTestActor {
+             type State = TestContext; // Let Actor state be the context for now
+             type Event = TestEvent;
+             type Output = ();
+
+             fn initial_state(&self) -> Self::State {
+                 self.logic.initial().1 // Return initial context
+             }
+
+             async fn receive(&self, state: Self::State, event: Self::Event) -> Result<Self::State, ActorError> {
+                 // PROBLEM: We don't know the current *internal* state (TestState::Start) here.
+                 // The Actor::receive signature might need adjustment, or the spawn loop
+                 // needs to manage the internal State enum alongside the Context.
+                 println!("WARN: MyTestActor::receive called, but cannot properly call logic.transition yet.");
+                 // Dummy call attempt (will likely misuse state)
+                 // let internal_initial_state = self.logic.initial().0;
+                 // let (next_internal_state, next_context) = self.logic.transition(internal_initial_state, state, event).await?;
+                 // Ok(next_context)
+                 Err(ActorError::ProcessingFailed("Actor wrapper cannot call logic properly yet".to_string()))
+             }
+        }
+        // --- End Placeholder ---
+
+
+        let system = ActorSystem::new("gen-test");
+        // let actor_ref = system.spawn_default(MyTestActor { logic: MyTestMachineLogic::default() });
+        // println!("Spawned generated machine actor: {:?}", actor_ref);
+        // actor_ref.send(TestEvent::Ping).await.unwrap();
+        // sleep(Duration::from_millis(50)).await;
+        println!("Placeholder test for spawning generated machine finished.");
+    }
+    */
+
 } 
