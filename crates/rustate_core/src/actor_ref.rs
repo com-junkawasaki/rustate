@@ -17,10 +17,10 @@ pub struct ActorRef<A: Actor> {
 impl<A: Actor> Debug for ActorRef<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ActorRef")
-         .field("id", &self.id)
-         // sender は通常デバッグ情報には含めないか、アドレス程度にする
-         .field("sender", &"...") 
-         .finish()
+            .field("id", &self.id)
+            // sender は通常デバッグ情報には含めないか、アドレス程度にする
+            .field("sender", &"...")
+            .finish()
     }
 }
 
@@ -37,14 +37,11 @@ impl<A: Actor> ActorRef<A> {
     /// 送信が成功した場合は `Ok(())`、失敗した場合は `Err(ActorError)`。
     /// 失敗の主な理由は、受信側のアクター（対応する Receiver）が既にドロップされている（アクターが停止した）場合です。
     pub async fn send(&self, event: A::Event) -> Result<(), ActorError> {
-        self.sender
-            .send(event)
-            .await
-            .map_err(|_send_error| {
-                // SendError<T> は T を含みますが、ここではイベント自体は不要
-                // エラーの主な原因は受信側の消失なので Stopped とする
-                ActorError::Stopped
-            })
+        self.sender.send(event).await.map_err(|_send_error| {
+            // SendError<T> は T を含みますが、ここではイベント自体は不要
+            // エラーの主な原因は受信側の消失なので Stopped とする
+            ActorError::Stopped
+        })
     }
 
     /// アクターの現在の状態を取得します（実装はオプション、または別の方法で提供される可能性あり）。
@@ -56,10 +53,7 @@ impl<A: Actor> ActorRef<A> {
     // 内部的なコンストラクタ（アクターシステムなどが使用）
     // Sender を受け取るように変更
     pub(crate) fn new(id: String, sender: mpsc::Sender<A::Event>) -> Self {
-        Self {
-            id,
-            sender,
-        }
+        Self { id, sender }
     }
 
     /// アクター参照のIDを取得します。
@@ -72,4 +66,4 @@ impl<A: Actor> ActorRef<A> {
 // Send + Sync であることに依存します。Actor トレイトの境界により A::Event は Send + Sync なので
 // ActorRef も自動的に Send + Sync になります。unsafe impl は不要です。
 // unsafe impl<A: Actor> Send for ActorRef<A> {}
-// unsafe impl<A: Actor> Sync for ActorRef<A> {} 
+// unsafe impl<A: Actor> Sync for ActorRef<A> {}

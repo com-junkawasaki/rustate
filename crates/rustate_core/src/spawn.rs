@@ -40,10 +40,7 @@ where
                         );
                         current_state = new_state;
                     } else {
-                         println!(
-                            "Actor {} state unchanged: {:?}",
-                            id, current_state
-                        );
+                        println!("Actor {} state unchanged: {:?}", id, current_state);
                     }
                 }
                 Err(err) => {
@@ -72,4 +69,4 @@ where
     A::State: PartialEq,
 {
     spawn_actor(actor, DEFAULT_BUFFER_SIZE)
-} 
+}

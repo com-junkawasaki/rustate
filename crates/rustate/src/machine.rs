@@ -1,16 +1,17 @@
 use crate::event::IntoEvent;
 use crate::{
-    action::ActionType, state::StateType, Action, Context, Error, Event, IntoAction, Result, State,
-    Transition,
-    actor::{ActorLogic, Snapshot as ActorSnapshot, ActorStatus},
-    event::EventObject
+    action::ActionType,
+    actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
+    event::EventObject,
+    state::StateType,
+    Action, Context, Error, Event, IntoAction, Result, State, Transition,
 };
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
 use async_recursion::async_recursion;
-use std::marker::PhantomData;
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::marker::PhantomData;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -52,7 +53,9 @@ where
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine instance from a builder
-    pub async fn new<BuilderC, BuilderE, BuilderO>(builder: MachineBuilder<BuilderC, BuilderE, BuilderO>) -> Result<Self>
+    pub async fn new<BuilderC, BuilderE, BuilderO>(
+        builder: MachineBuilder<BuilderC, BuilderE, BuilderO>,
+    ) -> Result<Self>
     where
         BuilderC: Clone + Send + Sync + Default + 'static,
         BuilderE: EventObject + Send + Sync + 'static,
@@ -101,7 +104,8 @@ where
     /// Initialize the machine by entering the initial state
     async fn initialize(&mut self) -> Result<()> {
         let initial_state_id = self.initial.clone();
-        self.enter_state(&initial_state_id, &Event::new("init")).await?;
+        self.enter_state(&initial_state_id, &Event::new("init"))
+            .await?;
         Ok(())
     }
 
@@ -141,8 +145,10 @@ where
         for t in &potential_transitions {
             if t.is_enabled(&self.context, event).await {
                 if enabled_transition.is_none() || t.source != "*" {
-                     enabled_transition = Some((*t).clone());
-                     if t.source != "*" { break; }
+                    enabled_transition = Some((*t).clone());
+                    if t.source != "*" {
+                        break;
+                    }
                 }
             }
         }
@@ -376,7 +382,11 @@ where
     }
 
     /// Apply a transition with the given event
-    pub async fn transition<EV: IntoEvent + Send>(&mut self, event: EV, context: Context) -> Result<S> {
+    pub async fn transition<EV: IntoEvent + Send>(
+        &mut self,
+        event: EV,
+        context: Context,
+    ) -> Result<S> {
         self.context = context;
         let event = event.into_event();
         let result = self.send(event).await?;
@@ -401,18 +411,22 @@ where
     fn get_initial_snapshot(&self, input: Option<()>) -> MachineSnapshot<C, O> {
         let initial_context = C::default(); // Or from machine definition/input
         let initial_value = serde_json::Value::String(self.initial.clone());
-        
+
         MachineSnapshot {
             inner: ActorSnapshot {
                 value: initial_value,
                 context: initial_context,
                 output: None,
                 status: ActorStatus::Active,
-            }
+            },
         }
     }
 
-    async fn transition(&self, snapshot: MachineSnapshot<C, O>, event: E) -> Result<MachineSnapshot<C, O>> {
+    async fn transition(
+        &self,
+        snapshot: MachineSnapshot<C, O>,
+        event: E,
+    ) -> Result<MachineSnapshot<C, O>> {
         self.step(snapshot, event).await
     }
 }
@@ -537,7 +551,7 @@ where
     }
 }
 
-// --- MachineSnapshot --- 
+// --- MachineSnapshot ---
 // (Definition remains the same as previous step)
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineSnapshot<C, O = ()> {
@@ -545,10 +559,18 @@ pub struct MachineSnapshot<C, O = ()> {
 }
 
 impl<C, O> MachineSnapshot<C, O> {
-    pub fn value(&self) -> &serde_json::Value { &self.inner.value }
-    pub fn context(&self) -> &C { &self.inner.context }
-    pub fn output(&self) -> Option<&O> { self.inner.output.as_ref() }
-    pub fn status(&self) -> &ActorStatus { &self.inner.status }
+    pub fn value(&self) -> &serde_json::Value {
+        &self.inner.value
+    }
+    pub fn context(&self) -> &C {
+        &self.inner.context
+    }
+    pub fn output(&self) -> Option<&O> {
+        self.inner.output.as_ref()
+    }
+    pub fn status(&self) -> &ActorStatus {
+        &self.inner.status
+    }
 
     pub fn is_in(&self, state_id: &str) -> bool {
         match &self.inner.value {
@@ -569,20 +591,24 @@ impl<C, O> MachineSnapshot<C, O> {
                     }
                 }
                 false
-            },
+            }
             _ => false,
         }
     }
 }
 
-// --- Core Non-Mutating Transition Logic --- 
+// --- Core Non-Mutating Transition Logic ---
 impl<C, E, O> Machine<C, E, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
-    async fn step(&self, current_snapshot: MachineSnapshot<C, O>, event: E) -> Result<MachineSnapshot<C, O>> {
+    async fn step(
+        &self,
+        current_snapshot: MachineSnapshot<C, O>,
+        event: E,
+    ) -> Result<MachineSnapshot<C, O>> {
         if *current_snapshot.status() != ActorStatus::Active {
             return Ok(current_snapshot); // Do not transition if not active
         }
@@ -596,14 +622,19 @@ where
         let mut transition_found = false;
 
         // 1. Find Enabled Transition (considering hierarchy)
-        if let Some((transition, source_state_id)) = self.select_transition(&active_states, &next_context, &event).await? {
+        if let Some((transition, source_state_id)) = self
+            .select_transition(&active_states, &next_context, &event)
+            .await?
+        {
             transition_found = true;
-            
+
             // 2. Determine Exit/Entry Sets
-            let (exit_set, entry_set, common_ancestor) = self.calculate_transition_sets(&source_state_id, &transition);
+            let (exit_set, entry_set, common_ancestor) =
+                self.calculate_transition_sets(&source_state_id, &transition);
 
             // 3. Execute Exit Actions
-            let exit_tasks: Vec<_> = exit_set.iter()
+            let exit_tasks: Vec<_> = exit_set
+                .iter()
                 .filter_map(|id| self.exit_actions.get(id))
                 .flatten()
                 .map(|action| action.execute_borrowed(&mut next_context, &event))
@@ -611,13 +642,16 @@ where
             try_join_all(exit_tasks).await?; // Execute actions concurrently
 
             // 4. Execute Transition Actions
-            let transition_tasks: Vec<_> = transition.actions.iter()
+            let transition_tasks: Vec<_> = transition
+                .actions
+                .iter()
                 .map(|action| action.execute_borrowed(&mut next_context, &event))
                 .collect();
             try_join_all(transition_tasks).await?; // Execute actions concurrently
 
             // 5. Execute Entry Actions
-            let entry_tasks: Vec<_> = entry_set.iter()
+            let entry_tasks: Vec<_> = entry_set
+                .iter()
                 .filter_map(|id| self.entry_actions.get(id))
                 .flatten()
                 .map(|action| action.execute_borrowed(&mut next_context, &event))
@@ -625,10 +659,19 @@ where
             try_join_all(entry_tasks).await?; // Execute actions concurrently
 
             // 6. Compute Next State Value
-            next_value = self.compute_next_value(&exit_set, &entry_set, &common_ancestor, current_snapshot.value());
+            next_value = self.compute_next_value(
+                &exit_set,
+                &entry_set,
+                &common_ancestor,
+                current_snapshot.value(),
+            );
 
             // 7. Update Status/Output if Final State Entered
-            if entry_set.iter().any(|id| self.states.get(id).map_or(false, |s| s.state_type == StateType::Final)) {
+            if entry_set.iter().any(|id| {
+                self.states
+                    .get(id)
+                    .map_or(false, |s| s.state_type == StateType::Final)
+            }) {
                 next_status = ActorStatus::Done;
                 // TODO: Determine output based on final state definition or context
                 // next_output = Some(...);
@@ -643,24 +686,34 @@ where
                 context: next_context,
                 output: next_output,
                 status: next_status,
-            }
+            },
         })
     }
 
-    // --- Helper Functions for Step Logic --- 
+    // --- Helper Functions for Step Logic ---
 
     /// Finds the highest-priority enabled transition for the current active states.
     /// Returns the transition and the actual state ID that triggered it.
-    async fn select_transition(&self, active_states: &HashSet<String>, context: &C, event: &E) -> Result<Option<(Transition, String)>> {
+    async fn select_transition(
+        &self,
+        active_states: &HashSet<String>,
+        context: &C,
+        event: &E,
+    ) -> Result<Option<(Transition, String)>> {
         let mut candidates = Vec::new();
 
         for state_id in active_states {
             let mut current_id_opt = Some(state_id.clone());
             while let Some(current_id) = current_id_opt {
                 for t in &self.transitions {
-                    if t.source == current_id || t.source == "*" { // Check current state or wildcard
-                        if t.is_enabled(context, event).await { 
-                            candidates.push((t.clone(), state_id.clone(), self.get_state_depth(&current_id)));
+                    if t.source == current_id || t.source == "*" {
+                        // Check current state or wildcard
+                        if t.is_enabled(context, event).await {
+                            candidates.push((
+                                t.clone(),
+                                state_id.clone(),
+                                self.get_state_depth(&current_id),
+                            ));
                             // Don't break, collect all candidates from this path
                         }
                     }
@@ -668,25 +721,36 @@ where
                 current_id_opt = self.get_parent_id(&current_id);
             }
         }
-        
+
         // Sort candidates: specific source first, then by depth (deeper is higher priority)
         candidates.sort_by(|(t1, _, depth1), (t2, _, depth2)| {
-             if t1.source == "*" && t2.source != "*" {
-                 std::cmp::Ordering::Greater
-             } else if t1.source != "*" && t2.source == "*" {
-                 std::cmp::Ordering::Less
-             } else {
+            if t1.source == "*" && t2.source != "*" {
+                std::cmp::Ordering::Greater
+            } else if t1.source != "*" && t2.source == "*" {
+                std::cmp::Ordering::Less
+            } else {
                 depth2.cmp(depth1) // Higher depth means higher priority
-             }
+            }
         });
 
-        Ok(candidates.first().map(|(t, src_id, _)| (t.clone(), src_id.clone())))
+        Ok(candidates
+            .first()
+            .map(|(t, src_id, _)| (t.clone(), src_id.clone())))
     }
 
     /// Calculates the set of states to exit, enter, and the common ancestor.
-    fn calculate_transition_sets(&self, source_id: &str, transition: &Transition) -> (HashSet<String>, HashSet<String>, Option<String>) {
-        if transition.target.is_none() { // Internal transition
-            return (HashSet::new(), HashSet::new(), self.get_parent_id(source_id));
+    fn calculate_transition_sets(
+        &self,
+        source_id: &str,
+        transition: &Transition,
+    ) -> (HashSet<String>, HashSet<String>, Option<String>) {
+        if transition.target.is_none() {
+            // Internal transition
+            return (
+                HashSet::new(),
+                HashSet::new(),
+                self.get_parent_id(source_id),
+            );
         }
         let target_id = transition.target.as_ref().unwrap();
 
@@ -698,7 +762,8 @@ where
 
         // Find LCA (Least Common Ancestor)
         let mut common_ancestor = None;
-        for ancestor in source_ancestors.iter().rev() { // Check from root downwards
+        for ancestor in source_ancestors.iter().rev() {
+            // Check from root downwards
             if target_ancestors.contains(ancestor) {
                 common_ancestor = Some(ancestor.clone());
                 break;
@@ -708,7 +773,9 @@ where
         // Calculate exit set (states exited up to LCA)
         let mut current_exit_id = Some(source_id.to_string());
         while let Some(id) = current_exit_id {
-            if common_ancestor.as_ref() == Some(&id) { break; }
+            if common_ancestor.as_ref() == Some(&id) {
+                break;
+            }
             exit_set.insert(id.clone());
             current_exit_id = self.get_parent_id(&id);
         }
@@ -717,11 +784,13 @@ where
         let mut entry_path = VecDeque::new();
         let mut current_entry_id = Some(target_id.to_string());
         while let Some(id) = current_entry_id {
-             if common_ancestor.as_ref() == Some(&id) { break; }
-             entry_path.push_front(id.clone());
-             current_entry_id = self.get_parent_id(&id);
+            if common_ancestor.as_ref() == Some(&id) {
+                break;
+            }
+            entry_path.push_front(id.clone());
+            current_entry_id = self.get_parent_id(&id);
         }
-        
+
         for id in entry_path {
             entry_set.insert(id.clone());
             self.add_initial_descendants(&id, &mut entry_set);
@@ -744,7 +813,7 @@ where
                 StateType::Parallel => {
                     for child_id in &state.children {
                         if entry_set.insert(child_id.clone()) {
-                             self.add_initial_descendants(child_id, entry_set);
+                            self.add_initial_descendants(child_id, entry_set);
                         }
                     }
                 }
@@ -754,17 +823,29 @@ where
     }
 
     /// Computes the next state value JSON based on exits and entries.
-    fn compute_next_value(&self, exit_set: &HashSet<String>, entry_set: &HashSet<String>, common_ancestor: &Option<String>, current_value: &serde_json::Value) -> serde_json::Value {
-         // This is complex. Needs to modify the JSON structure.
-         // Simplified placeholder: assumes atomic states only for now.
-         if let Some(id) = entry_set.iter().find(|id| self.states.get(*id).map_or(false, |s| s.is_atomic())) {
-             serde_json::Value::String(id.clone())
-         } else {
-             // Need a robust way to represent parallel/hierarchical states in JSON
-             // and update it based on entry/exit sets relative to LCA.
-             // For now, return the most specific entered state ID or keep current.
-             entry_set.iter().next().map_or_else(|| current_value.clone(), |id| serde_json::Value::String(id.clone()))
-         }
+    fn compute_next_value(
+        &self,
+        exit_set: &HashSet<String>,
+        entry_set: &HashSet<String>,
+        common_ancestor: &Option<String>,
+        current_value: &serde_json::Value,
+    ) -> serde_json::Value {
+        // This is complex. Needs to modify the JSON structure.
+        // Simplified placeholder: assumes atomic states only for now.
+        if let Some(id) = entry_set
+            .iter()
+            .find(|id| self.states.get(*id).map_or(false, |s| s.is_atomic()))
+        {
+            serde_json::Value::String(id.clone())
+        } else {
+            // Need a robust way to represent parallel/hierarchical states in JSON
+            // and update it based on entry/exit sets relative to LCA.
+            // For now, return the most specific entered state ID or keep current.
+            entry_set.iter().next().map_or_else(
+                || current_value.clone(),
+                |id| serde_json::Value::String(id.clone()),
+            )
+        }
     }
 
     /// Gets all active atomic states from the state value representation.
@@ -793,7 +874,9 @@ where
 
     /// Get the parent id of a state
     fn get_parent_id(&self, state_id: &str) -> Option<String> {
-        self.states.get(state_id).and_then(|state| state.parent.clone())
+        self.states
+            .get(state_id)
+            .and_then(|state| state.parent.clone())
     }
 
     /// Get ancestors of a state up to the root.
@@ -806,7 +889,7 @@ where
         }
         ancestors // Root is the last element
     }
-    
+
     /// Get the depth of a state node (root = 0).
     fn get_state_depth(&self, state_id: &str) -> usize {
         self.get_ancestors(state_id).len().saturating_sub(1)

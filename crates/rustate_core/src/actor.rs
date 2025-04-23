@@ -47,4 +47,4 @@ pub trait Actor: Send + Sync + 'static {
     // 将来的に追加される可能性のあるメソッド:
     // - アクターのライフサイクルメソッド (pre_start, post_stop など)
     // - 状態遷移後の副作用 (compute_output など)
-} 
+}

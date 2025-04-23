@@ -4,10 +4,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{
-    braced, parenthesized, parse_macro_input, token, Expr, Ident, LitStr, Path, Token, Type, Lit, Error
-};
-use std::collections::HashMap;
+use syn::{braced, parse_macro_input, Error, Expr, Ident, LitStr, Token, Type};
 
 // Represents `FieldName: FieldValue` used in initial context
 #[derive(Clone)]
@@ -70,7 +67,10 @@ impl Parse for StateDefinition {
                 braced!(transitions_content in content);
                 transitions = transitions_content.parse_terminated(Transition::parse, Token![,])?;
             } else {
-                 return Err(Error::new(on_kw.span(), "Expected 'on' keyword for transitions"));
+                return Err(Error::new(
+                    on_kw.span(),
+                    "Expected 'on' keyword for transitions",
+                ));
             }
         }
 
@@ -120,20 +120,23 @@ impl Parse for MachineDefinition {
                 initial_state_value = Some(input.parse()?);
                 let content;
                 braced!(content in input);
-                initial_context_fields = Some(content.parse_terminated(InitialContextField::parse, Token![,])?);
+                initial_context_fields =
+                    Some(content.parse_terminated(InitialContextField::parse, Token![,])?);
             } else if key == "states" {
-                 input.parse::<Token![:]>()?;
-                 let content;
-                 braced!(content in input);
-                 states = Some(content.parse_terminated(StateDefinition::parse, Token![,])?);
+                input.parse::<Token![:]>()?;
+                let content;
+                braced!(content in input);
+                states = Some(content.parse_terminated(StateDefinition::parse, Token![,])?);
             } else {
-                return Err(syn::Error::new(key.span(), format!("Unexpected keyword during parsing: {}", key)));
+                return Err(syn::Error::new(
+                    key.span(),
+                    format!("Unexpected keyword during parsing: {}", key),
+                ));
             }
 
             if input.peek(Token![,]) {
                 input.parse::<Token![,]>()?;
             } else if !input.is_empty() {
-                
             }
         }
 
@@ -142,8 +145,10 @@ impl Parse for MachineDefinition {
             context_type: context_type.ok_or_else(|| input.error("Missing 'Context = Type'"))?,
             event_type: event_type.ok_or_else(|| input.error("Missing 'Event = Type'"))?,
             state_type: state_type.ok_or_else(|| input.error("Missing 'State = Type'"))?,
-            initial_state_value: initial_state_value.ok_or_else(|| input.error("Missing 'initial: StateVariant { ... }'"))?,
-            initial_context_fields: initial_context_fields.ok_or_else(|| input.error("Missing initial context fields '{ ... }'"))?,
+            initial_state_value: initial_state_value
+                .ok_or_else(|| input.error("Missing 'initial: StateVariant { ... }'"))?,
+            initial_context_fields: initial_context_fields
+                .ok_or_else(|| input.error("Missing initial context fields '{ ... }'"))?,
             states: states.ok_or_else(|| input.error("Missing 'states: { ... }' block"))?,
         })
     }
@@ -230,4 +235,4 @@ pub fn create_machine(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
-} 
+}

@@ -50,7 +50,10 @@ impl fmt::Debug for Action {
             .field("action_type", &self.action_type)
             .field(
                 "executor",
-                &self.executor.as_ref().map(|_| "AsyncFn(&mut Context, &Event)"),
+                &self
+                    .executor
+                    .as_ref()
+                    .map(|_| "AsyncFn(&mut Context, &Event)"),
             )
             .finish()
     }

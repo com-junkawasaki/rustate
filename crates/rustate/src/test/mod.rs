@@ -68,7 +68,7 @@ mod tests {
             .transition(start_transition)
             .transition(complete_transition)
             .transition(reset_transition);
-        
+
         let machine = machine_builder.build().await.unwrap();
 
         machine.with_state_mapper(|id| match id {
@@ -177,9 +177,10 @@ mod advanced_tests {
             ctx.get::<i32>("timer").unwrap_or(0) >= 5
         });
 
-        let maintenance_guard = Guard::new("maintenance_guard", |ctx: &Context, _evt: &Event| async move {
-            ctx.get::<bool>("maintenance").unwrap_or(false)
-        });
+        let maintenance_guard = Guard::new(
+            "maintenance_guard",
+            |ctx: &Context, _evt: &Event| async move { ctx.get::<bool>("maintenance").unwrap_or(false) },
+        );
 
         let increment_timer = Action::new(
             "increment_timer",
@@ -246,7 +247,7 @@ mod advanced_tests {
             .on_entry("green", increment_timer.clone())
             .on_entry("yellow", increment_timer.clone())
             .on_entry("red", increment_timer);
-        
+
         let machine = machine_builder.build().await.unwrap();
 
         machine.with_state_mapper(|id| State::new(id))
@@ -287,7 +288,10 @@ mod advanced_tests {
         assert!(result.is_ok());
 
         let current_state_ids_after: Vec<_> = machine.current_states.iter().cloned().collect();
-        println!("Current states after MAINTENANCE: {:?}", current_state_ids_after);
+        println!(
+            "Current states after MAINTENANCE: {:?}",
+            current_state_ids_after
+        );
         assert!(machine.is_in("maintenance"));
 
         machine.send("RESTORE").await.unwrap();

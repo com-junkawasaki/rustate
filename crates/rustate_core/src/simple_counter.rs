@@ -39,7 +39,10 @@ impl Actor for CounterActor {
         mut state: Self::State, // 可変にするために mut を追加
         event: Self::Event,
     ) -> Result<Self::State, ActorError> {
-        println!("CounterActor received event: {:?}, current state: {:?}", event, state);
+        println!(
+            "CounterActor received event: {:?}, current state: {:?}",
+            event, state
+        );
         match event {
             CounterEvent::Increment => {
                 state.count += 1;
@@ -56,4 +59,4 @@ impl Actor for CounterActor {
             }
         }
     }
-} 
+}

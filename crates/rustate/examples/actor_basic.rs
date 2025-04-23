@@ -1,4 +1,4 @@
-use rustate::{*};
+use rustate::*;
 use std::time::Duration;
 
 // 1. Define Context (Optional - using default empty context here)
@@ -31,9 +31,9 @@ impl EventObject for ToggleEvent {
     }
 }
 
-
 #[tokio::main]
-async fn main() -> Result<()> { // Using rustate::Result
+async fn main() -> Result<()> {
+    // Using rustate::Result
     println!("--- Basic Actor Example ---");
 
     // 3. Define the State Machine Logic
@@ -47,7 +47,10 @@ async fn main() -> Result<()> { // Using rustate::Result
 
     // 4. Create an Actor instance
     println!("Creating actor...");
-    let actor_options = ActorOptions { input: None, id: Some("toggle-actor-1".to_string()) };
+    let actor_options = ActorOptions {
+        input: None,
+        id: Some("toggle-actor-1".to_string()),
+    };
     let actor_ref = create_actor(toggle_machine, actor_options);
     println!("Actor created with ID: {}", actor_ref.id());
 
@@ -56,7 +59,11 @@ async fn main() -> Result<()> { // Using rustate::Result
 
     // 5. Get the initial snapshot
     let initial_snapshot = actor_ref.get_snapshot();
-    println!("Initial Snapshot: value = {}, context = {:?}", initial_snapshot.value(), initial_snapshot.context());
+    println!(
+        "Initial Snapshot: value = {}, context = {:?}",
+        initial_snapshot.value(),
+        initial_snapshot.context()
+    );
     assert!(initial_snapshot.is_in("off"));
     assert_eq!(*initial_snapshot.status(), ActorStatus::Active);
 
@@ -69,7 +76,11 @@ async fn main() -> Result<()> { // Using rustate::Result
 
     // 7. Get the updated snapshot
     let next_snapshot = actor_ref.get_snapshot();
-    println!("Next Snapshot:    value = {}, context = {:?}", next_snapshot.value(), next_snapshot.context());
+    println!(
+        "Next Snapshot:    value = {}, context = {:?}",
+        next_snapshot.value(),
+        next_snapshot.context()
+    );
     assert!(next_snapshot.is_in("on"));
     assert_eq!(*next_snapshot.status(), ActorStatus::Active);
 
@@ -78,7 +89,11 @@ async fn main() -> Result<()> { // Using rustate::Result
     actor_ref.send(ToggleEvent::Toggle)?;
     tokio::time::sleep(Duration::from_millis(50)).await;
     let final_snapshot = actor_ref.get_snapshot();
-    println!("Final Snapshot:   value = {}, context = {:?}", final_snapshot.value(), final_snapshot.context());
+    println!(
+        "Final Snapshot:   value = {}, context = {:?}",
+        final_snapshot.value(),
+        final_snapshot.context()
+    );
     assert!(final_snapshot.is_in("off"));
     assert_eq!(*final_snapshot.status(), ActorStatus::Active);
 
@@ -88,4 +103,4 @@ async fn main() -> Result<()> { // Using rustate::Result
     // TODO: Demonstrate how to stop the actor using actor_ref.stop() when implemented.
 
     Ok(())
-} 
+}

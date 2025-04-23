@@ -1,4 +1,4 @@
-use crate::actor::{ActorError};
+use crate::actor::ActorError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -65,4 +65,4 @@ impl ActorLogic for MyMachineLogic {
         Ok((state, context))
     }
 }
-*/ 
+*/

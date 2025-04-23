@@ -141,18 +141,32 @@ impl<'a> TestRunner<'a> {
         // if test_case.initial_state != self.machine.initial { ... }
 
         // Record initial state (assuming it's correct)
-        let initial_state = self.machine.current_states.iter().next().cloned().unwrap_or_default();
+        let initial_state = self
+            .machine
+            .current_states
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_default();
         self.visited_states.insert(initial_state);
 
         // イベントを順番に送信
-        let mut last_state = self.machine.current_states.iter().next().cloned().unwrap_or_default();
-        for event_like in &test_case.events { // Assuming TestCase events are IntoEvent compatible
+        let mut last_state = self
+            .machine
+            .current_states
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_default();
+        for event_like in &test_case.events {
+            // Assuming TestCase events are IntoEvent compatible
             let event = event_like.clone().into_event(); // Clone and convert
             let current_state = last_state.clone(); // State before sending event
 
             // イベント送信
             // match machine_clone.send(event.clone()) {
-            match self.machine.send(event.clone()).await { // Use self.machine, await send
+            match self.machine.send(event.clone()).await {
+                // Use self.machine, await send
                 Ok(_) => {}
                 Err(err) => {
                     return TestResult {
@@ -160,13 +174,17 @@ impl<'a> TestRunner<'a> {
                         success: false,
                         actual_state: current_state,
                         expected_state: test_case.expected_state.clone(),
-                        error_message: Some(format!("Error sending event '{}': {}", event.event_type, err)),
+                        error_message: Some(format!(
+                            "Error sending event '{}': {}",
+                            event.event_type, err
+                        )),
                     };
                 }
             }
 
             // 新しい状態を記録
-            let new_state = self.machine
+            let new_state = self
+                .machine
                 .current_states
                 .iter()
                 .next()

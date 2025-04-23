@@ -21,8 +21,8 @@ mod tests {
     // Import the macro
     use rustate_macros::create_machine;
     // Import necessary traits for derived types in the macro test
-    use serde::{Serialize, Deserialize};
-    use async_trait::async_trait; // For manual Actor impl if needed
+    use async_trait::async_trait;
+    use serde::{Deserialize, Serialize}; // For manual Actor impl if needed
 
     // --- Test for original counter actor ---
     #[tokio::test]
@@ -62,224 +62,149 @@ mod tests {
         println!("Original counter test finished. Check logs for actor output.");
     }
 
-    // --- Test for the create_machine macro ---
+    // --- Tests for the create_machine macro ---
+    mod machine_macro_tests {
+        // Create a nested module for macro tests
+        // Import necessary items from the crate root or parent module
+        use crate::actor::ActorError;
+        use crate::logic::ActorLogic;
+        use rustate_macros::create_machine; // Import the macro
 
-    // Define dummy types needed for the macro invocation
-    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-    struct MySimpleContext { count: i32 }
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    enum MySimpleEvent { Increment, Decrement } // Added Decrement for potential future use
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    enum MySimpleState { Idle, Active }
+        // 1. Define types WITHIN this module scope
+        #[derive(Debug, Clone, PartialEq, Eq)] // Ensure PartialEq for assertions
+        enum TestState {
+            Idle,
+            Running,
+            Finished,
+        }
 
-    #[test]
-    fn test_simple_create_machine_macro_generation() {
-        // Invoke the macro with the defined types and initial state
+        #[derive(Debug, Clone)]
+        enum TestEvent {
+            Start,
+            Finish,
+            Reset,
+        }
+
+        #[derive(Debug, Clone, Default, PartialEq, Eq)] // Ensure Default, PartialEq for assertions
+        struct TestContext {
+            count: i32,
+        }
+
+        // 2. Use the macro WITHIN this module scope
         create_machine!(
-            MySimpleMachine, // Generated logic struct name
-            Context = MySimpleContext,
-            Event = MySimpleEvent,
-            State = MySimpleState,
-            initial: MySimpleState::Idle { // Initial state variant and context
-                count: 0
-            },
-            // transitions, states etc. to be added later
-        );
-
-        println!("Invoked create_machine macro.");
-
-        // Instantiate the generated logic struct
-        let logic = MySimpleMachine::default();
-        println!("Instantiated generated logic: {:?}", logic);
-
-        // Test the generated initial() method
-        let (initial_state, initial_context) = logic.initial();
-        assert_eq!(initial_state, MySimpleState::Idle, "Initial state should be Idle");
-        assert_eq!(initial_context, MySimpleContext { count: 0 }, "Initial context should match");
-
-        println!("Generated initial state and context verified successfully.");
-
-        // We can't easily test the async transition method here without a runtime
-        // and more setup, but we know it's just a dummy print for now.
-    }
-
-    // Optional: Test using the generated logic with the spawn system (requires more setup)
-    /*
-    #[tokio::test]
-    async fn test_spawn_generated_machine() {
-        // Re-declare the types or put them in a common place
-        #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-        struct TestContext { val: String }
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-        enum TestEvent { Ping }
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-        enum TestState { Start }
-
-        create_machine!(
-            MyTestMachineLogic,
+            MyTestMachine, // Machine Name
             Context = TestContext,
             Event = TestEvent,
             State = TestState,
-            initial: TestState::Start { val: "init".to_string() }
+            initial: TestState::Idle { // Initial state and context
+                count: 0
+            },
+            states: {
+                Idle {
+                    on: {
+                        Start: "Running", // Idle -> Running on Start
+                    }
+                },
+                Running {
+                    on: {
+                        Finish: "Finished", // Running -> Finished on Finish
+                        Reset: "Idle",     // Running -> Idle on Reset
+                    }
+                },
+                Finished {
+                    on: {
+                        Reset: "Idle",     // Finished -> Idle on Reset
+                    }
+                    // No transitions defined for Start or Finish events in Finished state
+                }
+            }
         );
 
-        // Need an Actor wrapper around the generated ActorLogic
-        // This design needs refinement: How does ActorLogic (with State enum) map to Actor (with State = Context)?
-        // Option 1: Actor holds both logic and current State enum
-        // Option 2: Actor's State becomes (StateEnum, Context) tuple
-        // Option 3: ActorLogic is the Actor itself (might complicate Actor trait)
+        // 3. Write test functions WITHIN this module scope
+        #[test]
+        fn test_initial_state_and_context() {
+            let machine = MyTestMachine::default(); // Instantiate the generated logic struct
+            let (initial_state, initial_context) = machine.initial();
 
-        // --- Placeholder for Actor wrapper ---
-        #[derive(Clone)]
-        struct MyTestActor { logic: MyTestMachineLogic } // Simplistic wrapper
-
-        // Manually implement Actor for the wrapper for now
-        #[async_trait]
-        impl Actor for MyTestActor {
-             type State = TestContext; // Let Actor state be the context for now
-             type Event = TestEvent;
-             type Output = ();
-
-             fn initial_state(&self) -> Self::State {
-                 self.logic.initial().1 // Return initial context
-             }
-
-             async fn receive(&self, state: Self::State, event: Self::Event) -> Result<Self::State, ActorError> {
-                 // PROBLEM: We don't know the current *internal* state (TestState::Start) here.
-                 // The Actor::receive signature might need adjustment, or the spawn loop
-                 // needs to manage the internal State enum alongside the Context.
-                 println!("WARN: MyTestActor::receive called, but cannot properly call logic.transition yet.");
-                 // Dummy call attempt (will likely misuse state)
-                 // let internal_initial_state = self.logic.initial().0;
-                 // let (next_internal_state, next_context) = self.logic.transition(internal_initial_state, state, event).await?;
-                 // Ok(next_context)
-                 Err(ActorError::ProcessingFailed("Actor wrapper cannot call logic properly yet".to_string()))
-             }
+            assert_eq!(initial_state, TestState::Idle);
+            assert_eq!(initial_context, TestContext { count: 0 });
         }
-        // --- End Placeholder ---
 
+        // Use tokio for async tests
+        #[tokio::test]
+        async fn test_transitions() {
+            let machine = MyTestMachine::default();
+            let initial_context = TestContext { count: 0 }; // Start with default context
 
-        let system = ActorSystem::new("gen-test");
-        // let actor_ref = system.spawn_default(MyTestActor { logic: MyTestMachineLogic::default() });
-        // println!("Spawned generated machine actor: {:?}", actor_ref);
-        // actor_ref.send(TestEvent::Ping).await.unwrap();
-        // sleep(Duration::from_millis(50)).await;
-        println!("Placeholder test for spawning generated machine finished.");
-    }
+            // Test Idle -> Running
+            let (next_state, next_context) = machine
+                .transition(TestState::Idle, initial_context.clone(), TestEvent::Start)
+                .await
+                .expect("Transition failed");
+            assert_eq!(next_state, TestState::Running);
+            assert_eq!(next_context, initial_context); // Context shouldn't change yet
+
+            // Test Running -> Finished
+            let (next_state, next_context) = machine
+                .transition(
+                    TestState::Running,
+                    initial_context.clone(),
+                    TestEvent::Finish,
+                )
+                .await
+                .expect("Transition failed");
+            assert_eq!(next_state, TestState::Finished);
+            assert_eq!(next_context, initial_context);
+
+            // Test Running -> Idle (Reset)
+            let (next_state, next_context) = machine
+                .transition(
+                    TestState::Running,
+                    initial_context.clone(),
+                    TestEvent::Reset,
+                )
+                .await
+                .expect("Transition failed");
+            assert_eq!(next_state, TestState::Idle);
+            assert_eq!(next_context, initial_context);
+
+            // Test Finished -> Idle
+            let (next_state, next_context) = machine
+                .transition(
+                    TestState::Finished,
+                    initial_context.clone(),
+                    TestEvent::Reset,
+                )
+                .await
+                .expect("Transition failed");
+            assert_eq!(next_state, TestState::Idle);
+            assert_eq!(next_context, initial_context);
+
+            // Test no transition (e.g., Start event in Finished state)
+            let (next_state, next_context) = machine
+                .transition(
+                    TestState::Finished,
+                    initial_context.clone(),
+                    TestEvent::Start,
+                )
+                .await
+                .expect("Transition failed");
+            assert_eq!(next_state, TestState::Finished); // Should remain in Finished
+            assert_eq!(next_context, initial_context);
+
+            // Test no transition (e.g., Reset event in Idle state)
+            let (next_state, next_context) = machine
+                .transition(TestState::Idle, initial_context.clone(), TestEvent::Reset)
+                .await
+                .expect("Transition failed");
+            assert_eq!(next_state, TestState::Idle); // Should remain in Idle
+            assert_eq!(next_context, initial_context);
+        }
+    } // End of machine_macro_tests module
+
+    // --- Remove or comment out the other potentially problematic/redundant test modules ---
+    /*
+    mod simple_macro_gen_test { ... }
+    mod spawn_generated_test { ... }
     */
-
-    // 1. Define simple State, Event, Context for the test machine
-    #[derive(Debug, Clone, PartialEq, Eq)] // Ensure PartialEq for assertions
-    enum TestState {
-        Idle,
-        Running,
-        Finished,
-    }
-
-    #[derive(Debug, Clone)]
-    enum TestEvent {
-        Start,
-        Finish,
-        Reset,
-    }
-
-    #[derive(Debug, Clone, Default, PartialEq, Eq)] // Ensure Default, PartialEq for assertions
-    struct TestContext {
-        count: i32,
-    }
-
-    // 2. Use the macro to define a state machine
-    create_machine!(
-        MyTestMachine, // Machine Name
-        Context = TestContext,
-        Event = TestEvent,
-        State = TestState,
-        initial: TestState::Idle { // Initial state and context
-            count: 0
-        },
-        states: {
-            Idle {
-                on: {
-                    Start: "Running", // Idle -> Running on Start
-                }
-            },
-            Running {
-                on: {
-                    Finish: "Finished", // Running -> Finished on Finish
-                    Reset: "Idle",     // Running -> Idle on Reset
-                }
-            },
-            Finished {
-                on: {
-                    Reset: "Idle",     // Finished -> Idle on Reset
-                }
-                // No transitions defined for Start or Finish events in Finished state
-            }
-        }
-    );
-
-    // 3. Write test functions
-    #[test]
-    fn test_initial_state_and_context() {
-        let machine = MyTestMachine::default(); // Instantiate the generated logic struct
-        let (initial_state, initial_context) = machine.initial();
-
-        assert_eq!(initial_state, TestState::Idle);
-        assert_eq!(initial_context, TestContext { count: 0 });
-    }
-
-    // Use tokio for async tests
-    #[tokio::test]
-    async fn test_transitions() {
-        let machine = MyTestMachine::default();
-        let initial_context = TestContext { count: 0 }; // Start with default context
-
-        // Test Idle -> Running
-        let (next_state, next_context) = machine
-            .transition(TestState::Idle, initial_context.clone(), TestEvent::Start)
-            .await
-            .expect("Transition failed");
-        assert_eq!(next_state, TestState::Running);
-        assert_eq!(next_context, initial_context); // Context shouldn't change yet
-
-        // Test Running -> Finished
-        let (next_state, next_context) = machine
-            .transition(TestState::Running, initial_context.clone(), TestEvent::Finish)
-            .await
-            .expect("Transition failed");
-        assert_eq!(next_state, TestState::Finished);
-        assert_eq!(next_context, initial_context);
-
-         // Test Running -> Idle (Reset)
-        let (next_state, next_context) = machine
-            .transition(TestState::Running, initial_context.clone(), TestEvent::Reset)
-            .await
-            .expect("Transition failed");
-        assert_eq!(next_state, TestState::Idle);
-        assert_eq!(next_context, initial_context);
-
-        // Test Finished -> Idle
-        let (next_state, next_context) = machine
-            .transition(TestState::Finished, initial_context.clone(), TestEvent::Reset)
-            .await
-            .expect("Transition failed");
-        assert_eq!(next_state, TestState::Idle);
-        assert_eq!(next_context, initial_context);
-
-        // Test no transition (e.g., Start event in Finished state)
-        let (next_state, next_context) = machine
-            .transition(TestState::Finished, initial_context.clone(), TestEvent::Start)
-            .await
-            .expect("Transition failed");
-        assert_eq!(next_state, TestState::Finished); // Should remain in Finished
-        assert_eq!(next_context, initial_context);
-
-         // Test no transition (e.g., Reset event in Idle state)
-        let (next_state, next_context) = machine
-            .transition(TestState::Idle, initial_context.clone(), TestEvent::Reset)
-            .await
-            .expect("Transition failed");
-        assert_eq!(next_state, TestState::Idle); // Should remain in Idle
-        assert_eq!(next_context, initial_context);
-    }
-} 
+} // End of tests module
