@@ -2,17 +2,23 @@ use crate::event::IntoEvent;
 use crate::{
     action::ActionType, state::StateType, Action, Context, Error, Event, IntoAction, Result, State,
     Transition,
+    actor::{ActorLogic, Snapshot as ActorSnapshot, ActorStatus},
+    event::EventObject
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use async_recursion::async_recursion;
+use std::marker::PhantomData;
+use async_trait::async_trait;
+use futures::future::try_join_all;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Machine<S = State, E = Event>
+pub struct Machine<C = Context, E = Event, O = ()>
 where
-    S: Clone + 'static + Default + Send + Sync,
-    E: Clone + 'static + Send + Sync,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
     pub name: String,
@@ -22,10 +28,6 @@ where
     pub transitions: Vec<Transition>,
     /// Initial state id
     pub initial: String,
-    /// Current state(s)
-    pub current_states: HashSet<String>,
-    /// Extended state (context)
-    pub context: Context,
     /// Entry actions for states
     #[serde(skip)]
     pub(crate) entry_actions: HashMap<String, Vec<Action>>,
@@ -34,30 +36,27 @@ where
     pub(crate) exit_actions: HashMap<String, Vec<Action>>,
     /// History states mapping (state id -> last active child)
     pub(crate) history: HashMap<String, String>,
-    /// マッピング関数: 状態IDから型Sへ変換するための関数
-    #[serde(skip)]
-    #[serde(default)]
-    state_mapper: Option<fn(&str) -> S>,
-    /// 現在の状態のキャッシュ
-    #[serde(skip)]
-    current_state_cache: Option<S>,
     /// The type markers
     #[serde(skip)]
-    _phantom_s: std::marker::PhantomData<S>,
+    _phantom_c: PhantomData<C>,
     #[serde(skip)]
-    _phantom_e: std::marker::PhantomData<E>,
+    _phantom_e: PhantomData<E>,
+    #[serde(skip)]
+    _phantom_o: PhantomData<O>,
 }
 
-impl<S, E> Machine<S, E>
+impl<C, E, O> Machine<C, E, O>
 where
-    S: Clone + 'static + Default + Send + Sync,
-    E: Clone + 'static + Send + Sync,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine instance from a builder
-    pub async fn new<BuilderS, BuilderE>(builder: MachineBuilder<BuilderS, BuilderE>) -> Result<Self>
+    pub async fn new<BuilderC, BuilderE, BuilderO>(builder: MachineBuilder<BuilderC, BuilderE, BuilderO>) -> Result<Self>
     where
-        BuilderS: Clone + 'static + Default + Send + Sync,
-        BuilderE: Clone + 'static + Send + Sync,
+        BuilderC: Clone + Send + Sync + Default + 'static,
+        BuilderE: EventObject + Send + Sync + 'static,
+        BuilderO: Clone + Send + Sync + 'static,
     {
         let MachineBuilder {
             name,
@@ -67,8 +66,9 @@ where
             entry_actions,
             exit_actions,
             context,
-            _phantom_s: _,
+            _phantom_c: _,
             _phantom_e: _,
+            _phantom_o: _,
         } = builder;
 
         if states.is_empty() {
@@ -84,15 +84,12 @@ where
             states,
             transitions,
             initial,
-            current_states: HashSet::new(),
-            context: context.unwrap_or_else(Context::new),
             entry_actions,
             exit_actions,
             history: HashMap::new(),
-            state_mapper: None,
-            current_state_cache: None,
-            _phantom_s: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
+            _phantom_o: PhantomData,
         };
 
         // Initialize by entering the initial state
@@ -393,11 +390,39 @@ where
     }
 }
 
-/// Builder for constructing state machines
-pub struct MachineBuilder<S = State, E = Event>
+// Implement ActorLogic for Machine
+#[async_trait::async_trait]
+impl<C, E, O> ActorLogic<MachineSnapshot<C, O>, E> for Machine<C, E, O>
 where
-    S: Clone + 'static + Default + Send + Sync,
-    E: Clone + 'static + Send + Sync,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
+{
+    fn get_initial_snapshot(&self, input: Option<()>) -> MachineSnapshot<C, O> {
+        let initial_context = C::default(); // Or from machine definition/input
+        let initial_value = serde_json::Value::String(self.initial.clone());
+        
+        MachineSnapshot {
+            inner: ActorSnapshot {
+                value: initial_value,
+                context: initial_context,
+                output: None,
+                status: ActorStatus::Active,
+            }
+        }
+    }
+
+    async fn transition(&self, snapshot: MachineSnapshot<C, O>, event: E) -> Result<MachineSnapshot<C, O>> {
+        self.step(snapshot, event).await
+    }
+}
+
+/// Builder for constructing state machines
+pub struct MachineBuilder<C = Context, E = Event, O = ()>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
     pub name: String,
@@ -408,20 +433,22 @@ where
     /// Initial state id
     pub initial: String,
     /// Context for the machine
-    pub context: Option<Context>,
+    pub context: Option<C>,
     /// Entry actions for states
     pub(crate) entry_actions: HashMap<String, Vec<Action>>,
     /// Exit actions for states
     pub(crate) exit_actions: HashMap<String, Vec<Action>>,
     /// Type markers
-    _phantom_s: std::marker::PhantomData<S>,
-    _phantom_e: std::marker::PhantomData<E>,
+    _phantom_c: PhantomData<C>,
+    _phantom_e: PhantomData<E>,
+    _phantom_o: PhantomData<O>,
 }
 
-impl<S, E> MachineBuilder<S, E>
+impl<C, E, O> MachineBuilder<C, E, O>
 where
-    S: Clone + 'static + Default + Send + Sync,
-    E: Clone + 'static + Send + Sync,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine builder
     pub fn new(name: impl Into<String>) -> Self {
@@ -433,8 +460,9 @@ where
             context: None,
             entry_actions: HashMap::new(),
             exit_actions: HashMap::new(),
-            _phantom_s: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
+            _phantom_o: PhantomData,
         }
     }
 
@@ -476,21 +504,22 @@ where
     }
 
     /// Set the context for the machine
-    pub fn context(mut self, context: Context) -> Self {
+    pub fn context(mut self, context: C) -> Self {
         self.context = Some(context);
         self
     }
 
     /// Build the state machine
-    pub async fn build(self) -> Result<Machine<S, E>> {
+    pub async fn build(self) -> Result<Machine<C, E, O>> {
         Machine::new(self).await
     }
 }
 
-impl<S, E> Clone for MachineBuilder<S, E>
+impl<C, E, O> Clone for MachineBuilder<C, E, O>
 where
-    S: Clone + 'static + Default + Send + Sync,
-    E: Clone + 'static + Send + Sync,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -501,8 +530,285 @@ where
             context: self.context.clone(),
             entry_actions: self.entry_actions.clone(),
             exit_actions: self.exit_actions.clone(),
-            _phantom_s: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
+            _phantom_o: PhantomData,
         }
+    }
+}
+
+// --- MachineSnapshot --- 
+// (Definition remains the same as previous step)
+#[derive(Clone, Debug, PartialEq)]
+pub struct MachineSnapshot<C, O = ()> {
+    inner: ActorSnapshot<C, O>,
+}
+
+impl<C, O> MachineSnapshot<C, O> {
+    pub fn value(&self) -> &serde_json::Value { &self.inner.value }
+    pub fn context(&self) -> &C { &self.inner.context }
+    pub fn output(&self) -> Option<&O> { self.inner.output.as_ref() }
+    pub fn status(&self) -> &ActorStatus { &self.inner.status }
+
+    pub fn is_in(&self, state_id: &str) -> bool {
+        match &self.inner.value {
+            serde_json::Value::String(s) => s == state_id,
+            serde_json::Value::Object(map) => {
+                // Check if the key exists at the top level or nested
+                let mut queue = VecDeque::new();
+                queue.push_back(map);
+
+                while let Some(current_map) = queue.pop_front() {
+                    if current_map.contains_key(state_id) {
+                        return true;
+                    }
+                    for val in current_map.values() {
+                        if let serde_json::Value::Object(nested_map) = val {
+                            queue.push_back(nested_map);
+                        }
+                    }
+                }
+                false
+            },
+            _ => false,
+        }
+    }
+}
+
+// --- Core Non-Mutating Transition Logic --- 
+impl<C, E, O> Machine<C, E, O>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventObject + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
+{
+    async fn step(&self, current_snapshot: MachineSnapshot<C, O>, event: E) -> Result<MachineSnapshot<C, O>> {
+        if *current_snapshot.status() != ActorStatus::Active {
+            return Ok(current_snapshot); // Do not transition if not active
+        }
+
+        let active_states = self.get_active_atomic_states(current_snapshot.value());
+        let mut next_context = current_snapshot.context().clone();
+        let mut next_value = current_snapshot.value().clone();
+        let mut next_status = *current_snapshot.status();
+        let mut next_output = current_snapshot.inner.output.clone();
+
+        let mut transition_found = false;
+
+        // 1. Find Enabled Transition (considering hierarchy)
+        if let Some((transition, source_state_id)) = self.select_transition(&active_states, &next_context, &event).await? {
+            transition_found = true;
+            
+            // 2. Determine Exit/Entry Sets
+            let (exit_set, entry_set, common_ancestor) = self.calculate_transition_sets(&source_state_id, &transition);
+
+            // 3. Execute Exit Actions
+            let exit_tasks: Vec<_> = exit_set.iter()
+                .filter_map(|id| self.exit_actions.get(id))
+                .flatten()
+                .map(|action| action.execute_borrowed(&mut next_context, &event))
+                .collect();
+            try_join_all(exit_tasks).await?; // Execute actions concurrently
+
+            // 4. Execute Transition Actions
+            let transition_tasks: Vec<_> = transition.actions.iter()
+                .map(|action| action.execute_borrowed(&mut next_context, &event))
+                .collect();
+            try_join_all(transition_tasks).await?; // Execute actions concurrently
+
+            // 5. Execute Entry Actions
+            let entry_tasks: Vec<_> = entry_set.iter()
+                .filter_map(|id| self.entry_actions.get(id))
+                .flatten()
+                .map(|action| action.execute_borrowed(&mut next_context, &event))
+                .collect();
+            try_join_all(entry_tasks).await?; // Execute actions concurrently
+
+            // 6. Compute Next State Value
+            next_value = self.compute_next_value(&exit_set, &entry_set, &common_ancestor, current_snapshot.value());
+
+            // 7. Update Status/Output if Final State Entered
+            if entry_set.iter().any(|id| self.states.get(id).map_or(false, |s| s.state_type == StateType::Final)) {
+                next_status = ActorStatus::Done;
+                // TODO: Determine output based on final state definition or context
+                // next_output = Some(...);
+            }
+        }
+
+        // TODO: Handle "always" transitions if no event transition was taken
+
+        Ok(MachineSnapshot {
+            inner: ActorSnapshot {
+                value: next_value,
+                context: next_context,
+                output: next_output,
+                status: next_status,
+            }
+        })
+    }
+
+    // --- Helper Functions for Step Logic --- 
+
+    /// Finds the highest-priority enabled transition for the current active states.
+    /// Returns the transition and the actual state ID that triggered it.
+    async fn select_transition(&self, active_states: &HashSet<String>, context: &C, event: &E) -> Result<Option<(Transition, String)>> {
+        let mut candidates = Vec::new();
+
+        for state_id in active_states {
+            let mut current_id_opt = Some(state_id.clone());
+            while let Some(current_id) = current_id_opt {
+                for t in &self.transitions {
+                    if t.source == current_id || t.source == "*" { // Check current state or wildcard
+                        if t.is_enabled(context, event).await { 
+                            candidates.push((t.clone(), state_id.clone(), self.get_state_depth(&current_id)));
+                            // Don't break, collect all candidates from this path
+                        }
+                    }
+                }
+                current_id_opt = self.get_parent_id(&current_id);
+            }
+        }
+        
+        // Sort candidates: specific source first, then by depth (deeper is higher priority)
+        candidates.sort_by(|(t1, _, depth1), (t2, _, depth2)| {
+             if t1.source == "*" && t2.source != "*" {
+                 std::cmp::Ordering::Greater
+             } else if t1.source != "*" && t2.source == "*" {
+                 std::cmp::Ordering::Less
+             } else {
+                depth2.cmp(depth1) // Higher depth means higher priority
+             }
+        });
+
+        Ok(candidates.first().map(|(t, src_id, _)| (t.clone(), src_id.clone())))
+    }
+
+    /// Calculates the set of states to exit, enter, and the common ancestor.
+    fn calculate_transition_sets(&self, source_id: &str, transition: &Transition) -> (HashSet<String>, HashSet<String>, Option<String>) {
+        if transition.target.is_none() { // Internal transition
+            return (HashSet::new(), HashSet::new(), self.get_parent_id(source_id));
+        }
+        let target_id = transition.target.as_ref().unwrap();
+
+        let mut exit_set = HashSet::new();
+        let mut entry_set = HashSet::new();
+
+        let source_ancestors = self.get_ancestors(source_id);
+        let target_ancestors = self.get_ancestors(target_id);
+
+        // Find LCA (Least Common Ancestor)
+        let mut common_ancestor = None;
+        for ancestor in source_ancestors.iter().rev() { // Check from root downwards
+            if target_ancestors.contains(ancestor) {
+                common_ancestor = Some(ancestor.clone());
+                break;
+            }
+        }
+
+        // Calculate exit set (states exited up to LCA)
+        let mut current_exit_id = Some(source_id.to_string());
+        while let Some(id) = current_exit_id {
+            if common_ancestor.as_ref() == Some(&id) { break; }
+            exit_set.insert(id.clone());
+            current_exit_id = self.get_parent_id(&id);
+        }
+
+        // Calculate entry set (states entered from LCA downwards, including initial substates)
+        let mut entry_path = VecDeque::new();
+        let mut current_entry_id = Some(target_id.to_string());
+        while let Some(id) = current_entry_id {
+             if common_ancestor.as_ref() == Some(&id) { break; }
+             entry_path.push_front(id.clone());
+             current_entry_id = self.get_parent_id(&id);
+        }
+        
+        for id in entry_path {
+            entry_set.insert(id.clone());
+            self.add_initial_descendants(&id, &mut entry_set);
+        }
+
+        (exit_set, entry_set, common_ancestor)
+    }
+
+    /// Recursively adds initial descendant states for compound/parallel states.
+    fn add_initial_descendants(&self, state_id: &str, entry_set: &mut HashSet<String>) {
+        if let Some(state) = self.states.get(state_id) {
+            match state.state_type {
+                StateType::Compound => {
+                    if let Some(initial_child) = &state.initial {
+                        if entry_set.insert(initial_child.clone()) {
+                            self.add_initial_descendants(initial_child, entry_set);
+                        }
+                    }
+                }
+                StateType::Parallel => {
+                    for child_id in &state.children {
+                        if entry_set.insert(child_id.clone()) {
+                             self.add_initial_descendants(child_id, entry_set);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Computes the next state value JSON based on exits and entries.
+    fn compute_next_value(&self, exit_set: &HashSet<String>, entry_set: &HashSet<String>, common_ancestor: &Option<String>, current_value: &serde_json::Value) -> serde_json::Value {
+         // This is complex. Needs to modify the JSON structure.
+         // Simplified placeholder: assumes atomic states only for now.
+         if let Some(id) = entry_set.iter().find(|id| self.states.get(*id).map_or(false, |s| s.is_atomic())) {
+             serde_json::Value::String(id.clone())
+         } else {
+             // Need a robust way to represent parallel/hierarchical states in JSON
+             // and update it based on entry/exit sets relative to LCA.
+             // For now, return the most specific entered state ID or keep current.
+             entry_set.iter().next().map_or_else(|| current_value.clone(), |id| serde_json::Value::String(id.clone()))
+         }
+    }
+
+    /// Gets all active atomic states from the state value representation.
+    fn get_active_atomic_states(&self, value: &serde_json::Value) -> HashSet<String> {
+        let mut active_states = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(value);
+
+        while let Some(current_value) = queue.pop_front() {
+            match current_value {
+                serde_json::Value::String(s) => {
+                    if self.states.get(s).map_or(false, |st| st.is_atomic()) {
+                        active_states.insert(s.clone());
+                    }
+                }
+                serde_json::Value::Object(map) => {
+                    for val in map.values() {
+                        queue.push_back(val);
+                    }
+                }
+                _ => {}
+            }
+        }
+        active_states
+    }
+
+    /// Get the parent id of a state
+    fn get_parent_id(&self, state_id: &str) -> Option<String> {
+        self.states.get(state_id).and_then(|state| state.parent.clone())
+    }
+
+    /// Get ancestors of a state up to the root.
+    fn get_ancestors(&self, state_id: &str) -> Vec<String> {
+        let mut ancestors = Vec::new();
+        let mut current_id = Some(state_id.to_string());
+        while let Some(id) = current_id {
+            ancestors.push(id.clone());
+            current_id = self.get_parent_id(&id);
+        }
+        ancestors // Root is the last element
+    }
+    
+    /// Get the depth of a state node (root = 0).
+    fn get_state_depth(&self, state_id: &str) -> usize {
+        self.get_ancestors(state_id).len().saturating_sub(1)
     }
 }

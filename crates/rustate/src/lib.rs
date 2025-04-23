@@ -73,11 +73,11 @@ pub mod integration;
 /// ```
 ///
 /// 詳細は `rustate-grpc` クレートのドキュメントを参照してください。
-pub use action::{Action, ActionType, IntoAction};
+pub use action::{Action, ActionExecutor, ActionType, IntoAction};
 pub use context::Context;
 pub use error::{Result, StateError as Error};
 pub use event::{Event, EventTrait, IntoEvent};
-pub use guard::{Guard, IntoGuard};
+pub use guard::{Guard, IntoGuard, GuardEvaluator};
 pub use machine::{Machine, MachineBuilder};
 pub use state::{State, StateTrait, StateType};
 pub use transition::Transition;
@@ -117,3 +117,9 @@ mod tests {
         assert_eq!(result, 4);
     }
 }
+
+mod actor;
+pub use actor::{ActorLogic, ActorRef, Snapshot, ActorStatus};
+
+// Re-export serde_json if it's commonly used with Context or Snapshots
+pub use serde_json;

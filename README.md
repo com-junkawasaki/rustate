@@ -1,6 +1,6 @@
 # RuState
 
-RuState is a type-safe state machine and statechart library implemented in Rust. Inspired by XState, it follows the principles of model-based testing (MBT).
+RuState is a type-safe state machine and statechart library implemented in Rust, inspired by XState and incorporating principles of model-based testing (MBT). It forms the core of a larger ecosystem designed for building, visualizing, testing, and deploying complex state-driven applications and agents.
 
 ## Demo
 
@@ -12,9 +12,21 @@ The demo features:
 - Hierarchical state machine example
 - Real-time state transition tracking
 
+## Project Structure & Ecosystem
+
+The RuState project is organized as a Cargo workspace consisting of several crates:
+
+- **`crates/rustate`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.) and WASM bindings.
+- **`crates/editor`**: (Work in Progress/Planned) A visual editor, likely web-based, for creating and visualizing RuState state machines.
+- **`crates/agent`**: (Work in Progress/Planned) Implements agent logic (policies, decisions, learning) potentially utilizing RuState machines for behavior control.
+- **`crates/grpc`**: Provides gRPC server/client implementations and protocol definitions (`.proto`) for communication between different components of the RuState ecosystem (e.g., editor talking to a backend, agent interacting with simulation).
+- **`crates/demo`**: Contains the source code for the live demo showcasing RuState features.
+
+*(Project Maintainer Note: Add a diagram here illustrating the interaction between these crates)*
+
 ## Overview
 
-RuState provides the following features:
+RuState provides the following features (primarily within the `crates/rustate` core library):
 
 - ✅ Finite state machines and statecharts
 - ✅ Hierarchical states
@@ -29,19 +41,21 @@ RuState provides the following features:
 
 ## Model-Based Testing (MBT) Integration
 
-RuState incorporates the principles of model-based testing:
+RuState incorporates the principles of model-based testing within the core `rustate` crate:
 
-1. **Model Definition**: Define explicit models using states, transitions, guards, and actions
-2. **Test Case Generation**: Automatically generate test cases from the model
-3. **Test Execution**: Support for both online and offline testing
-4. **Complete Coverage Verification**: Ensure tests cover all states and transitions
+1.  **Model Definition**: Define explicit models using states, transitions, guards, and actions.
+2.  **Test Case Generation**: *(Verify Implementation Status)* The `TestGenerator` aims to automatically generate test cases from the model.
+3.  **Test Execution**: *(Verify Implementation Status)* The `TestRunner` aims to support online/offline testing.
+4.  **Complete Coverage Verification**: *(Verify Implementation Status)* Functionality for reporting state and transition coverage.
 
-### Key Features
+*(Project Maintainer Note: Verify the current implementation status and completeness of `TestGenerator`, `TestRunner`, and coverage reporting features in `crates/rustate/src/test` or relevant modules. Update examples and documentation accordingly.)*
 
-- **Test Generator**: Automatically generate test cases from state machines
-- **Online Testing**: Directly test state machines at runtime
-- **Offline Testing**: Export test cases to run later
-- **State Coverage Report**: Verify which states and transitions have been tested
+### Key Features (MBT - Status Needs Verification)
+
+- **Test Generator**: Automatically generate test cases from state machines.
+- **Online Testing**: Directly test state machines at runtime.
+- **Offline Testing**: Export test cases to run later.
+- **State Coverage Report**: Verify which states and transitions have been tested.
 
 ## Usage Examples
 
@@ -108,7 +122,9 @@ println!("Transition coverage: {}%", coverage.transition_coverage());
 
 ### Cross-Crate State Machine Integration
 
-RuState supports integrating multiple state machines across different crates in a type-safe manner, allowing you to build complex, modular state machines that communicate with each other.
+RuState supports integrating multiple state machines across different crates. While the examples below show direct Rust integration using shared memory (`Arc<Mutex>`, `Arc<RwLock>`), the **`crates/grpc`** crate provides an alternative mechanism for communication between potentially separate processes or components using gRPC.
+
+*(Project Maintainer Note: Add specific examples or documentation on using the `grpc` crate for inter-machine communication if applicable.)*
 
 #### Design Patterns for State Machine Integration
 
