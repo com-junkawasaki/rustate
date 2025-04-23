@@ -162,28 +162,29 @@ mod advanced_tests {
         test::{checker::*, generator::*, runner::*},
         Action, ActionType, Context, Event, Guard, Machine, MachineBuilder, State, Transition,
     };
+    use tokio;
 
     #[cfg(feature = "property-testing")]
     use crate::test::property::*;
 
-    fn create_traffic_light_machine() -> Machine {
+    async fn create_traffic_light_machine() -> Machine {
         let green_state = State::new("green");
         let yellow_state = State::new("yellow");
         let red_state = State::new("red");
         let maintenance_state = State::new("maintenance");
 
-        let timer_guard = Guard::new("timer_guard", |ctx: &Context, _evt: &Event| {
+        let timer_guard = Guard::new("timer_guard", |ctx: &Context, _evt: &Event| async move {
             ctx.get::<i32>("timer").unwrap_or(0) >= 5
         });
 
-        let maintenance_guard = Guard::new("maintenance_guard", |ctx: &Context, _evt: &Event| {
+        let maintenance_guard = Guard::new("maintenance_guard", |ctx: &Context, _evt: &Event| async move {
             ctx.get::<bool>("maintenance").unwrap_or(false)
         });
 
         let increment_timer = Action::new(
             "increment_timer",
             ActionType::Entry,
-            |ctx: &mut Context, _evt: &Event| {
+            |ctx: &mut Context, _evt: &Event| async move {
                 let current = ctx.get::<i32>("timer").unwrap_or(0);
                 let _ = ctx.set("timer", current + 1);
             },
@@ -192,7 +193,7 @@ mod advanced_tests {
         let reset_timer = Action::new(
             "reset_timer",
             ActionType::Transition,
-            |ctx: &mut Context, _evt: &Event| {
+            |ctx: &mut Context, _evt: &Event| async move {
                 let _ = ctx.set("timer", 0);
             },
         );
@@ -200,7 +201,7 @@ mod advanced_tests {
         let set_maintenance = Action::new(
             "set_maintenance",
             ActionType::Transition,
-            |ctx: &mut Context, _evt: &Event| {
+            |ctx: &mut Context, _evt: &Event| async move {
                 let _ = ctx.set("maintenance", true);
             },
         );
@@ -208,7 +209,7 @@ mod advanced_tests {
         let clear_maintenance = Action::new(
             "clear_maintenance",
             ActionType::Transition,
-            |ctx: &mut Context, _evt: &Event| {
+            |ctx: &mut Context, _evt: &Event| async move {
                 let _ = ctx.set("maintenance", false);
             },
         );
@@ -231,7 +232,7 @@ mod advanced_tests {
         let mut from_maintenance = Transition::new("maintenance", "RESTORE", "green");
         from_maintenance.with_action(clear_maintenance);
 
-        let machine = MachineBuilder::new("trafficLight")
+        let machine_builder = MachineBuilder::new("trafficLight")
             .state(green_state)
             .state(yellow_state)
             .state(red_state)
@@ -244,75 +245,64 @@ mod advanced_tests {
             .transition(from_maintenance)
             .on_entry("green", increment_timer.clone())
             .on_entry("yellow", increment_timer.clone())
-            .on_entry("red", increment_timer.clone())
-            .build()
-            .unwrap();
+            .on_entry("red", increment_timer);
+        
+        let machine = machine_builder.build().await.unwrap();
 
-        machine
+        machine.with_state_mapper(|id| State::new(id))
     }
 
-    #[test]
-    fn test_traffic_light_cycle() {
-        let mut machine = create_traffic_light_machine();
+    #[tokio::test]
+    async fn test_traffic_light_cycle() {
+        let mut machine = create_traffic_light_machine().await;
         assert!(machine.is_in("green"));
 
         for _ in 0..10 {
-            machine.send("TIMER").unwrap();
+            machine.send("TIMER").await.unwrap();
         }
         assert!(machine.is_in("yellow"));
 
         for _ in 0..10 {
-            machine.send("TIMER").unwrap();
+            machine.send("TIMER").await.unwrap();
         }
         assert!(machine.is_in("red"));
 
         for _ in 0..10 {
-            machine.send("TIMER").unwrap();
+            machine.send("TIMER").await.unwrap();
         }
         assert!(machine.is_in("green"));
     }
 
-    #[test]
-    fn test_maintenance_mode() {
-        let mut machine = create_traffic_light_machine();
-
-        let mut ctx = Context::new();
-        ctx.set("maintenance", false).unwrap();
-        machine.context = ctx;
+    #[tokio::test]
+    async fn test_maintenance_mode() {
+        let mut machine = create_traffic_light_machine().await;
 
         assert!(machine.is_in("green"));
 
-        println!("Available transitions:");
-        for transition in &machine.transitions {
-            println!(
-                "  Source: {}, Event: {}, Target: {:?}",
-                transition.source, transition.event, transition.target
-            );
-        }
+        let current_state_ids: Vec<_> = machine.current_states.iter().cloned().collect();
+        println!("Current states before MAINTENANCE: {:?}", current_state_ids);
 
-        let current_state = machine.current_states.clone();
-        println!("Current states before MAINTENANCE: {:?}", current_state);
-
-        let result = machine.send("MAINTENANCE");
+        let result = machine.send("MAINTENANCE").await;
         println!("MAINTENANCE event result: {:?}", result);
+        assert!(result.is_ok());
 
-        let current_state = machine.current_states.clone();
-        println!("Current states after MAINTENANCE: {:?}", current_state);
-
+        let current_state_ids_after: Vec<_> = machine.current_states.iter().cloned().collect();
+        println!("Current states after MAINTENANCE: {:?}", current_state_ids_after);
         assert!(machine.is_in("maintenance"));
 
-        machine.send("RESTORE").unwrap();
+        machine.send("RESTORE").await.unwrap();
         assert!(machine.is_in("green"));
 
         for _ in 0..10 {
-            machine.send("TIMER").unwrap();
+            machine.send("TIMER").await.unwrap();
         }
         assert!(machine.is_in("yellow"));
 
-        machine.send("MAINTENANCE").unwrap();
+        let result = machine.send("MAINTENANCE").await;
+        assert!(result.is_ok());
         assert!(machine.is_in("maintenance"));
 
-        machine.send("RESTORE").unwrap();
+        machine.send("RESTORE").await.unwrap();
         assert!(machine.is_in("green"));
     }
 
