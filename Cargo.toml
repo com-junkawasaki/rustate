@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/rustate",
+    "crates/rustate_core",
     "crates/agent",
     "crates/editor",
     "crates/demo",
@@ -16,7 +16,7 @@ license = "MIT"
 edition = "2021"
 
 [workspace.dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.4.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 uuid = { version = "1.3", features = ["v4", "serde", "js"] }
@@ -28,7 +28,7 @@ web-sys = { version = "0.3", features = [
 ]}
 console_error_panic_hook = { version = "0.1.7" }
 async-trait = "0.1"
-tokio = { version = "1.34", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 rand = "0.8"
 tracing = "0.1"
 proptest = "1.2"
@@ -38,3 +38,7 @@ prost = "0.12.1"
 tonic-build = "0.10.2"
 tokio-stream = { version = "0.1", features = ["net"] }
 chrono = "0.4"
+
+# 開発用依存関係
+[workspace.dev-dependencies]
+# テスト用など
