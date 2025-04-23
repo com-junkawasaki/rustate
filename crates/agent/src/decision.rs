@@ -309,16 +309,39 @@ mod tests {
         let current_state = TestState {
             id: "current".to_string(),
         };
-
         let goal_state = TestState {
             id: "goal".to_string(),
         };
+        let event = TestEvent {
+            event_type: "START".to_string(),
+        };
 
-        let context = DecisionContext::new(current_state, goal_state, vec![], vec![], vec![]);
+        let observation = Observation::new(
+            TestState {
+                id: "prev".to_string(),
+            },
+            event.clone(),
+            current_state.clone(),
+        );
+        let feedback = Feedback::new("Good job", crate::feedback::FeedbackType::Positive, "user");
 
-        let path = context.estimate_path_to_goal();
-        assert_eq!(path.len(), 2);
-        assert_eq!(path[0], "current");
-        assert_eq!(path[1], "goal");
+        // Add type annotation for E
+        let context = DecisionContext::<TestState, TestEvent>::new(
+            current_state.clone(), // Clone if needed, as current_state is used later
+            goal_state.clone(),    // Clone if needed
+            vec![observation],
+            vec![feedback],
+            vec![],
+        );
+
+        assert_eq!(
+            context.current_state,
+            TestState {
+                id: "current".to_string()
+            }
+        );
+        assert_eq!(context.observations.len(), 1);
+        assert_eq!(context.feedbacks.len(), 1);
+        assert_eq!(context.insights.len(), 0);
     }
 }

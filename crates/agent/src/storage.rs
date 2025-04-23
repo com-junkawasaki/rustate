@@ -596,7 +596,7 @@ mod tests {
             TestEvent::Start,
             0.9,
             None::<TestState>,
-            None::<TestState>
+            None::<TestState>,
         );
 
         storage.save_decision(&decision).await.unwrap();
@@ -615,7 +615,7 @@ mod tests {
             TestEvent::Start,
             0.9,
             None::<TestState>,
-            None::<TestState>
+            None::<TestState>,
         );
         storage.save_decision(&decision).await.unwrap();
 

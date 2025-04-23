@@ -10,13 +10,13 @@ use crate::{
 };
 use rustate::integration::{SharedContext, SharedMachineRef};
 use rustate::{Context, EventTrait, Machine, StateTrait};
+use rustate::{State as RuState, Transition};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use uuid::Uuid;
-use rustate::{Transition, State as RuState};
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -489,18 +489,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use serde::{Deserialize, Serialize};
     use super::*;
     use crate::{
         decision::{Decision, DecisionContext},
-        storage::MemoryStorage,
         error::AgentError,
         feedback::Feedback,
         insight::Insight,
         observation::Observation,
+        storage::MemoryStorage,
     };
-    use std::collections::HashMap;
     use rustate::MachineBuilder;
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestState {
@@ -579,6 +579,7 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
     struct TestPolicy {
         state_action_map: HashMap<TestState, TestEvent>,
     }
@@ -601,7 +602,7 @@ mod tests {
         async fn decide(
             &self,
             context: DecisionContext<TestState, TestEvent>,
-        ) -> Result<Decision<TestEvent>, AgentError> {
+        ) -> std::result::Result<Decision<TestEvent>, AgentError> {
             let action = self
                 .state_action_map
                 .get(&context.current_state)
@@ -619,11 +620,11 @@ mod tests {
     }
 
     fn create_test_machine() -> Machine<TestState, TestEvent> {
-        // 状態の作成
-        let idle = RuState::new("idle", TestState::Idle);
-        let processing = RuState::new("processing", TestState::Processing);
-        let completed = RuState::new("completed", TestState::Completed);
-        let error = RuState::new("error", TestState::Error);
+        // 状態の作成 - State::new は ID のみ取る (rustate v0.2.4)
+        let idle = RuState::new("idle");
+        let processing = RuState::new("processing");
+        let completed = RuState::new("completed");
+        let error = RuState::new("error");
 
         // 遷移の作成
         let idle_to_processing = Transition::new("idle", "START", "processing");
@@ -654,8 +655,8 @@ mod tests {
         // 状態機械の作成
         let machine = create_test_machine();
 
-        // 共有参照の作成 (型パラメータを明示)
-        let shared_machine = SharedMachineRef::<TestState, TestEvent>::new(machine);
+        // 共有参照の作成 (rustate v0.2.4ではジェネリックではない)
+        let shared_machine = SharedMachineRef::new(machine); // Remove type parameters
 
         // エージェントの作成
         let storage = MemoryStorage::new();
@@ -682,7 +683,7 @@ mod tests {
         // エピソードを完了
         let episode = agent.complete_episode(true).await.unwrap().unwrap();
         assert!(episode.is_completed());
-        assert!(episode.is_successful());
+        assert!(episode.is_successful);
     }
 
     // 共有コンテキストを使用したテスト
