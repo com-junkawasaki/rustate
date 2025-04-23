@@ -1,9 +1,12 @@
 use crate::{Context, Event};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Type alias for the action executor function
-pub type ActionExecutor = Box<dyn Fn(&mut Context, &Event) + Send + Sync>;
+pub type ActionExecutor =
+    Box<dyn Fn(&mut Context, &Event) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Type of action execution
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,7 +50,7 @@ impl fmt::Debug for Action {
             .field("action_type", &self.action_type)
             .field(
                 "executor",
-                &self.executor.as_ref().map(|_| "Fn(&mut Context, &Event)"),
+                &self.executor.as_ref().map(|_| "AsyncFn(&mut Context, &Event)"),
             )
             .finish()
     }
@@ -55,37 +58,41 @@ impl fmt::Debug for Action {
 
 impl Action {
     /// Create a new action with a name and executor function
-    pub fn new<F>(name: impl Into<String>, action_type: ActionType, executor: F) -> Self
+    pub fn new<F, Fut>(name: impl Into<String>, action_type: ActionType, executor: F) -> Self
     where
-        F: Fn(&mut Context, &Event) + Send + Sync + 'static,
+        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
     {
         Self {
             name: name.into(),
             action_type,
-            executor: Some(Box::new(executor)),
+            executor: Some(Box::new(move |ctx, evt| Box::pin(executor(ctx, evt)))),
         }
     }
 
     /// Create a new entry action
-    pub fn entry<F>(name: impl Into<String>, executor: F) -> Self
+    pub fn entry<F, Fut>(name: impl Into<String>, executor: F) -> Self
     where
-        F: Fn(&mut Context, &Event) + Send + Sync + 'static,
+        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
     {
         Self::new(name, ActionType::Entry, executor)
     }
 
     /// Create a new exit action
-    pub fn exit<F>(name: impl Into<String>, executor: F) -> Self
+    pub fn exit<F, Fut>(name: impl Into<String>, executor: F) -> Self
     where
-        F: Fn(&mut Context, &Event) + Send + Sync + 'static,
+        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
     {
         Self::new(name, ActionType::Exit, executor)
     }
 
     /// Create a new transition action
-    pub fn transition<F>(name: impl Into<String>, executor: F) -> Self
+    pub fn transition<F, Fut>(name: impl Into<String>, executor: F) -> Self
     where
-        F: Fn(&mut Context, &Event) + Send + Sync + 'static,
+        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
     {
         Self::new(name, ActionType::Transition, executor)
     }
@@ -100,9 +107,9 @@ impl Action {
     }
 
     /// Execute the action with a context and event
-    pub fn execute(&self, context: &mut Context, event: &Event) {
+    pub async fn execute(&self, context: &mut Context, event: &Event) {
         if let Some(executor) = &self.executor {
-            executor(context, event);
+            executor(context, event).await;
         } else {
             // Default behavior for serialized actions with no executor
             // In a real implementation, you might look up an executor from a registry
@@ -138,9 +145,10 @@ impl IntoAction for Action {
     }
 }
 
-impl<F> IntoAction for (&str, F)
+impl<F, Fut> IntoAction for (&str, F)
 where
-    F: Fn(&mut Context, &Event) + Send + Sync + 'static,
+    F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
 {
     fn into_action(self, action_type: ActionType) -> Action {
         Action::new(self.0, action_type, self.1)

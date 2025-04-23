@@ -81,18 +81,20 @@ impl Transition {
     }
 
     /// Check if this transition is enabled given the context and event
-    pub fn is_enabled(&self, context: &Context, event: &Event) -> bool {
-        self.matches_event(event)
-            && match &self.guard {
-                Some(guard) => guard.evaluate(context, event),
-                None => true,
-            }
+    pub async fn is_enabled(&self, context: &Context, event: &Event) -> bool {
+        if !self.matches_event(event) {
+            return false;
+        }
+        match &self.guard {
+            Some(guard) => guard.evaluate(context, event).await,
+            None => true,
+        }
     }
 
     /// Execute this transition's actions
-    pub fn execute_actions(&self, context: &mut Context, event: &Event) {
+    pub async fn execute_actions(&self, context: &mut Context, event: &Event) {
         for action in &self.actions {
-            action.execute(context, event);
+            action.execute(context, event).await;
         }
     }
 }

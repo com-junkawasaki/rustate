@@ -1,9 +1,12 @@
 use crate::{Context, Event};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Type alias for the guard predicate function
-pub type GuardPredicate = Box<dyn Fn(&Context, &Event) -> bool + Send + Sync>;
+pub type GuardPredicate =
+    Box<dyn Fn(&Context, &Event) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
 /// A guard condition for a transition
 #[derive(Serialize, Deserialize)]
@@ -47,13 +50,14 @@ impl fmt::Debug for Guard {
 
 impl Guard {
     /// Create a new guard with a name and predicate function
-    pub fn new<F>(name: impl Into<String>, predicate: F) -> Self
+    pub fn new<F, Fut>(name: impl Into<String>, predicate: F) -> Self
     where
-        F: Fn(&Context, &Event) -> bool + Send + Sync + 'static,
+        F: Fn(&Context, &Event) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = bool> + Send + 'static,
     {
         Self {
             name: name.into(),
-            predicate: Some(Box::new(predicate)),
+            predicate: Some(Box::new(move |ctx, evt| Box::pin(predicate(ctx, evt)))),
         }
     }
 
@@ -66,9 +70,9 @@ impl Guard {
     }
 
     /// Evaluate the guard against a context and event
-    pub fn evaluate(&self, context: &Context, event: &Event) -> bool {
+    pub async fn evaluate(&self, context: &Context, event: &Event) -> bool {
         match &self.predicate {
-            Some(predicate) => predicate(context, event),
+            Some(predicate) => predicate(context, event).await,
             None => {
                 // Default behavior for serialized guards with no predicate
                 // In a real implementation, you might look up a predicate from a registry
@@ -96,9 +100,10 @@ impl IntoGuard for Guard {
     }
 }
 
-impl<F> IntoGuard for (&str, F)
+impl<F, Fut> IntoGuard for (&str, F)
 where
-    F: Fn(&Context, &Event) -> bool + Send + Sync + 'static,
+    F: Fn(&Context, &Event) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = bool> + Send + 'static,
 {
     fn into_guard(self) -> Guard {
         Guard::new(self.0, self.1)

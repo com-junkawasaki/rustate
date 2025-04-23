@@ -26,59 +26,51 @@ pub use xstate::{
 mod tests {
     use super::*;
     use crate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
+    use tokio;
 
-    #[test]
-    fn it_works() {
-        // シンプルなステートマシンを作成
-        let mut machine = create_test_machine();
+    #[tokio::test]
+    async fn it_works() {
+        let mut machine = create_test_machine().await;
 
-        // 初期状態を確認
         assert!(machine.is_in("idle"));
 
-        // イベントを送信
-        let result = machine.send("START");
+        let result = machine.send("START").await;
         assert!(result.is_ok());
 
-        // 状態が遷移したことを確認
         assert!(machine.is_in("running"));
-
-        // コンテキストの値はテストの前提条件としない
-        // Context APIが変更されている可能性があるため、この部分のテストはスキップ
     }
 
-    fn create_test_machine() -> Machine {
-        // 状態定義
+    async fn create_test_machine() -> Machine {
         let idle_state = State::new("idle");
         let running_state = State::new("running");
         let completed_state = State::new("completed");
 
-        // カウンターをインクリメントするアクション
-        let increment_action =
-            Action::new("incrementCounter", ActionType::Transition, |ctx, _evt| {
+        let increment_action = Action::new(
+            "incrementCounter",
+            ActionType::Transition,
+            |ctx, _evt| async move {
                 let counter = ctx.get::<i32>("counter").unwrap_or(0);
                 let _ = ctx.set("counter", counter + 1);
-            });
+            },
+        );
 
-        // 遷移を定義
         let mut start_transition = Transition::new("idle", "START", "running");
         start_transition.with_action(increment_action);
 
         let complete_transition = Transition::new("running", "COMPLETE", "completed");
         let reset_transition = Transition::new("completed", "RESET", "idle");
 
-        // マシンを構築
-        let machine = MachineBuilder::new("testMachine")
+        let machine_builder = MachineBuilder::new("testMachine")
             .state(idle_state)
             .state(running_state)
             .state(completed_state)
             .initial("idle")
             .transition(start_transition)
             .transition(complete_transition)
-            .transition(reset_transition)
-            .build()
-            .unwrap();
+            .transition(reset_transition);
+        
+        let machine = machine_builder.build().await.unwrap();
 
-        // 状態マッパーを追加
         machine.with_state_mapper(|id| match id {
             id if id == "idle" => State::new("idle"),
             id if id == "running" => State::new("running"),
@@ -90,34 +82,31 @@ mod tests {
         })
     }
 
-    #[test]
-    fn test_generator_all_states() {
-        let machine = create_test_machine();
+    #[tokio::test]
+    async fn test_generator_all_states() {
+        let machine = create_test_machine().await;
         let mut generator = TestGenerator::new(&machine);
 
         let test_cases = generator.generate_all_states();
 
-        // 3つの状態があるはず
         assert_eq!(test_cases.len(), 3);
     }
 
-    #[test]
-    fn test_generator_all_transitions() {
-        let machine = create_test_machine();
+    #[tokio::test]
+    async fn test_generator_all_transitions() {
+        let machine = create_test_machine().await;
         let mut generator = TestGenerator::new(&machine);
 
         let test_cases = generator.generate_all_transitions();
 
-        // 3つの遷移があるはず
         assert_eq!(test_cases.len(), 3);
     }
 
-    #[test]
-    fn test_runner_execute_test() {
-        let machine = create_test_machine();
+    #[tokio::test]
+    async fn test_runner_execute_test() {
+        let machine = create_test_machine().await;
         let mut runner = TestRunner::new(&machine);
 
-        // Idle から Running への遷移をテスト
         let test_case = TestCase {
             name: "Idle to Running".to_string(),
             initial_state: "idle".to_string(),
@@ -127,17 +116,15 @@ mod tests {
 
         let result = runner.run_test(&test_case);
 
-        // テストは成功するはず
         assert!(result.success);
         assert_eq!(result.actual_state, "running");
     }
 
-    #[test]
-    fn test_model_checker_reachability() {
-        let machine = create_test_machine();
+    #[tokio::test]
+    async fn test_model_checker_reachability() {
+        let machine = create_test_machine().await;
         let mut checker = ModelChecker::new(&machine);
 
-        // 到達可能性プロパティをチェック
         let property = Property {
             name: "Can reach completed".to_string(),
             property_type: PropertyType::Reachability,
@@ -147,16 +134,14 @@ mod tests {
 
         let result = checker.verify_property(&property);
 
-        // completedは到達可能なので、プロパティは満たされるはず
         assert!(result.satisfied);
     }
 
-    #[test]
-    fn test_model_checker_safety() {
-        let machine = create_test_machine();
+    #[tokio::test]
+    async fn test_model_checker_safety() {
+        let machine = create_test_machine().await;
         let mut checker = ModelChecker::new(&machine);
 
-        // 安全性プロパティをチェック
         let property = Property {
             name: "Never reach invalid state".to_string(),
             property_type: PropertyType::Safety,
@@ -166,7 +151,6 @@ mod tests {
 
         let result = checker.verify_property(&property);
 
-        // invalidは存在しないので到達不可能、プロパティは満たされるはず
         assert!(result.satisfied);
     }
 }
@@ -182,25 +166,20 @@ mod advanced_tests {
     #[cfg(feature = "property-testing")]
     use crate::test::property::*;
 
-    // 信号機ステートマシンの例
     fn create_traffic_light_machine() -> Machine {
-        // 状態を定義
         let green_state = State::new("green");
         let yellow_state = State::new("yellow");
         let red_state = State::new("red");
         let maintenance_state = State::new("maintenance");
 
-        // ガードを定義（タイマーの値が5以上かどうか）
         let timer_guard = Guard::new("timer_guard", |ctx: &Context, _evt: &Event| {
             ctx.get::<i32>("timer").unwrap_or(0) >= 5
         });
 
-        // メンテナンスモード用のガード
         let maintenance_guard = Guard::new("maintenance_guard", |ctx: &Context, _evt: &Event| {
             ctx.get::<bool>("maintenance").unwrap_or(false)
         });
 
-        // アクションを定義
         let increment_timer = Action::new(
             "increment_timer",
             ActionType::Entry,
@@ -218,7 +197,6 @@ mod advanced_tests {
             },
         );
 
-        // メンテナンスモードの設定と解除
         let set_maintenance = Action::new(
             "set_maintenance",
             ActionType::Transition,
@@ -235,7 +213,6 @@ mod advanced_tests {
             },
         );
 
-        // 遷移を定義
         let mut green_to_yellow = Transition::new("green", "TIMER", "yellow");
         green_to_yellow.with_guard(timer_guard.clone());
         green_to_yellow.with_action(reset_timer.clone());
@@ -248,16 +225,12 @@ mod advanced_tests {
         red_to_green.with_guard(timer_guard.clone());
         red_to_green.with_action(reset_timer.clone());
 
-        // メンテナンスへの遷移
         let mut to_maintenance = Transition::new("*", "MAINTENANCE", "maintenance");
         to_maintenance.with_action(set_maintenance);
-        // No guard needed for maintenance transition as it should always be possible
 
-        // メンテナンスからの復帰（常にgreenから再開）
         let mut from_maintenance = Transition::new("maintenance", "RESTORE", "green");
         from_maintenance.with_action(clear_maintenance);
 
-        // マシンを構築
         let machine = MachineBuilder::new("trafficLight")
             .state(green_state)
             .state(yellow_state)
@@ -283,19 +256,16 @@ mod advanced_tests {
         let mut machine = create_traffic_light_machine();
         assert!(machine.is_in("green"));
 
-        // タイマーイベントを5回送信してgreenからyellowへ遷移
         for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
         assert!(machine.is_in("yellow"));
 
-        // yellow → red
         for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
         assert!(machine.is_in("red"));
 
-        // red → green
         for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
@@ -306,14 +276,12 @@ mod advanced_tests {
     fn test_maintenance_mode() {
         let mut machine = create_traffic_light_machine();
 
-        // Initialize context with maintenance flag set to false
         let mut ctx = Context::new();
         ctx.set("maintenance", false).unwrap();
         machine.context = ctx;
 
         assert!(machine.is_in("green"));
 
-        // Let's check what transitions are available
         println!("Available transitions:");
         for transition in &machine.transitions {
             println!(
@@ -322,11 +290,9 @@ mod advanced_tests {
             );
         }
 
-        // どの状態からでもメンテナンスモードに移行できる
         let current_state = machine.current_states.clone();
         println!("Current states before MAINTENANCE: {:?}", current_state);
 
-        // Try the MAINTENANCE event
         let result = machine.send("MAINTENANCE");
         println!("MAINTENANCE event result: {:?}", result);
 
@@ -335,11 +301,9 @@ mod advanced_tests {
 
         assert!(machine.is_in("maintenance"));
 
-        // メンテナンスモードから復帰すると常にgreenになる
         machine.send("RESTORE").unwrap();
         assert!(machine.is_in("green"));
 
-        // 別の状態でも同様にテスト
         for _ in 0..10 {
             machine.send("TIMER").unwrap();
         }
@@ -358,7 +322,6 @@ mod advanced_tests {
         let machine = create_traffic_light_machine();
         let mut checker = ModelChecker::new(&machine);
 
-        // 到達可能性: すべての状態に到達可能かチェック
         let all_states_reachable = Property {
             name: "All states are reachable".to_string(),
             property_type: PropertyType::Reachability,
@@ -374,7 +337,6 @@ mod advanced_tests {
         let result = checker.verify_property(&all_states_reachable);
         assert!(result.satisfied, "Not all states are reachable: {:#?}", result);
 
-        // 安全性: 存在しない状態には到達しないことを検証
         let invalid_states = Property {
             name: "No invalid states".to_string(),
             property_type: PropertyType::Safety,
@@ -393,19 +355,15 @@ mod advanced_tests {
         let machine = create_traffic_light_machine();
         let mut generator = TestGenerator::new(&machine);
 
-        // すべての状態をカバーするテストケースを生成
         let state_tests = generator.generate_all_states();
         assert_eq!(state_tests.len(), 4, "Should generate test for all 4 states");
 
-        // すべての遷移をカバーするテストケースを生成
         let transition_tests = generator.generate_all_transitions();
         assert_eq!(transition_tests.len(), 5, "Should generate test for all 5 transitions");
 
-        // テストを実行
         let mut runner = TestRunner::new(&machine);
         let results = runner.run_tests(transition_tests);
 
-        // 全テストが成功することを検証
         assert!(results.all_passed(), "Not all transition tests passed: {:?}", results);
     }
     */

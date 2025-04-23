@@ -5,13 +5,14 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use async_recursion::async_recursion;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Machine<S = State, E = Event>
 where
-    S: Clone + 'static + Default,
-    E: Clone + 'static,
+    S: Clone + 'static + Default + Send + Sync,
+    E: Clone + 'static + Send + Sync,
 {
     /// Name of the machine
     pub name: String,
@@ -49,14 +50,14 @@ where
 
 impl<S, E> Machine<S, E>
 where
-    S: Clone + 'static + Default,
-    E: Clone + 'static,
+    S: Clone + 'static + Default + Send + Sync,
+    E: Clone + 'static + Send + Sync,
 {
     /// Create a new state machine instance from a builder
-    pub fn new<BuilderS, BuilderE>(builder: MachineBuilder<BuilderS, BuilderE>) -> Result<Self>
+    pub async fn new<BuilderS, BuilderE>(builder: MachineBuilder<BuilderS, BuilderE>) -> Result<Self>
     where
-        BuilderS: Clone + 'static + Default,
-        BuilderE: Clone + 'static,
+        BuilderS: Clone + 'static + Default + Send + Sync,
+        BuilderE: Clone + 'static + Send + Sync,
     {
         let MachineBuilder {
             name,
@@ -95,20 +96,20 @@ where
         };
 
         // Initialize by entering the initial state
-        machine.initialize()?;
+        machine.initialize().await?;
 
         Ok(machine)
     }
 
     /// Initialize the machine by entering the initial state
-    fn initialize(&mut self) -> Result<()> {
+    async fn initialize(&mut self) -> Result<()> {
         let initial_state_id = self.initial.clone();
-        self.enter_state(&initial_state_id, &Event::new("init"))?;
+        self.enter_state(&initial_state_id, &Event::new("init")).await?;
         Ok(())
     }
 
     /// Send an event to the machine
-    pub fn send<EV: IntoEvent>(&mut self, event: EV) -> Result<bool> {
+    pub async fn send<EV: IntoEvent + Send>(&mut self, event: EV) -> Result<bool> {
         let event = event.into_event();
         let mut processed = false;
 
@@ -116,7 +117,7 @@ where
         let current_states: Vec<_> = self.current_states.iter().cloned().collect();
 
         for state_id in current_states {
-            if self.process_state_event(&state_id, &event)? {
+            if self.process_state_event(&state_id, &event).await? {
                 processed = true;
             }
         }
@@ -130,31 +131,33 @@ where
     }
 
     /// Process an event for a specific state
-    fn process_state_event(&mut self, state_id: &str, event: &Event) -> Result<bool> {
+    #[async_recursion]
+    async fn process_state_event(&mut self, state_id: &str, event: &Event) -> Result<bool> {
         // Find enabled transitions for this state
-        let mut enabled_transition = self
+        let potential_transitions: Vec<_> = self
             .transitions
             .iter()
-            .find(|t| t.source == state_id && t.is_enabled(&self.context, event))
-            .cloned();
+            .filter(|t| t.source == state_id || t.source == "*")
+            .collect();
 
-        // If no transition found, check for wildcard source transitions
-        if enabled_transition.is_none() {
-            enabled_transition = self
-                .transitions
-                .iter()
-                .find(|t| t.source == "*" && t.is_enabled(&self.context, event))
-                .cloned();
+        let mut enabled_transition: Option<Transition> = None;
+        for t in &potential_transitions {
+            if t.is_enabled(&self.context, event).await {
+                if enabled_transition.is_none() || t.source != "*" {
+                     enabled_transition = Some((*t).clone());
+                     if t.source != "*" { break; }
+                }
+            }
         }
 
         if let Some(transition) = enabled_transition {
             // Execute the transition
-            self.execute_transition(&transition, event)?;
+            self.execute_transition(&transition, event).await?;
             Ok(true)
         } else {
             // No transitions found for this state, check parent
             if let Some(parent_id) = self.get_parent_id(state_id) {
-                self.process_state_event(&parent_id, event)
+                self.process_state_event(&parent_id, event).await
             } else {
                 Ok(false)
             }
@@ -162,7 +165,7 @@ where
     }
 
     /// Execute a transition
-    fn execute_transition(&mut self, transition: &Transition, event: &Event) -> Result<()> {
+    async fn execute_transition(&mut self, transition: &Transition, event: &Event) -> Result<()> {
         let source_id = if transition.source == "*" {
             // For wildcard transitions, use the current state
             if let Some(current_state) = self.current_states.iter().next() {
@@ -178,7 +181,7 @@ where
 
         // For internal transitions, just execute the actions
         if transition.target.is_none() {
-            transition.execute_actions(&mut self.context, event);
+            transition.execute_actions(&mut self.context, event).await;
             return Ok(());
         }
 
@@ -189,19 +192,20 @@ where
             .clone();
 
         // Exit source state
-        self.exit_state(&source_id, event)?;
+        self.exit_state(&source_id, event).await?;
 
         // Execute transition actions
-        transition.execute_actions(&mut self.context, event);
+        transition.execute_actions(&mut self.context, event).await;
 
         // Enter target state
-        self.enter_state(&target_id, event)?;
+        self.enter_state(&target_id, event).await?;
 
         Ok(())
     }
 
     /// Enter a state and its initial substates if applicable
-    fn enter_state(&mut self, state_id: &str, event: &Event) -> Result<()> {
+    #[async_recursion]
+    async fn enter_state(&mut self, state_id: &str, event: &Event) -> Result<()> {
         let state = self
             .states
             .get(state_id)
@@ -214,7 +218,7 @@ where
         // Execute entry actions
         if let Some(actions) = self.entry_actions.get(state_id) {
             for action in actions.clone() {
-                action.execute(&mut self.context, event);
+                action.execute(&mut self.context, event).await;
             }
         }
 
@@ -223,7 +227,7 @@ where
             StateType::Compound => {
                 // Enter initial substate
                 if let Some(initial) = state.initial {
-                    self.enter_state(&initial, event)?;
+                    self.enter_state(&initial, event).await?;
                 } else {
                     return Err(Error::InvalidConfiguration(format!(
                         "Compound state '{}' has no initial state",
@@ -232,15 +236,15 @@ where
                 }
             }
             StateType::Parallel => {
-                // Enter all child states
+                // Enter all child states sequentially
                 for child_id in state.children {
-                    self.enter_state(&child_id, event)?;
+                    self.enter_state(&child_id, event).await?; // Await sequentially
                 }
             }
             StateType::History => {
                 // Enter the last active child state if in history, otherwise the parent's initial
                 if let Some(last_active) = self.history.get(state_id).cloned() {
-                    self.enter_state(&last_active, event)?;
+                    self.enter_state(&last_active, event).await?;
                 } else if let Some(parent_id) = self.get_parent_id(state_id) {
                     let parent = self
                         .states
@@ -249,7 +253,7 @@ where
                         .clone();
 
                     if let Some(initial) = parent.initial {
-                        self.enter_state(&initial, event)?;
+                        self.enter_state(&initial, event).await?;
                     }
                 }
             }
@@ -257,7 +261,7 @@ where
                 // Deep history logic would be more complex in a real implementation
                 // For now, just use the same logic as regular history
                 if let Some(last_active) = self.history.get(state_id).cloned() {
-                    self.enter_state(&last_active, event)?;
+                    self.enter_state(&last_active, event).await?;
                 } else if let Some(parent_id) = self.get_parent_id(state_id) {
                     let parent = self
                         .states
@@ -266,7 +270,7 @@ where
                         .clone();
 
                     if let Some(initial) = parent.initial {
-                        self.enter_state(&initial, event)?;
+                        self.enter_state(&initial, event).await?;
                     }
                 }
             }
@@ -277,7 +281,8 @@ where
     }
 
     /// Exit a state and its substates
-    fn exit_state(&mut self, state_id: &str, event: &Event) -> Result<()> {
+    #[async_recursion]
+    async fn exit_state(&mut self, state_id: &str, event: &Event) -> Result<()> {
         let state = self
             .states
             .get(state_id)
@@ -289,7 +294,7 @@ where
             self.history.insert(parent_id, state_id.to_string());
         }
 
-        // First exit children (if any) in reverse order
+        // First exit children (if any) sequentially
         match state.state_type {
             StateType::Compound | StateType::Parallel => {
                 // Get all active children
@@ -300,9 +305,9 @@ where
                     .cloned()
                     .collect();
 
-                // Exit each active child
+                // Exit each active child sequentially
                 for child_id in active_children {
-                    self.exit_state(&child_id, event)?;
+                    self.exit_state(&child_id, event).await?; // Await sequentially
                 }
             }
             _ => {} // Other state types don't have children to exit
@@ -311,7 +316,7 @@ where
         // Execute exit actions
         if let Some(actions) = self.exit_actions.get(state_id) {
             for action in actions.clone() {
-                action.execute(&mut self.context, event);
+                action.execute(&mut self.context, event).await;
             }
         }
 
@@ -374,10 +379,10 @@ where
     }
 
     /// Apply a transition with the given event
-    pub fn transition<EV: IntoEvent>(&mut self, event: EV, context: Context) -> Result<S> {
+    pub async fn transition<EV: IntoEvent + Send>(&mut self, event: EV, context: Context) -> Result<S> {
         self.context = context;
         let event = event.into_event();
-        let result = self.send(event)?;
+        let result = self.send(event).await?;
 
         // 状態が変更された場合、キャッシュをクリア
         if result {
@@ -391,8 +396,8 @@ where
 /// Builder for constructing state machines
 pub struct MachineBuilder<S = State, E = Event>
 where
-    S: Clone + 'static + Default,
-    E: Clone + 'static,
+    S: Clone + 'static + Default + Send + Sync,
+    E: Clone + 'static + Send + Sync,
 {
     /// Name of the machine
     pub name: String,
@@ -415,8 +420,8 @@ where
 
 impl<S, E> MachineBuilder<S, E>
 where
-    S: Clone + 'static + Default,
-    E: Clone + 'static,
+    S: Clone + 'static + Default + Send + Sync,
+    E: Clone + 'static + Send + Sync,
 {
     /// Create a new state machine builder
     pub fn new(name: impl Into<String>) -> Self {
@@ -477,15 +482,15 @@ where
     }
 
     /// Build the state machine
-    pub fn build(self) -> Result<Machine<S, E>> {
-        Machine::new(self)
+    pub async fn build(self) -> Result<Machine<S, E>> {
+        Machine::new(self).await
     }
 }
 
 impl<S, E> Clone for MachineBuilder<S, E>
 where
-    S: Clone + 'static + Default,
-    E: Clone + 'static,
+    S: Clone + 'static + Default + Send + Sync,
+    E: Clone + 'static + Send + Sync,
 {
     fn clone(&self) -> Self {
         Self {
