@@ -168,4 +168,118 @@ mod tests {
     }
     */
 
+    // 1. Define simple State, Event, Context for the test machine
+    #[derive(Debug, Clone, PartialEq, Eq)] // Ensure PartialEq for assertions
+    enum TestState {
+        Idle,
+        Running,
+        Finished,
+    }
+
+    #[derive(Debug, Clone)]
+    enum TestEvent {
+        Start,
+        Finish,
+        Reset,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq)] // Ensure Default, PartialEq for assertions
+    struct TestContext {
+        count: i32,
+    }
+
+    // 2. Use the macro to define a state machine
+    create_machine!(
+        MyTestMachine, // Machine Name
+        Context = TestContext,
+        Event = TestEvent,
+        State = TestState,
+        initial: TestState::Idle { // Initial state and context
+            count: 0
+        },
+        states: {
+            Idle {
+                on: {
+                    Start: "Running", // Idle -> Running on Start
+                }
+            },
+            Running {
+                on: {
+                    Finish: "Finished", // Running -> Finished on Finish
+                    Reset: "Idle",     // Running -> Idle on Reset
+                }
+            },
+            Finished {
+                on: {
+                    Reset: "Idle",     // Finished -> Idle on Reset
+                }
+                // No transitions defined for Start or Finish events in Finished state
+            }
+        }
+    );
+
+    // 3. Write test functions
+    #[test]
+    fn test_initial_state_and_context() {
+        let machine = MyTestMachine::default(); // Instantiate the generated logic struct
+        let (initial_state, initial_context) = machine.initial();
+
+        assert_eq!(initial_state, TestState::Idle);
+        assert_eq!(initial_context, TestContext { count: 0 });
+    }
+
+    // Use tokio for async tests
+    #[tokio::test]
+    async fn test_transitions() {
+        let machine = MyTestMachine::default();
+        let initial_context = TestContext { count: 0 }; // Start with default context
+
+        // Test Idle -> Running
+        let (next_state, next_context) = machine
+            .transition(TestState::Idle, initial_context.clone(), TestEvent::Start)
+            .await
+            .expect("Transition failed");
+        assert_eq!(next_state, TestState::Running);
+        assert_eq!(next_context, initial_context); // Context shouldn't change yet
+
+        // Test Running -> Finished
+        let (next_state, next_context) = machine
+            .transition(TestState::Running, initial_context.clone(), TestEvent::Finish)
+            .await
+            .expect("Transition failed");
+        assert_eq!(next_state, TestState::Finished);
+        assert_eq!(next_context, initial_context);
+
+         // Test Running -> Idle (Reset)
+        let (next_state, next_context) = machine
+            .transition(TestState::Running, initial_context.clone(), TestEvent::Reset)
+            .await
+            .expect("Transition failed");
+        assert_eq!(next_state, TestState::Idle);
+        assert_eq!(next_context, initial_context);
+
+        // Test Finished -> Idle
+        let (next_state, next_context) = machine
+            .transition(TestState::Finished, initial_context.clone(), TestEvent::Reset)
+            .await
+            .expect("Transition failed");
+        assert_eq!(next_state, TestState::Idle);
+        assert_eq!(next_context, initial_context);
+
+        // Test no transition (e.g., Start event in Finished state)
+        let (next_state, next_context) = machine
+            .transition(TestState::Finished, initial_context.clone(), TestEvent::Start)
+            .await
+            .expect("Transition failed");
+        assert_eq!(next_state, TestState::Finished); // Should remain in Finished
+        assert_eq!(next_context, initial_context);
+
+         // Test no transition (e.g., Reset event in Idle state)
+        let (next_state, next_context) = machine
+            .transition(TestState::Idle, initial_context.clone(), TestEvent::Reset)
+            .await
+            .expect("Transition failed");
+        assert_eq!(next_state, TestState::Idle); // Should remain in Idle
+        assert_eq!(next_context, initial_context);
+    }
 } 
