@@ -59,7 +59,7 @@ impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
 {
     /// Create a new transition
     pub fn new(

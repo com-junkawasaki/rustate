@@ -325,8 +325,19 @@ mod tests {
         );
 
         let current_state = TestState::Initial;
+        // Create empty vectors for observations, feedbacks, insights
+        let observations: Vec<Observation<TestState, TestEvent>> = Vec::new();
+        let feedbacks: Vec<Feedback<TestEvent>> = Vec::new();
+        let insights: Vec<Insight> = Vec::new();
+
         let decision = policy
-            .decide(DecisionContext::new(current_state, None, &[], &[]))
+            .decide(DecisionContext::new(
+                current_state,
+                None, // goal_state is Option<S>
+                observations, // Pass Vec directly
+                feedbacks, // Pass Vec directly
+                insights, // Pass Vec directly
+            ))
             .await
             .unwrap();
 
@@ -368,10 +379,10 @@ mod tests {
         // Provide all 5 arguments to DecisionContext::new
         let context = DecisionContext::new(
             current_state,
-            goal_state,
-            &observations,
-            &feedbacks,
-            &insights,
+            Some(goal_state), // Pass Option<S>
+            observations, // Pass Vec directly
+            feedbacks, // Pass Vec directly
+            insights, // Pass Vec directly
         );
 
         let decision_result = policy.decide(context).await;
