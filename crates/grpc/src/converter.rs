@@ -9,7 +9,7 @@ use crate::proto;
 use rustate::state::{State as RuState, StateType as RuStateType};
 use rustate::transition::Transition as RuTransition;
 use rustate::ActionType as RuActionType;
-use rustate::{Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
+use rustate::{Action, Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
 use serde_json::Value;
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
@@ -332,8 +332,8 @@ pub fn event_to_proto<T: serde::Serialize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{Action, ActionType as RuActionType, Guard, State, StateType, Transition};
-    use serde_json::json;
+    use rustate::{Action, ActionType as RuActionType, Guard, MachineBuilder, Transition};
+    use serde_json::Value;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -437,30 +437,34 @@ mod tests {
         builder = builder.state(published);
         builder = builder.state(archived);
 
-        let action = Arc::new(Action::new(
+        // Create Action/Guard directly (not Arc) for with_action/with_guard if they take ownership
+        let action = Action::new(
             "transitionAction",
             RuActionType::Transition,
             |_ctx, _evt| {},
-        ));
-        let guard = Arc::new(Guard::new("transitionGuard", |_ctx, _evt| true));
+        );
+        let guard = Guard::new("transitionGuard", |_ctx, _evt| true);
 
-        // Clone Arc for with_action/with_guard, they consume the value
-        let t1 = Transition::new("draft", "SUBMIT", "review").with_action(action.clone());
-        let t2 = Transition::new("review", "APPROVE", "published").with_guard(guard.clone());
+        // Pass Action/Guard directly (cloning if needed, assuming they are Clone)
+        let mut t1 = Transition::new("draft", "SUBMIT", "review");
+        t1.with_action(action.clone()); // with_action likely takes impl IntoAction
+
+        let mut t2 = Transition::new("review", "APPROVE", "published");
+        t2.with_guard(guard.clone()); // with_guard likely takes impl IntoGuard
+
         let t3 = Transition::new("review", "REJECT", "draft");
         let t4 = Transition::new("published", "ARCHIVE", "archived");
         let t5 = Transition::new("archived", "RESTORE", "draft");
 
-        // builder.transition consumes the builder and the transition
-        builder = builder.transition(t1);
-        builder = builder.transition(t2);
+        // builder.transition takes Transition by value
+        builder = builder.transition(t1); // t1 is moved here
+        builder = builder.transition(t2); // t2 is moved here
         builder = builder.transition(t3);
         builder = builder.transition(t4);
         builder = builder.transition(t5);
 
         // Add initial context if needed
         let mut initial_context = RuContext::new();
-        // Use set with &str for key
         initial_context
             .set("initial_key", json!("initial_value"))
             .unwrap();
@@ -534,17 +538,16 @@ mod tests {
 
     #[test]
     fn test_convert_transition_to_proto() {
-        let action = Arc::new(Action::new(
+        let action = Action::new(
             "transitionAction",
             RuActionType::Transition,
             |_ctx, _evt| {},
-        ));
-        let guard = Arc::new(Guard::new("transitionGuard", |_ctx, _evt| true));
+        );
+        let guard = Guard::new("transitionGuard", |_ctx, _evt| true);
         let mut transition = create_test_transition("stateA", "EVENT", "stateB");
-        // Assign Arc directly to fields if Transition struct holds Arcs
-        // Assuming Transition fields are `actions: Vec<Arc<Action>>` and `guard: Option<Arc<Guard>>`
-        transition.actions = vec![action.clone()];
-        transition.guard = Some(guard.clone());
+        // Transition fields actions: Vec<Action>, guard: Option<Guard>
+        transition.actions = vec![action.clone()]; // Assign Action directly
+        transition.guard = Some(guard.clone());   // Assign Guard directly
 
         let proto_transition = transition_to_proto(&transition);
         assert_eq!(proto_transition.source, "stateA");
@@ -831,11 +834,11 @@ mod tests {
             }
             // Check Option<Guard> correctly
             if let (Some(ref conv_guard), Some(ref orig_guard)) =
-                // Assuming converted_t.guard is Option<Arc<Guard>>
                 (converted_t.guard.as_ref(), original_t.guard.as_ref())
             {
                 assert_eq!(conv_guard.name, orig_guard.name);
             } else {
+                // Compare Option using is_some() or is_none()
                 assert_eq!(
                     converted_t.guard.is_none(),
                     original_t.guard.is_none(),

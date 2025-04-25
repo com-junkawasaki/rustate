@@ -1,5 +1,5 @@
-use crate::{decision::Decision, error::Result};
 use crate::error::AgentError;
+use crate::{decision::Decision, error::Result};
 use async_trait::async_trait;
 use rand::seq::SliceRandom;
 use rustate::{EventTrait, StateTrait};
