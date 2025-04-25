@@ -1,4 +1,4 @@
-use crate::{Context, Event, EventTrait, State, StateTrait, Action, IntoAction};
+use crate::{Context, Event, EventTrait, State, StateTrait, Action, IntoAction, Result, Error};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
@@ -12,7 +12,7 @@ pub type GuardPredicate =
     Box<dyn Fn(&Context, &Event) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
 /// Represents a guard condition for a transition
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Guard<C, E>
 where
     C: Clone + Send + Sync + 'static,
@@ -93,13 +93,17 @@ where
     }
 }
 
-/// Trait for types that can be converted into a guard
-pub trait IntoGuard {
+/// Trait for converting into a guard
+pub trait IntoGuard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     /// Convert into a guard
     fn into_guard(self) -> Guard<C, E>;
 }
 
-impl<C, E> IntoGuard for Guard<C, E>
+impl<C, E> IntoGuard<C, E> for Guard<C, E>
 where
     C: Clone + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
@@ -109,8 +113,23 @@ where
     }
 }
 
-impl<C, E> IntoGuard for (&str, &dyn Fn(&C, &E) -> bool + Send + Sync)
+// Commenting out problematic implementation for now
+// impl<C, E> IntoGuard<C, E> for (&str, Arc<dyn Fn(&C, &E) -> bool + Send + Sync + 'static>)
+// where
+//     C: Clone + Send + Sync + 'static,
+//     E: EventTrait + Send + Sync + 'static,
+// {
+//     fn into_guard(self) -> Guard<C, E> {
+//         Guard {
+//             name: self.0.to_string(),
+//             condition: self.1,
+//         }
+//     }
+// }
+
+impl<C, E, F> IntoGuard<C, E> for (&str, F)
 where
+    F: Fn(&C, &E) -> bool + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
 {

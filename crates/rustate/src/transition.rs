@@ -19,9 +19,9 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transition<S = String, C = Context, E = Event>
 where
-    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
+    S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
 {
     /// Source state id
     pub source: S,
@@ -44,9 +44,9 @@ where
 
 impl<S, C, E> Transition<S, C, E>
 where
-    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
+    S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
 {
     /// Create a new transition
     pub fn new(
@@ -150,15 +150,15 @@ where
 
 impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
-    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
+    S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static + Clone + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
             .field("id", &self.id)
-            .field("source", &self.source.id())
-            .field("target", &self.target.as_ref().map(|t| t.id()))
+            .field("source", &self.source)
+            .field("target", &self.target)
             .field("event", &self.event)
             .field("guard", &self.guard)
             .field("actions", &self.actions)
@@ -169,9 +169,9 @@ where
 
 impl<S, C, E> PartialEq for Transition<S, C, E>
 where
-    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
+    S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
 {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
@@ -184,9 +184,9 @@ where
 
 impl<S, C, E> Eq for Transition<S, C, E>
 where
-    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
+    S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
 {
 }
 

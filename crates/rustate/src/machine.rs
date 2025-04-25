@@ -515,6 +515,16 @@ where
         }
         depth
     }
+
+    fn get_ancestors(&self, state_id: &S) -> Vec<S> {
+        let mut ancestors = Vec::new();
+        let mut current_id = self.get_parent_id(state_id);
+        while let Some(id) = current_id {
+            ancestors.push(id.clone());
+            current_id = self.get_parent_id(&id);
+        }
+        ancestors
+    }
 }
 
 /// Builder for constructing state machines
@@ -583,7 +593,7 @@ where
     }
 
     /// Add a transition to the machine
-    pub fn transition(mut self, transition: Transition<S>) -> Self {
+    pub fn transition(mut self, transition: Transition<S, C, E>) -> Self {
         self.transitions.push(transition);
         self
     }
@@ -621,7 +631,7 @@ where
 impl<C, E, S, O> Clone for MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Default,
     S: StateTrait + Clone + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
@@ -705,8 +715,19 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Default,
-    S: StateTrait + fmt::Display + Eq + Hash + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Default + From<Event> + Clone + Eq,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + Deref<Target = str>
+        + Serialize
+        + for<'de> DeserializeOwned,
     O: Clone + Send + Sync + 'static,
 {
     async fn step(
@@ -810,19 +831,18 @@ where
     ) -> Result<Option<(Transition<S, C, E>, String)>> {
         let mut candidates = Vec::new();
 
-        for state_id in active_states {
+        for state_id_str in active_states {
+            let state_id = S::from(state_id_str.clone());
             let mut current_id_opt = Some(state_id.clone());
             while let Some(current_id) = current_id_opt {
                 for t in &self.transitions {
-                    if t.source == current_id || t.source == "*" {
-                        // Check current state or wildcard
+                    if t.source == current_id || t.source.id() == "*" {
                         if t.is_enabled(context, event).await {
                             candidates.push((
                                 t.clone(),
-                                state_id.clone(),
+                                state_id_str.clone(),
                                 self.get_state_depth(&current_id),
                             ));
-                            // Don't break, collect all candidates from this path
                         }
                     }
                 }
@@ -843,21 +863,22 @@ where
 
         Ok(candidates
             .first()
-            .map(|(t, src_id, _)| (t.clone(), src_id.clone())))
+            .map(|(t, src_id_str, _)| (t.clone(), src_id_str.clone())))
     }
 
     /// Calculates the set of states to exit, enter, and the common ancestor.
     fn calculate_transition_sets(
         &self,
-        source_id: &str,
+        source_id_str: &str,
         transition: &Transition<S, C, E>,
     ) -> (HashSet<String>, HashSet<String>, Option<String>) {
+        let source_id = S::from(source_id_str.to_string());
+
         if transition.target.is_none() {
-            // Internal transition
             return (
                 HashSet::new(),
                 HashSet::new(),
-                self.get_parent_id(source_id),
+                self.get_parent_id(&source_id).map(|s| s.to_string()),
             );
         }
         let target_id = transition.target.as_ref().unwrap();
@@ -865,81 +886,81 @@ where
         let mut exit_set = HashSet::new();
         let mut entry_set = HashSet::new();
 
-        let source_ancestors = self.get_ancestors(source_id);
-        let target_ancestors = self.get_ancestors(target_id);
+        let source_ancestors = self.get_ancestors(&source_id).iter().map(|s| s.to_string()).collect::<HashSet<_>>();
+        let target_ancestors = self.get_ancestors(target_id).iter().map(|s| s.to_string()).collect::<HashSet<_>>();
 
         // Find LCA (Least Common Ancestor)
-        let mut common_ancestor = None;
-        for ancestor in source_ancestors.iter().rev() {
-            // Check from root downwards
-            if target_ancestors.contains(ancestor) {
-                common_ancestor = Some(ancestor.clone());
+        let mut common_ancestor: Option<String> = None;
+        let source_ancestors_vec = self.get_ancestors_inclusive(&source_id);
+        for ancestor_s in source_ancestors_vec.iter().rev() {
+            let ancestor_str = ancestor_s.to_string();
+            if target_ancestors.contains(&ancestor_str) {
+                common_ancestor = Some(ancestor_str);
                 break;
             }
         }
 
-        // Calculate exit set (states exited up to LCA)
-        let mut current_exit_id = Some(source_id.to_string());
+        // Calculate exit set
+        let mut current_exit_id = Some(source_id.clone());
         while let Some(id) = current_exit_id {
-            if common_ancestor.as_ref() == Some(&id) {
+            let id_str = id.to_string();
+            if common_ancestor.as_ref() == Some(&id_str) {
                 break;
             }
-            exit_set.insert(id.clone());
+            exit_set.insert(id_str);
             current_exit_id = self.get_parent_id(&id);
         }
 
-        // Calculate entry set (states entered from LCA downwards, including initial substates)
+        // Calculate entry set
         let mut entry_path = VecDeque::new();
-        let mut current_entry_id = Some(target_id.to_string());
+        let mut current_entry_id = Some(target_id.clone());
         while let Some(id) = current_entry_id {
-            if common_ancestor.as_ref() == Some(&id) {
+            let id_str = id.to_string();
+            if common_ancestor.as_ref() == Some(&id_str) {
                 break;
             }
-            entry_path.push_front(id.clone());
+            entry_path.push_front(id_str);
             current_entry_id = self.get_parent_id(&id);
         }
 
-        for id in entry_path {
-            entry_set.insert(id.clone());
-            self.add_initial_descendants(&id, &mut entry_set);
+        for id_str in entry_path {
+            entry_set.insert(id_str.clone());
+            self.add_initial_descendants(&id_str, &mut entry_set);
         }
 
         (exit_set, entry_set, common_ancestor)
     }
 
     /// Recursively adds initial descendant states for compound/parallel states.
-    fn add_initial_descendants(&self, state_id: &str, entry_set: &mut HashSet<String>) {
+    fn add_initial_descendants(&self, state_id_str: &str, entry_set: &mut HashSet<String>) {
         let mut queue = VecDeque::new();
-        if let Some(state) = self.states.get(state_id) {
+        if let Some(state) = self.states.get(state_id_str) {
             match state.state_type {
                 StateType::Compound => {
-                    // Use history state if available, otherwise initial state
-                    let initial_child = self
+                    let initial_child_str = self
                         .history
-                        .get(state_id)
+                        .get(state_id_str)
                         .cloned()
-                        .or_else(|| state.initial.clone());
-                    if let Some(child_id) = initial_child {
+                        .or_else(|| state.initial.as_ref().map(|s| s.to_string()));
+                    if let Some(child_id) = initial_child_str {
                         if entry_set.insert(child_id.clone()) {
                             queue.push_back(child_id);
                         }
                     }
                 }
                 StateType::Parallel => {
-                    if let Some(children) = &state.children {
-                        for child_id in children.keys() {
-                            if entry_set.insert(child_id.clone()) {
-                                queue.push_back(child_id.clone());
-                            }
+                    for child_id_str in state.children.keys() {
+                        if entry_set.insert(child_id_str.clone()) {
+                            queue.push_back(child_id_str.clone());
                         }
                     }
                 }
-                _ => {} // Atomic, Final, History states don't have initial descendants in this context
+                _ => {}
             }
         }
 
-        while let Some(current_id) = queue.pop_front() {
-            self.add_initial_descendants(&current_id, entry_set);
+        while let Some(current_id_str) = queue.pop_front() {
+            self.add_initial_descendants(&current_id_str, entry_set);
         }
     }
 
@@ -994,7 +1015,7 @@ where
     }
 
     /// Get the depth of a state node (root = 0).
-    fn get_state_depth(&self, state_id: &str) -> usize {
+    fn get_state_depth(&self, state_id: &S) -> usize {
         self.get_ancestors(state_id).len().saturating_sub(1)
     }
 }
@@ -1004,22 +1025,25 @@ where
 impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E> for Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Default + PartialEq,
-    S: StateTrait + fmt::Display + Eq + Hash + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Default + PartialEq + From<Event> + Clone,
+    S: StateTrait + fmt::Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + Deref<Target = str> + Serialize + for<'de> DeserializeOwned,
     O: Clone + Send + Sync + 'static,
 {
     fn get_initial_snapshot(&self, _input: Option<()>) -> MachineSnapshot<C, S, O> {
         let mut initial_states = HashSet::new();
-        // TODO: Correctly determine initial active states based on hierarchy/parallel
-        initial_states.insert(self.initial.clone());
+        let initial_state_str = self.initial.clone();
+        initial_states.insert(initial_state_str.clone());
+        // self.add_initial_descendants(&initial_state_str, &mut initial_states); // Can't call methods needing E: From<Event>
+
         MachineSnapshot::new(
             ActorSnapshot::new(
-                self.context.clone().unwrap_or_default(),
-                None,
+                self.context.clone(),
+                None, // output
                 ActorStatus::Active,
+                serde_json::Value::String(initial_state_str), // initial value
             ),
             initial_states,
-            self.history.clone(), // Pass initial history
+            self.history.clone(),
         )
     }
 

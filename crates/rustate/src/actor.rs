@@ -5,14 +5,21 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use uuid::Uuid;
+use crate::state::StateTrait;
+use crate::event::QueryableEvent;
+use std::marker::PhantomData;
+use crate::{
+    ActorRef,
+    ActorOptions,
+};
 
 // --- Snapshot ---
 
 /// Represents the immutable state of an actor at a specific point in time.
 /// Generic over the actor's context type `TContext`.
-#[derive(Debug, Clone, PartialEq)] // Add Serialize, Deserialize if needed
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot<TContext, TOutput = ()> {
     /// The current state value (e.g., hierarchical state identifier).
     /// Using serde_json::Value for flexibility, similar to how XState represents state values.
@@ -27,12 +34,23 @@ pub struct Snapshot<TContext, TOutput = ()> {
     // Potential future additions: historyValue, error, etc.
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl<TContext, TOutput> Snapshot<TContext, TOutput> {
+    pub fn new(value: serde_json::Value, context: TContext, output: Option<TOutput>, status: ActorStatus) -> Self {
+        Self {
+            value,
+            context,
+            output,
+            status,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActorStatus {
     Active,
     Done,
-    Error,
     Stopped,
+    Error,
 }
 
 // --- Actor Logic ---
@@ -59,6 +77,9 @@ pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
     // Potential future additions:
     // fn get_persisted_snapshot(&self, snapshot: TSnapshot) -> ...; // For serialization/restoration
     // fn restore_snapshot(&self, persisted_state: ...) -> TSnapshot;
+
+    async fn started(&mut self) {}
+    async fn stopped(&mut self) {}
 }
 
 // --- Actor Reference ---
@@ -92,12 +113,14 @@ where
 
 // Enum for commands sent to the actor
 #[derive(fmt::Debug)] // Use fmt::Debug derive
-pub enum ActorCommand<E: EventTrait, Q, R> {
-    Event(E),
-    Query {
-        query: Q,
-        responder: oneshot::Sender<R>,
-    },
+pub enum ActorCommand<E: EventTrait, Q = (), R = Result<(), StateError>>
+where
+    E: EventTrait + Send + 'static,
+    Q: Send + 'static,
+    R: Send + 'static,
+{
+    Send(E),
+    Query(Q, oneshot::Sender<R>),
     Stop,
 }
 
@@ -121,6 +144,9 @@ pub trait Actor<TEvent: EventTrait, TSnapshot> {
             "Query not supported".to_string(),
         ))
     }
+
+    async fn started(&mut self) {}
+    async fn stopped(&mut self) {}
 }
 
 /// Trait for events that support a query/response pattern.
@@ -150,6 +176,8 @@ where
 
     // Clones the ActorRef (typically involves cloning an Arc or channel sender).
     fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>>;
+
+    fn get_snapshot(&self) -> TSnapshot;
 }
 
 /// Implementation of ActorRef using a Tokio MPSC channel.
@@ -158,29 +186,47 @@ pub struct ActorRefImpl<TEvent, TSnapshot, Q = (), R = Result<(), StateError>>
 where
     TEvent: EventTrait + Send + fmt::Debug + 'static,
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-    Q: Send + fmt::Debug + 'static,
-    R: Send + fmt::Debug + 'static,
+    Q: Send + fmt::Debug + Sync + 'static,
+    R: Send + Sync + fmt::Debug + 'static, // Added Sync bound
+    // TEvent: QueryableEvent<Query = Q, Response = R>, // Removed QueryableEvent bound for now
 {
     id: String,
     sender: mpsc::Sender<ActorCommand<TEvent, Q, R>>,
-    _snapshot_marker: std::marker::PhantomData<TSnapshot>,
-    _response_marker: std::marker::PhantomData<R>,
+    snapshot: Arc<RwLock<TSnapshot>>,
+    _query_marker: PhantomData<Q>,
+    _response_marker: PhantomData<R>,
 }
 
 impl<TEvent, TSnapshot, Q, R> Clone for ActorRefImpl<TEvent, TSnapshot, Q, R>
 where
     TEvent: EventTrait + Send + fmt::Debug + 'static,
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-    Q: Send + fmt::Debug + 'static,
-    R: Send + fmt::Debug + 'static,
+    Q: Send + fmt::Debug + Sync + 'static,
+    R: Send + Sync + fmt::Debug + 'static,
 {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
             sender: self.sender.clone(),
-            _snapshot_marker: std::marker::PhantomData,
-            _response_marker: std::marker::PhantomData,
+            snapshot: self.snapshot.clone(),
+            _query_marker: PhantomData,
+            _response_marker: PhantomData,
         }
+    }
+}
+
+impl<TEvent, TSnapshot, Q, R> fmt::Debug for ActorRefImpl<TEvent, TSnapshot, Q, R>
+where
+    TEvent: EventTrait + Send + fmt::Debug + 'static,
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    Q: Send + fmt::Debug + Sync + 'static,
+    R: Send + Sync + fmt::Debug + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActorRefImpl")
+         .field("id", &self.id)
+         .field("snapshot", &self.snapshot) // Consider not printing the whole snapshot
+         .finish()
     }
 }
 
@@ -188,9 +234,9 @@ impl<TEvent, TSnapshot, Q, R> ActorRef<TEvent, TSnapshot> for ActorRefImpl<TEven
 where
     TEvent: EventTrait + Send + fmt::Debug + 'static,
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-    Q: Send + fmt::Debug + 'static,
-    R: Send + fmt::Debug + 'static,
-    TEvent: QueryableEvent<Query = Q, Response = R>,
+    Q: Send + fmt::Debug + Sync + 'static,
+    R: Send + Sync + fmt::Debug + 'static,
+    // TEvent: QueryableEvent<Query = Q, Response = R>, // Removed QueryableEvent bound
 {
     fn id(&self) -> &str {
         &self.id
@@ -198,7 +244,7 @@ where
 
     fn send(&self, event: TEvent) -> Result<(), StateError> {
         self.sender
-            .try_send(ActorCommand::Event(event))
+            .try_send(ActorCommand::Send(event))
             .map_err(|e| StateError::ActorSendError(e.to_string()))
     }
 
@@ -225,6 +271,10 @@ where
 
     fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>> {
         Box::new(self.clone())
+    }
+
+    fn get_snapshot(&self) -> TSnapshot {
+        self.snapshot.blocking_read().clone()
     }
 }
 
@@ -289,7 +339,7 @@ where
     let actor_ref = ActorRefImpl {
         id: actor_id,
         sender: sender.clone(),
-        _snapshot_marker: std::marker::PhantomData,
+        _query_marker: std::marker::PhantomData,
         _response_marker: std::marker::PhantomData,
     };
 
@@ -303,112 +353,82 @@ where
 /// Creates and starts a new actor instance based on the provided logic.
 ///
 /// Returns an `ActorRef` to interact with the spawned actor.
-pub fn create_actor<L, S, E, I>(logic: L, options: ActorOptions<I>) -> ActorRefImpl<E, S>
+pub fn create_actor<L, S, E, I, Q, R>(
+    logic: L, 
+    options: ActorOptions<I>
+) -> ActorRefImpl<E, S, Q, R>
 where
-    L: ActorLogic<S, E, I> + Clone + Send + Sync + 'static,
-    S: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static,
-    I: Send + Sync + 'static,
+    L: ActorLogic<S, E> + Send + Sync + 'static,
+    S: Clone + Send + Sync + 'static + fmt::Debug,
+    E: EventTrait + Send + fmt::Debug + 'static,
+    I: Clone + Send + Sync + 'static,
+    Q: Send + fmt::Debug + Sync + 'static,
+    R: Send + Sync + fmt::Debug + 'static,
 {
-    let actor_id = options
-        .id
-        .unwrap_or_else(|| format!("actor-{}", Uuid::new_v4()));
+    let (sender, mut receiver) = mpsc::channel::<ActorCommand<E, Q, R>>(100);
     let initial_snapshot = logic.get_initial_snapshot(options.input);
+    let snapshot_arc = Arc::new(RwLock::new(initial_snapshot));
+    let actor_id = options.id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let (event_sender, mut event_receiver) = mpsc::channel::<E>(100);
+    let actor_ref = ActorRefImpl {
+        id: actor_id.clone(),
+        sender,
+        snapshot: snapshot_arc.clone(),
+        _query_marker: PhantomData,
+        _response_marker: PhantomData,
+    };
 
-    let snapshot_arc = Arc::new(Mutex::new(initial_snapshot));
-    let snapshot_clone_for_task = Arc::clone(&snapshot_arc);
-
+    let cloned_ref = actor_ref.clone();
     tokio::spawn(async move {
-        let mut current_snapshot = snapshot_clone_for_task.lock().unwrap().clone();
+        let mut current_snapshot = snapshot_arc.read().await.clone();
+        // logic.started().await; // Need mutable logic
 
-        while let Some(event) = event_receiver.recv().await {
-            match logic.transition(current_snapshot.clone(), event).await {
-                Ok(next_snapshot) => {
-                    let mut snapshot_guard = snapshot_clone_for_task.lock().unwrap();
-                    *snapshot_guard = next_snapshot.clone();
-                    current_snapshot = next_snapshot;
-                }
-                Err(e) => {
-                    eprintln!("Actor [{}] transition error: {}", actor_id, e);
-                }
-            }
-        }
-        println!("Actor [{}] task finished.", actor_id);
-    });
-
-    ActorRefImpl {
-        id: actor_id,
-        event_sender,
-        snapshot: snapshot_arc,
-        _response_marker: std::marker::PhantomData,
-    }
-}
-
-pub fn spawn<A>(mut actor: A, options: ActorOptions) -> ActorRef<A::Event, A::Query, A::Response>
-where
-    A: Actor + Send + 'static,
-    A::Event: Send,
-    A::Query: Send,
-    A::Response: Send,
-{
-    let (command_sender, mut command_receiver) = mpsc::channel(options.mailbox_capacity);
-    let actor_id = options
-        .id
-        .unwrap_or_else(|| format!("actor-{}", uuid::Uuid::new_v4()));
-
-    let actor_id_clone = actor_id.clone();
-    tokio::spawn(async move {
-        let mut status = ActorStatus::Active;
-        println!("Actor [{}] started.", actor_id_clone);
-
-        while let Some(command) = command_receiver.recv().await {
-            if status == ActorStatus::Stopped {
-                println!(
-                    "Actor [{}] received command while stopped, ignoring.",
-                    actor_id_clone
-                );
-                continue;
-            }
-
+        while let Some(command) = receiver.recv().await {
             match command {
-                ActorCommand::Event(event) => {
-                    if let Err(e) = actor.handle_event(event).await {
-                        eprintln!("Actor [{}] event handling error: {}", actor_id_clone, e);
+                ActorCommand::Send(event) => {
+                    match logic.transition(current_snapshot.clone(), event).await {
+                        Ok(next_snapshot) => {
+                            let mut snapshot_guard = snapshot_arc.write().await;
+                            *snapshot_guard = next_snapshot.clone();
+                            current_snapshot = next_snapshot;
+                        }
+                        Err(e) => {
+                            eprintln!("Actor [{}] transition error: {}", cloned_ref.id(), e);
+                        }
                     }
                 }
-                ActorCommand::Query { query, responder } => match actor.handle_query(query).await {
-                    Ok(response) => {
-                        if responder.send(Ok(response)).is_err() {
-                            eprintln!("Actor [{}] failed to send query response.", actor_id_clone);
-                        }
-                    }
-                    Err(e) => {
-                        if responder.send(Err(e)).is_err() {
-                            eprintln!(
-                                "Actor [{}] failed to send query error response.",
-                                actor_id_clone
-                            );
-                        }
-                    }
-                },
+                ActorCommand::Query(query, responder) => {
+                    // TODO: Implement query handling if ActorLogic supports it
+                    eprintln!("Actor [{}] query received, but query handling not fully implemented.", cloned_ref.id());
+                    // let _ = responder.send(Err(StateError::NotImplemented("Query handling".into())));
+                }
                 ActorCommand::Stop => {
-                    println!("Actor [{}] stopping...", actor_id_clone);
-                    status = ActorStatus::Stopped;
-                    actor.stopped().await;
+                    eprintln!("Actor [{}] stopping.", cloned_ref.id());
                     break;
                 }
             }
         }
-
-        println!("Actor [{}] terminated.", actor_id_clone);
+        // logic.stopped().await; // Need mutable logic
+        eprintln!("Actor [{}] task finished.", cloned_ref.id());
     });
 
-    ActorRef {
-        id: actor_id,
-        sender: command_sender,
-    }
+    actor_ref
+}
+
+pub fn spawn<L, S, E, I, Q, R>(
+    logic: L, 
+    options: ActorOptions<I>
+) -> Box<dyn ActorRef<E, S>>
+where
+    L: ActorLogic<S, E> + Send + Sync + 'static,
+    S: Clone + Send + Sync + 'static + fmt::Debug,
+    E: EventTrait + Send + fmt::Debug + 'static,
+    I: Clone + Send + Sync + 'static,
+    Q: Send + fmt::Debug + Sync + 'static,
+    R: Send + Sync + fmt::Debug + 'static,
+{
+    let actor_ref_impl: ActorRefImpl<E, S, Q, R> = create_actor(logic, options);
+    Box::new(actor_ref_impl)
 }
 
 #[cfg(test)]

@@ -6,9 +6,14 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
 use uuid::Uuid;
+use crate::context::Context;
+use crate::event::Event;
+use crate::state::State;
 
 /// Trait defining requirements for a state identifier
-pub trait StateTrait: Display + Debug + Eq + Hash + Clone + Send + Sync + 'static + Deref<Target=str> + From<String> {}
+pub trait StateTrait:
+    Display + Debug + Eq + Hash + Clone + Send + Sync + 'static + Deref<Target = str> + From<String> + Serialize + for<'de> DeserializeOwned
+{}
 impl StateTrait for String {}
 // TODO: Add impl for other types if needed, ensure they meet bounds
 
@@ -90,7 +95,7 @@ pub enum HistoryType {
 #[serde(rename_all = "camelCase")]
 pub struct State<S = String>
 where
-    S: StateTrait + Serialize + for<'de> serde::de::Deserialize<'de>,
+    S: StateTrait,
 {
     /// Unique identifier for the state
     pub id: S,
@@ -116,7 +121,7 @@ where
 
 impl<S> State<S>
 where
-    S: StateTrait + Serialize + for<'de> serde::de::Deserialize<'de>,
+    S: StateTrait,
 {
     /// Create a new normal state
     pub fn new(id: S) -> Self {
@@ -275,7 +280,7 @@ where
 
 impl<S> StateTrait for State<S>
 where
-    S: StateTrait + Serialize + for<'de> serde::de::Deserialize<'de>,
+    S: StateTrait,
 {
     fn id(&self) -> &str {
         &self.id
@@ -291,8 +296,8 @@ where
             .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
     }
 
-    fn children(&self) -> &[S] {
-        self.children.values().collect::<Vec<&S>>().as_slice()
+    fn children(&self) -> Vec<&str> {
+        self.children.keys().map(|k| k.as_str()).collect()
     }
 
     fn initial(&self) -> Option<&str> {
@@ -310,7 +315,9 @@ where
     }
 
     fn is_atomic(&self) -> bool {
-        self.children.is_empty() && self.state_type != StateType::Compound && self.state_type != StateType::Parallel
+        self.children.is_empty()
+            && self.state_type != StateType::Compound
+            && self.state_type != StateType::Parallel
     }
 }
 
