@@ -5,13 +5,13 @@ use crate::{
     event::{Event, EventTrait},
     guard::{Guard, IntoGuard},
     state::{State, StateTrait},
-    IntoGuard,
 };
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Represents a transition between states
@@ -43,7 +43,7 @@ where
 
 impl<S, C, E> Transition<S, C, E>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + Clone,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
@@ -66,7 +66,7 @@ where
     /// Create a new self-transition (target is the same as source)
     pub fn self_transition(state: S, event: E) -> Self {
         Self {
-            source: state,
+            source: state.clone(),
             target: Some(state),
             event,
             guard: None,

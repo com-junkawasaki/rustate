@@ -9,6 +9,7 @@ use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
@@ -371,6 +372,107 @@ where
         }
 
         Ok(self.current_state())
+    }
+
+    /// Finds valid transitions for the current state and event.
+    #[async_recursion]
+    async fn find_valid_transitions(
+        &self,
+        event: &E,
+    ) -> Result<Vec<(Transition<S, C, E>, String)>, StateError> {
+        let mut valid_transitions = Vec::new();
+        let active_states = self.get_active_atomic_states(&self.current_state_value);
+
+        for state_id in active_states {
+            if let Some(state) = self.states.get(&state_id) {
+                let ancestors = self.get_ancestors(&state_id);
+                let mut potential_transitions = Vec::new();
+
+                // Check transitions defined on the state itself and its ancestors
+                for check_id in std::iter::once(&state_id).chain(ancestors.iter()) {
+                    potential_transitions.extend(
+                        self.transitions
+                            .iter()
+                            .filter(|t| t.source.id() == *check_id && t.matches_event(event))
+                            .map(|t| (t.clone(), check_id.clone())),
+                    );
+                }
+
+                // Evaluate guards for potential transitions
+                for (transition, src_id) in potential_transitions {
+                    if transition.check_guard(&self.context, event).await {
+                        valid_transitions.push((transition, src_id));
+                    }
+                }
+            }
+        }
+
+        // Sort transitions based on depth (descendant transitions first)
+        valid_transitions.sort_by(|(_, src_id_a), (_, src_id_b)| {
+            let depth_a = self.get_state_depth(src_id_a);
+            let depth_b = self.get_state_depth(src_id_b);
+            depth_b.cmp(&depth_a)
+        });
+
+        Ok(valid_transitions)
+    }
+
+    fn get_state_depth(&self, state_id: &str) -> usize {
+        let mut depth = 0;
+        let mut current = self.states.get(state_id);
+        while let Some(state) = current {
+            if let Some(parent_id) = state.parent() {
+                 if parent_id != state.id() {
+                    current = self.states.get(parent_id);
+                    depth += 1;
+                 } else {
+                     break;
+                 }
+            } else {
+                break;
+            }
+        }
+        depth
+    }
+
+    fn get_ancestors(&self, state_id: &str) -> Vec<String> {
+        let mut ancestors = Vec::new();
+        let mut current_id = state_id;
+        while let Some(state) = self.states.get(current_id) {
+            if let Some(parent_id) = state.parent() {
+                 if parent_id != current_id {
+                    ancestors.push(parent_id.to_string());
+                    current_id = parent_id;
+                 } else {
+                     break;
+                 }
+            } else {
+                break;
+            }
+        }
+        ancestors
+    }
+
+    fn get_active_atomic_states(&self, value: &Value) -> HashSet<String> {
+        let mut active_states = HashSet::new();
+        match value {
+            Value::String(s) => {
+                if let Some(state) = self.states.get(s) {
+                    if state.is_atomic() {
+                        active_states.insert(s.clone());
+                    } else {
+                        active_states.insert(s.clone());
+                    }
+                }
+            }
+            Value::Object(map) => {
+                for (_key, child_value) in map {
+                    active_states.extend(self.get_active_atomic_states(child_value));
+                }
+            }
+            _ => {}
+        }
+        active_states
     }
 }
 
@@ -958,17 +1060,6 @@ where
             }
         }
         active_states
-    }
-
-    /// Get all ancestor state IDs for a given state ID, including itself.
-    fn get_ancestors(&self, state_id: &str) -> Vec<String> {
-        let mut ancestors = Vec::new();
-        let mut current_id = Some(state_id.to_string());
-        while let Some(id) = current_id {
-            ancestors.push(id.clone());
-            current_id = self.get_parent_id(&id);
-        }
-        ancestors // Root is the last element
     }
 
     /// Get the depth of a state node (root = 0).

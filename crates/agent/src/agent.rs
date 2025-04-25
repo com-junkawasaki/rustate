@@ -17,6 +17,12 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use uuid::Uuid;
+use rustate::state::State;
+use rustate::transition::Transition;
+use rustate::MachineBuilder;
+use serde_json::Value;
+use std::collections::{HashMap, VecDeque};
+use tokio::sync::Mutex;
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -87,7 +93,7 @@ where
     /// 現在のエピソード（ある場合）
     current_episode: Option<Episode<S, E>>,
     /// 共有コンテキスト（設定されている場合）
-    shared_context: Option<SharedContext>,
+    shared_context: Option<Arc<Mutex<Context>>>,
     /// 型パラメータのマーカー
     _phantom: PhantomData<(S, E)>,
 }
@@ -117,18 +123,32 @@ where
     P: Policy<S, E>,
 {
     /// 新しいエージェントを作成します
-    pub fn new(machine: Machine<S, E>, policy: P, storage: SM) -> Self {
-        Self {
-            id: Uuid::new_v4(),
+    pub async fn new(
+        id: Uuid,
+        initial_state: S,
+        policy: P,
+        storage: SM,
+        machine_builder: MachineBuilder<Context, E, S>,
+        initial_context: Option<Context>,
+        shared_context: Option<Arc<Mutex<Context>>>,
+    ) -> Result<Self> {
+        // Build the internal state machine
+        let machine = machine_builder
+            .context(initial_context.unwrap_or_default())
+            .build()
+            .map_err(|e| AgentError::MachineError(e.to_string()))?;
+
+        Ok(Self {
+            id,
             machine_ref: None,
             machine: Some(machine),
             config: AgentConfig::default(),
             policy: Arc::new(policy),
             storage: Arc::new(storage),
             current_episode: None,
-            shared_context: None,
+            shared_context,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// 共有状態機械参照を使用してエージェントを作成します
@@ -150,14 +170,14 @@ where
     pub fn with_config(mut self, config: AgentConfig) -> Self {
         // 共有コンテキストの設定
         if config.use_shared_context && self.shared_context.is_none() {
-            self.shared_context = Some(SharedContext::new());
+            self.shared_context = Some(Arc::new(Mutex::new(Context::default())));
         }
         self.config = config;
         self
     }
 
     /// 共有コンテキストを追加します
-    pub fn with_shared_context(mut self, context: SharedContext) -> Self {
+    pub fn with_shared_context(mut self, context: Arc<Mutex<Context>>) -> Self {
         self.shared_context = Some(context);
         // 設定も更新
         self.config.use_shared_context = true;
@@ -303,6 +323,8 @@ where
             if let Some(ref shared_ctx) = self.shared_context {
                 let observation_key = format!("observation_{}", Uuid::new_v4());
                 shared_ctx
+                    .lock()
+                    .await
                     .set(
                         &observation_key,
                         &serde_json::to_string(&observation)
@@ -337,6 +359,8 @@ where
                 if let Some(ref shared_ctx) = self.shared_context {
                     let insight_key = format!("insight_{}", Uuid::new_v4());
                     shared_ctx
+                        .lock()
+                        .await
                         .set(
                             &insight_key,
                             &serde_json::to_string(&insight)
@@ -408,6 +432,8 @@ where
         if let Some(ref shared_ctx) = self.shared_context {
             let insight_key = format!("insight_{}", Uuid::new_v4());
             shared_ctx
+                .lock()
+                .await
                 .set(
                     &insight_key,
                     &serde_json::to_string(&insight)
@@ -433,6 +459,8 @@ where
         if let Some(ref shared_ctx) = self.shared_context {
             let feedback_key = format!("feedback_{}", Uuid::new_v4());
             shared_ctx
+                .lock()
+                .await
                 .set(
                     &feedback_key,
                     &serde_json::to_string(&feedback)
@@ -798,16 +826,16 @@ mod tests {
         let machine = create_test_machine();
 
         // 共有コンテキストの作成
-        let shared_context = SharedContext::new();
+        let shared_context = Arc::new(Mutex::new(Context::default()));
 
         // エージェントの作成
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
         let mut agent =
-            Agent::new(machine, policy, storage).with_shared_context(shared_context.clone());
+            Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, Some(shared_context.clone())).await.unwrap();
 
         // 共有コンテキストに値を設定
-        shared_context.set("test_key", "test_value").unwrap();
+        shared_context.lock().await.set("test_key", "test_value").unwrap();
 
         // 目標状態設定
         let goal_state = TestState::Completed;
@@ -823,7 +851,7 @@ mod tests {
         assert!(success);
 
         // 共有コンテキストから値を取得
-        let value: Option<String> = shared_context.get("test_key").unwrap();
+        let value: Option<String> = shared_context.lock().await.get("test_key").unwrap();
         assert_eq!(value, Some("test_value".to_string()));
     }
 
@@ -832,7 +860,7 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let agent = Agent::new(machine, policy, storage);
+        let agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
 
         assert_eq!(agent.config.name, "汎用エージェント");
         assert_eq!(agent.config.auto_record_observations, true);
@@ -843,7 +871,7 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(machine, policy, storage);
+        let mut agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
 
         // エピソードを開始
         agent
@@ -861,7 +889,7 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(machine, policy, storage);
+        let mut agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
 
         // エピソードを開始
         agent
@@ -882,7 +910,7 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(machine, policy, storage);
+        let mut agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
 
         // エピソードを開始
         agent

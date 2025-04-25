@@ -1,4 +1,5 @@
 use thiserror::Error;
+use std::fmt;
 
 /// Errors that can occur in the RuState library
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -54,6 +55,45 @@ pub enum StateError {
     /// Unknown error
     #[error("Unknown error: {0}")]
     Other(String),
+    /// Actor channel send error
+    #[error("Actor channel send error: {0}")]
+    ActorSendError(String),
+    /// Actor channel receive error
+    #[error("Actor channel receive error: {0}")]
+    ActorReceiveError(String),
+    /// Transition not found from state '{state}' for event '{event}'
+    #[error("Transition not found from state '{state}' for event '{event}'")]
+    TransitionNotFound {
+        state: String,
+        event: String,
+    },
+    /// Invalid initial state
+    #[error("Invalid initial state: {0}")]
+    InvalidInitialState(String),
+    /// Missing initial state for machine
+    #[error("Missing initial state for machine: {0}")]
+    MissingInitialState(String),
+    /// Context access error
+    #[error("Context access error: {0}")]
+    ContextError(String),
+    /// Action execution error
+    #[error("Action execution error: {0}")]
+    ActionError(String),
+    /// Invalid state definition
+    #[error("Invalid state definition: {0}")]
+    InvalidStateDefinition(String),
+    /// Invalid transition definition
+    #[error("Invalid transition definition: {0}")]
+    InvalidTransitionDefinition(String),
+    /// Operation not supported
+    #[error("Operation not supported: {0}")]
+    UnsupportedOperation(String),
+    /// Concurrency error
+    #[error("Concurrency error: {0}")]
+    ConcurrencyError(String),
+    /// External error
+    #[error("External error: {0}")]
+    ExternalError(String),
 }
 
 /// Result type for operations that can fail
@@ -98,3 +138,10 @@ pub enum AgentError {
 }
 
 pub type AgentResult<T> = std::result::Result<T, AgentError>;
+
+// Optional: Implement From for common error types to simplify error handling
+impl From<serde_json::Error> for StateError {
+    fn from(err: serde_json::Error) -> Self {
+        StateError::SerializationError(err.to_string())
+    }
+}
