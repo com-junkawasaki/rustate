@@ -28,6 +28,9 @@ pub enum GrpcError {
 
     #[error("コード生成エラー: {0}")]
     CodeGeneration(String),
+
+    #[error("Deserialization error: {0}")]
+    Deserialization(serde_json::Error),
 }
 
 impl From<GrpcError> for tonic::Status {
@@ -62,6 +65,9 @@ impl From<GrpcError> for tonic::Status {
             }
             GrpcError::CodeGeneration(e) => {
                 tonic::Status::new(Code::Internal, format!("Code generation error: {}", e))
+            }
+            GrpcError::Deserialization(e) => {
+                tonic::Status::new(Code::Internal, format!("Deserialization error: {}", e))
             }
         }
     }

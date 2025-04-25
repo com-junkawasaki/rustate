@@ -267,35 +267,39 @@ pub async fn run_actor<
 >(
     mut actor: A,
     mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, R>>,
-) {
-    let actor_id_clone = actor.actor_ref().id().to_string();
-    println!("Actor [{}] starting run loop.", actor_id_clone);
+) where
+    // Add the necessary bound here for the Query variant
+    ActorCommand<TEvent, Q, R>: From<ActorCommand<TEvent, <A as Actor<TEvent, TSnapshot>>::Query, <A as Actor<TEvent, TSnapshot>>::Response>>,
+    TEvent: QueryableEvent<Query = <A as Actor<TEvent, TSnapshot>>::Query, Response = <A as Actor<TEvent, TSnapshot>>::Response>
+{
+    info!(actor_id = %actor.actor_ref().id(), "Actor started");
+    actor.started().await;
 
     while let Some(command) = receiver.recv().await {
         match command {
-            ActorCommand::Event(event) => {
-                if let Err(e) = actor.handle_event(event).await {
-                    eprintln!("Actor [{}] event handling error: {}", actor_id_clone, e);
-                }
+            ActorCommand::Send(event) => {
+                // Removed ActorCommand::Event
+                debug!(actor_id = %actor.actor_ref().id(), event = ?event, "Received event");
+                actor.handle_event(event).await;
             }
-            ActorCommand::Query { query, responder } => match actor.handle_query(query).await {
-                Ok(response) => {
-                    if responder.send(Ok(response)).is_err() {
-                        eprintln!("Actor [{}] failed to send query response.", actor_id_clone);
-                    }
-                }
-                Err(e) => {
-                    let _ = responder.send(Err(e));
-                }
-            },
+            ActorCommand::Query(query, responder) => {
+                debug!(actor_id = %actor.actor_ref().id(), query = ?query, "Received query");
+                 // Directly call handle_query and send the response
+                 let response = actor.handle_query(query).await;
+                 if let Err(e) = responder.send(response) {
+                     error!(actor_id = %actor.actor_ref().id(), "Failed to send query response: {:?}", e);
+                 }
+
+            }
             ActorCommand::Stop => {
-                println!("Actor [{}] stopping...", actor_id_clone);
-                actor.stopped().await;
+                info!(actor_id = %actor.actor_ref().id(), "Stopping actor");
                 break;
             }
         }
     }
-    println!("Actor [{}] task finished.", actor_id_clone);
+
+    actor.stopped().await;
+    info!(actor_id = %actor.actor_ref().id(), "Actor stopped");
 }
 
 // Helper to spawn an actor and return its reference
@@ -433,8 +437,9 @@ mod tests {
     use crate::state::StateType;
     use serde_json::json;
     use std::fmt::Display;
+    use tokio::time::{sleep, Duration};
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct TestState(String);
 
     impl Display for TestState {
@@ -447,70 +452,81 @@ mod tests {
         fn id(&self) -> &str {
             &self.0
         }
-        fn get_type(&self) -> StateType {
-            StateType::Atomic
+        // Renamed get_type to state_type and fixed return type
+        fn state_type(&self) -> &StateType {
+            // Assuming TestState is always Normal for simplicity in tests
+            &StateType::Normal
         }
-        fn parent(&self) -> Option<String> {
+        // Fixed return type
+        fn parent(&self) -> Option<&str> {
             None
         }
-        fn children(&self) -> Vec<String> {
-            Vec::new()
+        // Fixed return type and value
+        fn children(&self) -> &[String] {
+            &[]
         }
-        fn initial(&self) -> Option<String> {
+        // Fixed return type
+        fn initial(&self) -> Option<&str> {
             None
         }
-        fn history(&self) -> bool {
-            false
-        }
+        // Removed history() as it's not in StateTrait
+        // Removed data() as it's not in StateTrait
     }
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct TestEvent(String);
 
     impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
             &self.0
         }
-        fn payload(&self) -> Option<Value> {
+        // Fixed return type to match trait
+        fn payload(&self) -> Option<&Value> {
             None
+        }
+        // Implemented missing name() method
+        fn name(&self) -> &str {
+             self.event_type()
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Clone)] // Added Clone
     struct TestQuery(String);
-
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Clone)] // Added Clone
     struct TestResponse(String);
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug)] // Added derive Debug and Clone
     struct TestSnapshot {
         state: TestState,
         event_count: u32,
     }
 
+    #[derive(Clone)] // Added Clone
     struct TestActor {
         state: TestState,
         event_count: u32,
         actor_ref: Option<Box<dyn ActorRef<TestEvent, TestSnapshot>>>, // Added to hold the ref
     }
 
-    // Implement Actor for TestActor
     #[async_trait]
     impl Actor<TestEvent, TestSnapshot> for TestActor {
         type Query = TestQuery;
         type Response = TestResponse;
 
+        // Ensure signature matches trait
         async fn handle_event(&mut self, event: TestEvent) {
-            println!("TestActor handling event: {:?}", event);
+            debug!("Handling event: {:?}", event);
+            self.state = TestState(format!("State after {}", event.0));
             self.event_count += 1;
-            self.state = TestState(format!("State after event {}", self.event_count));
         }
 
+        // Ensure signature matches trait
         async fn handle_query(&self, query: Self::Query) -> Self::Response {
-            println!("TestActor handling query: {:?}", query);
+            debug!("Handling query: {:?}", query);
             TestResponse(format!(
-                "Response to query '{}' from state '{}'",
-                query.0, self.state.0
+                "Response to {} from state {}",
+                query.0,
+                self.state.0
             ))
         }
 
@@ -521,89 +537,106 @@ mod tests {
             }
         }
 
-        // Implementation for actor_ref
+        // Ensure signature matches trait
         fn actor_ref(&self) -> &dyn ActorRef<TestEvent, TestSnapshot> {
-            self.actor_ref.as_ref().unwrap().as_ref() // Assume it's set during spawn
+            self.actor_ref.as_ref().unwrap().as_ref()
         }
     }
 
     impl QueryableEvent for TestEvent {
         type Query = TestQuery;
         type Response = TestResponse;
-
-        fn into_query(self) -> Option<(Self::Query, oneshot::Sender<Self::Response>)> {
-            if self.0.starts_with("QUERY:") {
-                let (_tx, rx) = oneshot::channel();
-                Some((TestQuery(self.0.replace("QUERY:", "")), _tx))
-            } else {
-                None
-            }
-        }
+        // Removed into_query as it's not part of the trait
     }
 
     #[tokio::test]
     async fn test_actor_spawn_and_stop() {
-        let actor = TestActor::default();
-        let (handle, command_sender) = spawn_actor(actor, 10);
+        let actor = TestActor {
+            state: TestState("Initial".to_string()),
+            event_count: 0,
+            actor_ref: None, // Will be set by spawn_actor
+        };
+        let actor_ref = spawn_actor(actor, 10);
+        assert_eq!(actor_ref.id().len(), 36); // UUID length
 
-        drop(command_sender);
-        let result = handle.await;
-        assert!(result.is_ok(), "Actor task failed to join");
-        info!("Actor stopped gracefully.");
+        sleep(Duration::from_millis(10)).await; // Give actor time to potentially process internal start
+
+        let stop_result = actor_ref.stop();
+        assert!(stop_result.is_ok());
+
+        // Allow time for the actor to stop
+        sleep(Duration::from_millis(50)).await;
+
+        // Sending after stop should fail
+        let send_result = actor_ref.send(TestEvent("Event after stop".to_string()));
+        assert!(send_result.is_err());
     }
 
     #[tokio::test]
     async fn test_actor_send_event() {
-        let actor = TestActor::default();
-        let (handle, command_sender) = spawn_actor(actor, 10);
+        let initial_state = TestState("Initial".to_string());
+        let actor = TestActor {
+            state: initial_state.clone(),
+            event_count: 0,
+            actor_ref: None,
+        };
+        let actor_ref = spawn_actor(actor, 10);
 
-        let event = TestEvent("Test Event 1".to_string());
-        let cmd = ActorCommand::Event(event.clone());
-        command_sender
-            .send(cmd)
-            .await
-            .expect("Failed to send event");
+        let event1 = TestEvent("Event1".to_string());
+        let send_result = actor_ref.send(event1.clone());
+        assert!(send_result.is_ok());
 
-        // Give the actor some time to process the event
-        time::sleep(Duration::from_millis(50)).await;
+        // Allow time for the event to be processed
+        sleep(Duration::from_millis(50)).await;
 
-        // Stop the actor by dropping the sender
-        drop(command_sender);
-        let _ = handle.await; // Wait for the actor task to finish
-        info!("Event sent and actor processed.");
+        let snapshot = actor_ref.get_snapshot();
+        assert_eq!(
+            snapshot.state,
+            TestState(format!("State after {}", event1.0))
+        );
+        assert_eq!(snapshot.event_count, 1);
+
+        let _ = actor_ref.stop(); // Stop the actor
     }
 
     #[tokio::test]
     async fn test_actor_query() {
-        let actor = TestActor::default();
+        let initial_state = TestState("Initial Query State".to_string());
+        let actor = TestActor {
+            state: initial_state.clone(),
+            event_count: 0,
+            actor_ref: None,
+        };
         let actor_ref = spawn_actor(actor, 10);
 
         let query = TestQuery("MyQuery".to_string());
-        let response = actor_ref.query(query).await.unwrap();
+        let query_result = actor_ref.query(query.clone()).await;
 
-        // Adjust expected response based on the simplified handle_query implementation
-        assert!(response.0.contains("Responding to: MyQuery"));
-        assert!(response.0.contains("Initial State")); // Assuming default state is "Initial State"
+        assert!(query_result.is_ok());
+        let response = query_result.unwrap();
+        assert_eq!(
+            response.0,
+            format!("Response to {} from state {}", query.0, initial_state.0)
+        );
 
-        actor_ref.stop().await.unwrap();
+        let _ = actor_ref.stop(); // Stop the actor
     }
 
     #[tokio::test]
     async fn test_actor_snapshot() {
-        let mut actor = TestActor::default();
-        // Simulate some events
-        actor.handle_event(TestEvent("Inc1".to_string())).await;
-        actor.handle_event(TestEvent("Inc2".to_string())).await;
-
+        let initial_state = TestState("Snapshot State".to_string());
+        let actor = TestActor {
+            state: initial_state.clone(),
+            event_count: 5,
+            actor_ref: None,
+        };
         let actor_ref = spawn_actor(actor, 10);
 
-        // Give time for potential initialization if needed, though handle_event was called directly
-        time::sleep(Duration::from_millis(50)).await;
+        let snapshot = actor_ref.get_snapshot();
+        assert_eq!(snapshot.state, initial_state);
+        assert_eq!(snapshot.event_count, 5);
 
-        let snapshot = actor_ref.get_snapshot(); // Use get_snapshot which reads the Arc<RwLock>
-        assert_eq!(snapshot.state, TestState("Processed: Inc2".to_string())); // Check final state
-        assert_eq!(snapshot.event_count, 2); // Check event count
-
-        actor_ref.stop().await.unwrap();
+        let _ = actor_ref.stop(); // Stop the actor
     }
+
 }

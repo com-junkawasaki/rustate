@@ -50,6 +50,14 @@ pub enum AgentError {
     /// その他のエラー
     #[error("Other error: {0}")]
     Other(String),
+
+    /// アクティブなエピソードが見つからない
+    #[error("No active episode found")]
+    NoActiveEpisode,
+
+    /// エピソードが既にアクティブである
+    #[error("Episode is already active")]
+    EpisodeAlreadyActive,
 }
 
 /// Result type for operations that can fail
