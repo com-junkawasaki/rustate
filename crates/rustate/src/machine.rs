@@ -191,68 +191,51 @@ where
     /// Send an event to the machine
     #[tracing::instrument(skip(self, event), fields(machine_id = %self.name, event = ?event))]
     pub async fn send(&mut self, event: E) -> Result<bool> {
-        let event = event.clone(); // Clone event at the start
-        let current_state_ids = self.current_states.clone(); // Clone current state IDs
+        let event = event.clone();
+        let current_state_ids = self.current_states.clone();
         let mut executed = false;
-
-        // Collect valid transitions first to avoid borrowing issues
         let mut valid_transitions = Vec::new();
+        let current_context = self.context.clone();
 
-        // Create a stream from all transitions
-        let current_context = self.context.clone(); // Read context once
-
-        // Iterate through current states to find transitions
         for state_id in current_state_ids.iter() {
+            // Find direct transitions
             if let Some(state_transitions) = self.transitions.get(state_id) {
                 let stream = stream::iter(state_transitions)
                     .filter(|t| futures::future::ready(t.matches_event(&event)))
                     .then(|t| {
-                        // Clone context for the async block
                         let context_clone = current_context.clone();
-                        // Clone event again for the async block if needed, though reference might be okay now
-                        let event_clone = event.clone(); 
-                        async move {
-                            // Check guard asynchronously
-                            if t.is_enabled(&context_clone, &event_clone).await {
-                                Some(t.clone()) // Clone transition if enabled
-                            } else {
-                                None
-                            }
-                        }
-                    })
-                    .filter_map(|t| futures::future::ready(t)); // Keep only Some(t)
-
-                // Collect transitions from this state
-                let transitions_from_state: Vec<_> = stream.collect().await;
-                valid_transitions.extend(transitions_from_state);
-            }
-
-             // Check for wildcard transitions associated with the state
-            if let Some(wildcard_transitions) = self.transitions.get(&S::from("*".to_string())) { // Assuming S::from("*") works
-                 let stream = stream::iter(wildcard_transitions)
-                    // Wildcard event always matches
-                    .then(|t| {
-                        let context_clone = current_context.clone();
-                        let event_clone = event.clone(); 
+                        let event_clone = event.clone();
                         async move {
                             if t.is_enabled(&context_clone, &event_clone).await {
-                                Some(t.clone()) // Clone transition if enabled
+                                Some(t.clone())
                             } else {
                                 None
                             }
                         }
                     })
                     .filter_map(|t| futures::future::ready(t));
-                let wildcard_transitions_from_state: Vec<_> = stream.collect().await;
-                valid_transitions.extend(wildcard_transitions_from_state);
+                valid_transitions.extend(stream.collect::<Vec<_>>().await);
+            }
+            // Find wildcard transitions for the state
+            if let Some(wildcard_transitions) = self.transitions.get(&S::from("*".to_string())) {
+                let stream = stream::iter(wildcard_transitions)
+                    .then(|t| {
+                        let context_clone = current_context.clone();
+                        let event_clone = event.clone();
+                        async move {
+                            if t.is_enabled(&context_clone, &event_clone).await {
+                                Some(t.clone())
+                            } else {
+                                None
+                            }
+                        }
+                    })
+                    .filter_map(|t| futures::future::ready(t));
+                 valid_transitions.extend(stream.collect::<Vec<_>>().await);
             }
         }
-        
 
-        // TODO: Prioritize transitions (e.g., non-wildcard first?)
-        // For now, take the first valid one found
         if let Some(transition) = valid_transitions.into_iter().next() {
-             // Now execute the transition with mutable self access
             self.execute_transition(&transition, &current_state_ids, &event).await?;
             executed = true;
         }
@@ -265,52 +248,60 @@ where
         &mut self,
         transition: &Transition<S, C, E>,
         current_state_ids: &HashSet<S>,
-        event: &E, // Pass event as reference
+        event: &E,
     ) -> Result<()> {
-        if transition.target.is_none() || transition.transition_type == TransitionType::Internal {
-            transition.execute_actions(&mut self.context, event).await?;
-            return Ok(());
-        }
+        let mut states_to_exit = HashSet::new();
+        let mut states_to_enter = HashSet::new();
+        let target_state_id_opt = transition.target.as_ref();
 
-        let target_state_id = transition.target.as_ref().unwrap();
+        if transition.transition_type == TransitionType::External && target_state_id_opt.is_some() {
+            let target_state_id = target_state_id_opt.unwrap();
+            // Find least common compound ancestor (LCCA)
+            // LCCA calculation might need adjustment based on source state
+            let source_state_id = &transition.source; // Use source from transition
+            let lcca_id_opt = self.find_lcca(source_state_id, target_state_id);
 
-        let lcca_id_str = self.find_lcca(target_state_id, target_state_id);
-
-        let mut exit_queue = VecDeque::new();
-        let mut current_exit: Option<S> = Some(target_state_id.clone());
-        while let Some(state_to_exit) = current_exit {
-            if lcca_id_str.as_deref() == Some(&state_to_exit.to_string()) {
-                break;
+            // Exit states from current up to LCCA
+            let mut exit_queue = VecDeque::from_iter(current_state_ids.clone());
+            while let Some(state_to_check) = exit_queue.pop_front() {
+                 if self.is_descendant(&state_to_check, source_state_id) {
+                     let mut current_exit = Some(state_to_check);
+                     while let Some(state_to_exit) = current_exit {
+                         if Some(&state_to_exit) == lcca_id_opt {
+                             break;
+                         }
+                         states_to_exit.insert(state_to_exit.clone());
+                         current_exit = self.states.get(&state_to_exit).and_then(|s| s.parent.clone());
+                     }
+                 }
             }
-            exit_queue.push_back(state_to_exit.clone());
-            current_exit = self
-                .states
-                .get(&state_to_exit)
-                .and_then(|s| s.parent.clone());
-        }
-
-        let mut entry_queue = VecDeque::new();
-        let mut current_entry: Option<S> = Some(target_state_id.clone());
-        while let Some(state_to_enter) = current_entry {
-            if lcca_id_str.as_deref() == Some(&state_to_enter.to_string()) {
-                break;
+            
+            // Enter states from LCCA down to target
+            let mut entry_queue = VecDeque::new();
+            let mut current_entry = Some(target_state_id.clone());
+            while let Some(state_to_enter) = current_entry {
+                 if Some(&state_to_enter) == lcca_id_opt {
+                     break;
+                 }
+                 entry_queue.push_front(state_to_enter.clone());
+                 current_entry = self.states.get(&state_to_enter).and_then(|s| s.parent.clone());
             }
-            entry_queue.push_front(state_to_enter.clone());
-            current_entry = self
-                .states
-                .get(&state_to_enter)
-                .and_then(|s| s.parent.clone());
+            states_to_enter = entry_queue.into_iter().collect();
+
         }
 
-        for state_id in exit_queue {
-            self.exit_state(&state_id, event).await?;
-        }
+        // Execute exit actions
+        let exit_futures: Vec<_> = states_to_exit.iter().map(|id| self.exit_state(id, event)).collect();
+        let exit_results = futures::future::join_all(exit_futures).await;
+        for result in exit_results { result?; }
 
-        transition.execute_actions(&mut self.context, event).await?;
+        // Execute transition actions
+        transition.execute_actions(&mut self.context.write().await, event).await?;
 
-        for state_id in entry_queue {
-            self.enter_state(&state_id, event).await?;
-        }
+        // Execute entry actions
+        let entry_futures: Vec<_> = states_to_enter.iter().map(|id| self.enter_state(id, event)).collect();
+        let entry_results = futures::future::join_all(entry_futures).await;
+        for result in entry_results { result?; }
 
         Ok(())
     }
@@ -501,24 +492,23 @@ where
     }
 
     /// Find the least common compound ancestor (LCCA) of two states
-    fn find_lcca(&self, state1_id: &S, state2_id: &S) -> Option<String> {
-        let ancestors1 = self.get_ancestors_inclusive(state1_id);
-        let ancestors2 = self.get_ancestors_inclusive(state2_id);
-        let ancestors1_set: HashSet<_> = ancestors1.iter().collect();
-
-        for ancestor_id_str in ancestors2.iter() {
-            if ancestors1_set.contains(ancestor_id_str) {
-                // Convert String back to S (since S: From<String>)
-                // and then borrow to pass &S to states.get()
-                let ancestor_id_s = S::from(ancestor_id_str.clone());
-                if let Some(state) = self.states.get(&ancestor_id_s) {
-                    if state.is_compound() || state.is_parallel() {
-                        return Some(ancestor_id_str.clone());
-                    }
-                }
-            }
+    fn find_lcca(&self, state1_id: &S, state2_id: &S) -> Option<&S> {
+        // Simplified LCCA - assumes direct parent links are sufficient
+        let mut path1 = HashSet::new();
+        let mut current = Some(state1_id);
+        while let Some(id) = current {
+            path1.insert(id);
+            current = self.states.get(id).and_then(|s| s.parent.as_ref());
         }
-        None
+
+        current = Some(state2_id);
+        while let Some(id) = current {
+            if path1.contains(id) {
+                return Some(id);
+            }
+            current = self.states.get(id).and_then(|s| s.parent.as_ref());
+        }
+        None // Should ideally return root if no common ancestor found besides root
     }
 
     /// Get all ancestors of a state, including itself (as Strings)
@@ -591,6 +581,17 @@ where
             }
         }
         depth
+    }
+
+    fn is_descendant(&self, descendant_id: &S, ancestor_id: &S) -> bool {
+        let mut current = Some(descendant_id);
+        while let Some(id) = current {
+            if id == ancestor_id {
+                return true;
+            }
+            current = self.states.get(id).and_then(|s| s.parent.as_ref());
+        }
+        false
     }
 }
 
