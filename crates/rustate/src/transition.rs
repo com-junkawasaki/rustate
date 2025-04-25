@@ -1,21 +1,15 @@
 use crate::guard::{Guard, IntoGuard};
 use crate::{
-    action::{Action, ActionType, IntoAction},
+    action::{Action, IntoAction},
     context::Context,
     error::Result,
-    event::{Event, EventTrait, IntoEvent},
-    state::{State, StateTrait},
+    event::{Event, EventTrait},
+    state::StateTrait,
 };
-use async_recursion::async_recursion;
-use async_trait::async_trait;
-use futures::future::try_join_all;
-use futures::Future;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use std::sync::Arc;
-use thiserror::Error;
 use uuid::Uuid;
 
 /// Represents a transition between states
@@ -157,7 +151,6 @@ where
     }
 
     /// Execute this transition's actions
-    #[async_recursion]
     pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
         for action in &self.actions {
             action.execute(context, event).await;

@@ -1,7 +1,6 @@
-use crate::Error;
-use crate::Error::ActionError;
-use crate::{Context, Event, EventTrait, Result};
-use async_trait::async_trait;
+use crate::Context;
+use crate::EventTrait;
+use crate::Result;
 use futures::future::BoxFuture;
 use serde::{
     de::{self, Visitor},

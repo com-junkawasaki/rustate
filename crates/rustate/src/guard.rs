@@ -1,11 +1,10 @@
-use crate::{Action, Context, Error, Event, EventTrait, IntoAction, Result, State, StateTrait};
-use serde::{Deserialize, Serialize};
+use crate::{Context, Event, EventTrait};
+use serde::Serialize;
 use std::fmt;
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use thiserror::Error;
-use uuid::Uuid;
 
 /// Type alias for the guard predicate function
 pub type GuardPredicate =

@@ -1,16 +1,12 @@
-use crate::actor::Snapshot;
 use crate::event::IntoEvent;
 use crate::{
-    action::ActionType,
     actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
     error::StateError,
     state::{HistoryType, State, StateCollection, StateType},
     transition::TransitionType,
     Action, Context, Error, Event, EventTrait, IntoAction, Result, StateTrait, Transition,
 };
-use async_recursion::async_recursion;
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -19,7 +15,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::str::FromStr;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -290,7 +285,7 @@ where
         }
 
         // Update history and potentially other logic after transition
-        self.update_history();
+        // self.update_history(); // TODO: Implement general history update logic?
 
         Ok(processed)
     }
@@ -351,7 +346,6 @@ where
     }
 
     /// Enter a state and its initial children recursively
-    #[async_recursion]
     async fn enter_state(&mut self, state_id: &S, event: &E) -> Result<()> {
         // Ensure the state exists before proceeding
         let state_exists = self.states.contains(state_id);
@@ -424,7 +418,6 @@ where
     }
 
     /// Exit a state and its active children recursively
-    #[async_recursion]
     async fn exit_state(&mut self, state_id: &S, event: &E) -> Result<()> {
         // --- Handle exiting child states first (recursion/iteration needed) --- Start
         // Clone necessary info to avoid borrowing issues
