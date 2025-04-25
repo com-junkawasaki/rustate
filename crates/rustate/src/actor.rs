@@ -2,7 +2,6 @@ use crate::error::Result;
 use crate::error::StateError;
 use crate::event::EventTrait;
 use crate::state::StateTrait;
-use crate::ActorOptions;
 use crate::{Context, Event, Machine, MachineBuilder, State};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -17,6 +16,13 @@ use tokio::task::JoinHandle;
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
+
+// --- Actor Options ---
+#[derive(Debug, Clone)]
+pub struct ActorOptions<I> {
+    pub id: Option<String>,
+    pub input: Option<I>,
+}
 
 // --- Snapshot ---
 
@@ -97,6 +103,7 @@ pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
 /// Generic Parameters:
 /// - TEvent: The type of event the actor accepts.
 /// - TSnapshot: The type of snapshot the actor emits.
+#[async_trait::async_trait]
 pub trait ActorRef<TEvent, TSnapshot>: Send + Sync + fmt::Debug
 where
     TEvent: EventTrait + Send + fmt::Debug,
@@ -120,6 +127,17 @@ where
 
     /// Clones the ActorRef (typically involves cloning an Arc or channel sender).
     fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>>;
+
+    // Added stop method signature
+    fn stop(&self) -> Result<(), StateError>;
+
+    // Added async query method signature
+    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
+    where
+        TEvent: QueryableEvent; // Add bound here where Query/Response are used
+
+    // Added actor_ref method signature
+    fn actor_ref(&self) -> &dyn ActorRef<TEvent, TSnapshot>;
 }
 
 // Enum for commands sent to the actor
@@ -232,6 +250,10 @@ where
 
     fn get_snapshot(&self) -> TSnapshot {
         self.snapshot.blocking_read().clone()
+    }
+
+    fn actor_ref(&self) -> &dyn ActorRef<TEvent, TSnapshot> {
+        self
     }
 }
 
@@ -388,6 +410,22 @@ where
     Box::new(actor_ref_impl)
 }
 
+// Moved Actor trait definition outside of mod tests
+trait Actor<E, S>
+where
+    E: EventTrait + Send + 'static,
+    S: Clone + Send + Sync + 'static,
+{
+    type Query;
+    type Response;
+
+    async fn handle_event(&mut self, event: E);
+    async fn handle_query(&self, query: Self::Query) -> Self::Response;
+    fn snapshot(&self) -> S;
+    // Add actor_ref method signature (used in run_actor)
+    fn actor_ref(&self) -> &dyn ActorRef<E, S>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,55 +488,46 @@ mod tests {
         event_count: u32,
     }
 
-    #[derive(Clone, Debug, Default)]
     struct TestActor {
         state: TestState,
         event_count: u32,
+        actor_ref: Option<Box<dyn ActorRef<TestEvent, TestSnapshot>>>, // Added to hold the ref
     }
 
-    #[async_trait::async_trait]
-    trait Actor<E, S>
-    where
-        E: EventTrait + Send + 'static,
-        S: Clone + Send + Sync + 'static,
-    {
-        type Query;
-        type Response;
-
-        async fn handle_event(&mut self, event: E);
-        async fn handle_query(&self, query: Self::Query) -> Self::Response;
-        fn snapshot(&self) -> S;
-    }
-
-    #[async_trait::async_trait]
+    // Implement Actor for TestActor
+    #[async_trait]
     impl Actor<TestEvent, TestSnapshot> for TestActor {
         type Query = TestQuery;
         type Response = TestResponse;
 
         async fn handle_event(&mut self, event: TestEvent) {
-            self.state = TestState(format!("Processed: {}", event.0));
+            println!("TestActor handling event: {:?}", event);
             self.event_count += 1;
-            debug!(actor_state = ?self.state, event_count = self.event_count, "Handled event");
+            self.state = TestState(format!("State after event {}", self.event_count));
         }
 
         async fn handle_query(&self, query: Self::Query) -> Self::Response {
-            debug!(query = ?query, "Handling query");
+            println!("TestActor handling query: {:?}", query);
             TestResponse(format!(
-                "Responding to: {} with state {:?}",
-                query.0, self.state
+                "Response to query '{}' from state '{}'",
+                query.0,
+                self.state.0
             ))
         }
 
         fn snapshot(&self) -> TestSnapshot {
-            debug!(state = ?self.state, event_count = self.event_count, "Creating snapshot");
             TestSnapshot {
                 state: self.state.clone(),
                 event_count: self.event_count,
             }
         }
+
+        // Implementation for actor_ref
+        fn actor_ref(&self) -> &dyn ActorRef<TestEvent, TestSnapshot> {
+            self.actor_ref.as_ref().unwrap().as_ref() // Assume it's set during spawn
+        }
     }
 
-    #[async_trait::async_trait]
     impl QueryableEvent for TestEvent {
         type Query = TestQuery;
         type Response = TestResponse;

@@ -8,6 +8,9 @@ pub trait EventTrait: Clone + fmt::Debug + PartialEq + Eq + Send + Sync + 'stati
 
     /// Get the payload data, if any
     fn payload(&self) -> Option<&serde_json::Value>;
+
+    /// Get the name identifier of the event.
+    fn name(&self) -> &str;
 }
 
 /// Represents an event that can trigger state transitions
@@ -52,6 +55,13 @@ impl EventTrait for Event {
 
     fn payload(&self) -> Option<&serde_json::Value> {
         self.payload.as_ref()
+    }
+
+    fn name(&self) -> &str {
+        match &self.event_type[..] {
+            "NULL" => "NULL",
+            _ => &self.event_type,
+        }
     }
 }
 

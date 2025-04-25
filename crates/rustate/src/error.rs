@@ -1,5 +1,8 @@
 use std::fmt;
 use thiserror::Error;
+// StateId is likely String or a similar type based on StateTrait
+// Remove the direct import if StateId is not a distinct exported type
+// use crate::state::StateId; 
 
 /// Errors that can occur in the RuState library
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -91,6 +94,21 @@ pub enum StateError {
     /// External error
     #[error("External error: {0}")]
     ExternalError(String),
+    /// Serialization error
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    /// Invalid state ID type
+    #[error("Invalid state ID type")]
+    InvalidStateIdType,
+    /// Type mismatch
+    #[error("Type mismatch: {0}")]
+    TypeMismatch(String),
+    /// History state not found for state
+    #[error("History state not found for state: {0}")]
+    HistoryStateNotFound(String),
+    /// Failed to spawn actor task
+    #[error("Failed to spawn actor task: {0}")]
+    SpawnError(String),
 }
 
 /// Result type for operations that can fail

@@ -9,6 +9,7 @@ use crate::{
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use futures::Future;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
@@ -26,8 +27,8 @@ use uuid::Uuid;
 pub struct Transition<S = String, C = Context, E = Event>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
 {
     /// Source state id
     pub source: S,
@@ -58,8 +59,8 @@ where
 impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
 {
     /// Create a new transition
     pub fn new(
@@ -69,7 +70,10 @@ where
         guard: Option<Guard<C, E>>,
         actions: Vec<Action<C, E>>,
         transition_type: TransitionType,
-    ) -> Self {
+    ) -> Self
+    where
+        E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
+    {
         Self {
             id: Uuid::new_v4(),
             source: source.into(),
@@ -100,23 +104,22 @@ where
         }
     }
 
-    /// Create a new internal transition (no exit/entry actions, just the transition actions)
-    pub fn internal_transition<SId: Into<String>, EIn: IntoEvent>(state_id: SId, event: EIn) -> Self
+    /// Creates a new internal transition.
+    pub fn internal_transition(source: impl Into<S>, event: E) -> Self
     where
-        S: From<String>,
+        S: 'static,
+        C: Clone + Send + Sync + 'static,
+        E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
     {
-        Self {
-            source: S::from(state_id.into()),
-            target: None,
-            event: Some(event.into_event().into()),
-            guard: None,
-            actions: Vec::new(),
-            id: uuid::Uuid::new_v4(),
-            transition_type: TransitionType::Internal,
-            _phantom_s: PhantomData,
-            _phantom_c: PhantomData,
-            _phantom_e: PhantomData,
-        }
+        // Use Transition::new for internal transitions as well
+        Transition::new(
+            source,       // source
+            None,         // target (None for internal)
+            Some(event),  // event
+            None,         // guard
+            vec![],       // actions
+            TransitionType::Internal, // transition_type
+        )
     }
 
     /// Add a guard condition to this transition
@@ -155,7 +158,7 @@ where
 
     pub async fn check_guard(&self, context: &C, event: &E) -> bool {
         match &self.guard {
-            Some(guard) => guard.evaluate(context, event).await,
+            Some(guard) => guard.check(context, event),
             None => true, // No guard means always true
         }
     }
@@ -163,22 +166,12 @@ where
 
 impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
-    S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Eq
-        + From<Event>
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug,
+    S: StateTrait + fmt::Debug,
+    C: Clone + Send + Sync + 'static + fmt::Debug,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
-            .field("id", &self.id)
             .field("source", &self.source)
             .field("target", &self.target)
             .field("event", &self.event)
@@ -191,24 +184,25 @@ where
 
 impl<S, C, E> PartialEq for Transition<S, C, E>
 where
-    S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
+    S: StateTrait + Eq,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
-            && self.event == other.event
             && self.target == other.target
-            && self.actions.len() == other.actions.len()
-            && self.guard.is_some() == other.guard.is_some()
+            && self.event == other.event
+            && self.guard == other.guard
+            && self.actions == other.actions
+            && self.transition_type == other.transition_type
     }
 }
 
 impl<S, C, E> Eq for Transition<S, C, E>
 where
-    S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
+    S: StateTrait + Eq,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
 {
 }
 
@@ -219,109 +213,31 @@ pub enum TransitionType {
     Internal, // Stays within the source state, only executes actions
 }
 
-/// Represents a guard condition for a transition.
-#[derive(Clone)] // Guards need to be Clone
-pub struct Guard<C, E>
-where
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    #[allow(clippy::type_complexity)]
-    condition: Arc<dyn Fn(&C, &E) -> futures::future::BoxFuture<'static, bool> + Send + Sync>,
-    _phantom_c: std::marker::PhantomData<C>,
-    _phantom_e: std::marker::PhantomData<E>,
+trait TransitionTrait<C, E> {
+    async fn is_enabled(&self, context: &C, event: &E) -> bool;
+    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>;
 }
 
-// Need to manually implement Debug because BoxFuture is not Debug
-impl<C, E> fmt::Debug for Guard<C, E>
+impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
 where
-    C: Clone + Send + Sync + Default + 'static,
+    S: StateTrait + Send + Sync + 'static,
+    C: ContextTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Guard").finish_non_exhaustive()
-    }
-}
-
-impl<C, E> Guard<C, E>
-where
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    /// Creates a new synchronous guard.
-    pub fn new(sync_fn: fn(&C, &E) -> bool) -> Self {
-        let condition = Arc::new(move |ctx: &C, evt: &E| {
-            let result = sync_fn(ctx, evt);
-            Box::pin(async move { result }) as futures::future::BoxFuture<'static, bool>
-        });
-        Self {
-            condition,
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+    /// Check if the transition guard allows the transition
+    async fn is_enabled(&self, context: &C, event: &E) -> bool {
+        if let Some(guard) = &self.guard {
+            guard.check(context, event).await
+        } else {
+            true
         }
     }
 
-    /// Creates a new asynchronous guard.
-    pub fn new_async<F, Fut>(async_fn: F) -> Self
-    where
-        F: Fn(&C, &E) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = bool> + Send + 'static,
-    {
-        let condition = Arc::new(move |ctx: &C, evt: &E| {
-            Box::pin(async_fn(ctx, evt)) as futures::future::BoxFuture<'static, bool>
-        });
-        Self {
-            condition,
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+    /// Execute all actions associated with this transition
+    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
+        for action in &self.actions {
+            action.execute(context, event).await?;
         }
-    }
-
-    /// Evaluates the guard condition.
-    pub async fn evaluate(&self, context: &C, event: &E) -> bool {
-        (self.condition)(context, event).await
-    }
-}
-
-pub trait IntoGuard<C, E>
-where
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    fn into_guard(self) -> Guard<C, E>;
-}
-
-// Implement IntoGuard for synchronous closures
-impl<C, E, F> IntoGuard<C, E> for F
-where
-    F: Fn(&C, &E) -> bool + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    fn into_guard(self) -> Guard<C, E> {
-        Guard::new(move |ctx, evt| self(ctx, evt))
-    }
-}
-
-// Implement IntoGuard for asynchronous closures
-impl<F, Fut, C, E> IntoGuard<C, E> for F
-where
-    F: Fn(&C, &E) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = bool> + Send + 'static,
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    fn into_guard(self) -> Guard<C, E> {
-        Guard::new_async(move |ctx, evt| self(ctx, evt))
-    }
-}
-
-impl<C, E> IntoGuard<C, E> for Guard<C, E>
-where
-    C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    fn into_guard(self) -> Guard<C, E> {
-        self
+        Ok(())
     }
 }

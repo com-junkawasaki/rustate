@@ -7,6 +7,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use crate::Error;
 
 /// Type alias for the action executor function
 pub type ActionExecutor =
@@ -95,7 +96,9 @@ where
 
     /// Execute the action
     pub async fn execute(&self, context: &mut C, event: &E) -> Result<(), Error> {
-        (self.execute_fn)(context, event).await
+        let fut = (self.execute_fn)(context, event);
+        fut.await
+            .map_err(|e| Error::ActionFailed(format!("Action '{}' failed: {}", self.name, e)))
     }
 }
 

@@ -6,6 +6,7 @@ use crate::{
     state::{HistoryType, State, StateCollection, StateType},
     transition::TransitionType,
     Action, Context, Error, Event, EventTrait, IntoAction, Result, StateTrait, Transition,
+    context::ContextTrait,
 };
 use async_recursion::async_recursion;
 use async_trait::async_trait;
@@ -18,6 +19,7 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::str::FromStr;
+use crate::actor::Snapshot;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,17 +29,17 @@ use std::str::FromStr;
 ))]
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
-    C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
     E: EventTrait
         + Send
         + Sync
         + 'static
+        + Clone
         + Default
         + Eq
-        + From<Event>
-        + Clone
         + Serialize
-        + DeserializeOwned,
+        + DeserializeOwned
+        + IntoEvent,
     S: StateTrait
         + Display
         + Eq
@@ -46,10 +48,8 @@ where
         + Sync
         + 'static
         + Clone
-        + From<String>
-        + Serialize
-        + for<'de> DeserializeOwned,
-    O: Clone + Send + Sync + 'static,
+        + From<String>,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
     /// Name of the machine
     pub name: String,
@@ -86,17 +86,17 @@ where
 
 impl<C, E, S, O> Machine<C, E, S, O>
 where
-    C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
     E: EventTrait
         + Send
         + Sync
         + 'static
+        + Clone
         + Default
         + Eq
-        + From<Event>
-        + Clone
         + Serialize
-        + DeserializeOwned,
+        + DeserializeOwned
+        + IntoEvent,
     S: StateTrait
         + Display
         + Eq
@@ -105,10 +105,8 @@ where
         + Sync
         + 'static
         + Clone
-        + From<String>
-        + Serialize
-        + for<'de> DeserializeOwned,
-    O: Clone + Send + Sync + 'static,
+        + From<String>,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
     /// Create a new state machine instance from a builder
     pub async fn new(builder: MachineBuilder<C, E, S, O>) -> Result<Self> {
@@ -196,69 +194,57 @@ where
 
     /// Send an event to the machine
     pub async fn send<EV: IntoEvent + Send>(&mut self, event_in: EV) -> Result<bool> {
-        let event: E = event_in.into_event().into();
+        let event = event_in.into_event();
+        let event_ref: &E = &event;
         let mut processed = false;
 
         let current_state_ids: Vec<S> = self.current_states.iter().cloned().collect();
 
+        let mut enabled_transition: Option<(&Transition<S, C, E>, &S)> = None;
+
+        // Find transitions that match the current state and event
         for state_id in current_state_ids {
-            if self.process_state_event(&state_id, &event.clone()).await? {
-                processed = true;
+            if let Some(transitions) = self.transitions.get(&state_id) {
+                for t in transitions {
+                    // Check event match first
+                    let event_matches = t.event.as_ref().map_or(false, |te| te.name() == event_ref.name());
+                    if event_matches {
+                        // Check guard condition if event matches
+                        if t.is_enabled(&self.context, event_ref).await {
+                            enabled_transition = Some((t, &state_id));
+                            break; // Found the highest priority transition for this state
+                        }
+                    }
+                }
+            }
+            if enabled_transition.is_some() {
+                break; // Found a transition from one of the current states
             }
         }
 
-        Ok(processed)
-    }
-
-    /// Process an event for a specific state
-    #[async_recursion]
-    async fn process_state_event(&mut self, state_id: &S, event: &E) -> Result<bool> {
-        let state = self
-            .states
-            .get(state_id)
-            .ok_or_else(|| Error::StateNotFound(state_id.to_string()))?;
-
-        let state_transitions = state.transitions();
-        let mut enabled_transition: Option<(&Transition<S, C, E>, &S)> = None;
-
-        let mut current_check_id: Option<S> = Some(state_id.clone());
-        while let Some(check_id) = current_check_id {
-            if let Some(check_state) = self.states.get(&check_id) {
-                if let Some(transitions_on_event) = check_state.transitions().get(&event.name()) {
-                    for t in transitions_on_event {
-                        if t.is_enabled(&self.context, event).await {
-                            let new_depth = self.get_state_depth(&check_id);
-                            if enabled_transition.map_or(true, |(_, et_src)| {
-                                new_depth >= self.get_state_depth(et_src)
-                            }) {
-                                enabled_transition = Some((t, &check_id));
+        // Also check for transitions without a specific event (always triggers)
+        if enabled_transition.is_none() {
+            for current_state_id in &self.current_states {
+                if let Some(transitions) = self.transitions.get(current_state_id) {
+                    for t in transitions {
+                        if t.event.is_none() { // Check for transitions with no event specified
+                            if t.is_enabled(&self.context, event_ref).await {
+                                enabled_transition = Some((t, current_state_id));
+                                break;
                             }
                         }
                     }
                 }
-                for t in &self.transitions {
-                    if t.source == check_id
-                        && t.event == event.name()
-                        && t.is_enabled(&self.context, event).await
-                    {
-                        let new_depth = self.get_state_depth(&check_id);
-                        if enabled_transition.map_or(true, |(_, et_src)| {
-                            new_depth >= self.get_state_depth(et_src)
-                        }) {
-                            enabled_transition = Some((t, &check_id));
-                        }
-                    }
+                if enabled_transition.is_some() {
+                    break;
                 }
-                current_check_id = check_state.parent.clone();
-            } else {
-                break;
             }
         }
 
         for t in &self.transitions {
             if t.source.to_string() == "*"
-                && t.event == event.name()
-                && t.is_enabled(&self.context, event).await
+                && t.event == event_ref.name()
+                && t.is_enabled(&self.context, event_ref).await
             {
                 if enabled_transition.is_none() {
                     // Let's skip wildcards for now until source representation is clear.
@@ -268,13 +254,39 @@ where
             }
         }
 
-        if let Some((transition, source_s)) = enabled_transition {
-            self.execute_transition(&transition.clone(), source_s, event)
-                .await?;
-            Ok(true)
+        if let Some((transition, source_state_id)) = enabled_transition {
+            self.execute_transition(&transition.clone(), source_state_id, event_ref).await?;
+            processed = true;
         } else {
-            Ok(false)
+            // Check for wildcard transitions if no specific transition was found
+            for t in &self.transitions {
+                // Check if source is wildcard "*"
+                if t.source.to_string() == "*" {
+                    // Check event match
+                    let event_matches = t.event.as_ref().map_or(false, |te| te.name() == event_ref.name());
+                    if event_matches {
+                         // Check guard
+                        if t.is_enabled(&self.context, event_ref).await {
+                            // Execute wildcard transition (source state doesn't matter here)
+                            // Need a representative source state ID for history, maybe initial?
+                            self.execute_transition(&t.clone(), &self.initial.clone(), event_ref).await?;
+                            processed = true;
+                            break; // Assume only one wildcard transition executes
+                        }
+                    }
+                }
+            }
+
+            if !processed {
+                // No transition found for this event in the current states or via wildcard
+                 return Ok(false);
+            }
         }
+
+        // Update history and potentially other logic after transition
+        self.update_history();
+
+        Ok(processed)
     }
 
     /// Execute a transition
@@ -302,7 +314,7 @@ where
             exit_queue.push_back(state_to_exit.clone());
             current_exit = self
                 .states
-                .get(&state_to_exit)
+                .get(state_to_exit)
                 .and_then(|s| s.parent.clone());
         }
 
@@ -315,7 +327,7 @@ where
             entry_queue.push_front(state_to_enter.clone());
             current_entry = self
                 .states
-                .get(&state_to_enter)
+                .get(state_to_enter)
                 .and_then(|s| s.parent.clone());
         }
 
@@ -412,7 +424,7 @@ where
     }
 
     /// Execute entry actions for a state
-    async fn execute_entry_actions(&self, state_id: &S, event: &E) -> Result<(), ActionError> {
+    async fn execute_entry_actions(&self, state_id: &S, event: &E) -> Result<(), Error> {
         if let Some(actions) = self.entry_actions.get(&state_id.to_string()) {
             for action in actions {
                 action.execute(&mut self.context.clone(), event).await?;
@@ -422,7 +434,7 @@ where
     }
 
     /// Execute exit actions for a state
-    async fn execute_exit_actions(&self, state_id: &S, event: &E) -> Result<(), ActionError> {
+    async fn execute_exit_actions(&self, state_id: &S, event: &E) -> Result<(), Error> {
         if let Some(actions) = self.exit_actions.get(&state_id.to_string()) {
             for action in actions {
                 action.execute(&mut self.context.clone(), event).await?;
@@ -520,9 +532,25 @@ where
         false
     }
 
-    /// Serialize the machine state to JSON
+    /// Returns a list of ancestor state IDs for a given state ID.
+    fn get_ancestors(&self, state_id: &S) -> Vec<S> {
+        let mut ancestors = Vec::new();
+        let mut current_id = state_id.clone();
+
+        while let Some(state) = self.states.get(&current_id) { // Use public get method
+            if let Some(parent_id) = &state.parent { // Access parent field
+                ancestors.push(parent_id.clone());
+                current_id = parent_id.clone();
+            } else {
+                break; // Reached root state
+            }
+        }
+        ancestors // Return the collected ancestors
+    }
+
+    /// Serializes the machine definition to a JSON string.
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).map_err(Error::Serialization)
+        serde_json::to_string_pretty(self).map_err(|e| StateError::Serialization(e.to_string()))
     }
 
     /// Get the depth of a state in the hierarchy
@@ -539,36 +567,24 @@ where
         }
         depth
     }
-
-    /// Get ancestors of a state (excluding self)
-    fn get_ancestors(&self, state_id: &S) -> Vec<S> {
-        let mut ancestors = Vec::new();
-        let mut current_id = self.get_parent_id(state_id);
-        while let Some(id) = current_id {
-            ancestors.push(id.clone());
-            current_id = self.get_parent_id(&id);
-        }
-        ancestors
-    }
 }
 
 /// Builder for creating Machine instances
 #[derive(Clone)]
 pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
-    C: Clone + Send + Sync + Default + 'static,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
     E: EventTrait
         + Send
         + Sync
         + 'static
+        + Clone
         + Default
         + Eq
-        + From<Event>
-        + Clone
         + Serialize
         + DeserializeOwned,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
-    O: Clone + Send + Sync + 'static,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
     /// Name of the machine
     pub name: String,
@@ -591,29 +607,18 @@ where
 
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
-    C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
     E: EventTrait
         + Send
         + Sync
         + 'static
+        + Clone
         + Default
         + Eq
-        + From<Event>
-        + Clone
         + Serialize
         + DeserializeOwned,
-    S: StateTrait
-        + Display
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + From<String>
-        + Serialize
-        + for<'de> DeserializeOwned,
-    O: Clone + Send + Sync + 'static,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
     /// Create a new MachineBuilder
     pub fn new(name: impl Into<String>, initial: S) -> Self {
@@ -673,23 +678,11 @@ where
 }
 
 /// Snapshot of the machine state for actors
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "S: Serialize, C: Serialize, O: Serialize",
-    deserialize = "S: DeserializeOwned, C: DeserializeOwned, O: DeserializeOwned"
-))]
-pub struct MachineSnapshot<C, S, O = ()>
-where
-    S: StateTrait + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
-    O: Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
-{
-    #[serde(flatten)]
-    inner: ActorSnapshot<C, O>,
-    current_states: HashSet<S>,
-    #[serde(default)]
-    history_states: HashMap<String, S>,
-    #[serde(skip)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineSnapshot<C, S, O> {
+    pub inner: ActorSnapshot<C, O>,
+    pub current_states: HashSet<S>,
+    pub history_states: HashMap<S, HashSet<S>>,
     _phantom_s: PhantomData<S>,
 }
 
@@ -720,44 +713,39 @@ where
 }
 
 #[async_trait]
-impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E> for Machine<C, E, S, O>
+impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E, O> for Machine<C, E, S, O>
 where
-    C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
+    S: StateTrait + 'static + Send + Sync,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
     E: EventTrait
         + Send
         + Sync
         + 'static
+        + Clone
         + Default
         + Eq
-        + From<Event>
-        + Clone
         + Serialize
-        + DeserializeOwned,
-    S: StateTrait
-        + Display
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + From<String>
-        + Serialize
-        + for<'de> DeserializeOwned,
-    O: Clone + Send + Sync + 'static + Default + Serialize + for<'de> DeserializeOwned,
+        + DeserializeOwned
+        + IntoEvent,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
-    fn get_initial_snapshot(&self, _input: Option<()>) -> MachineSnapshot<C, S, O> {
+    type Input = Option<O>;
+    type Query = String;
+    type Response = Result<MachineSnapshot<C, S, O>, StateError>;
+
+    fn get_initial_snapshot(&self, input: Option<O>) -> MachineSnapshot<C, S, O> {
         let initial_state_id = self.initial.clone();
         let mut initial_states = HashSet::new();
-        initial_states.insert(initial_state_id);
+        initial_states.insert(initial_state_id.clone());
+
+        let initial_context = self.context.clone();
 
         MachineSnapshot {
             inner: ActorSnapshot {
-                context: self.context.clone(),
-                value: serde_json::to_value(&initial_states).unwrap_or(Value::Null),
-                output: None,
+                context: initial_context,
+                value: serde_json::to_value(&initial_state_id).unwrap_or(Value::Null),
+                output: input.or_else(O::default),
                 status: ActorStatus::Active,
-                error: None,
             },
             current_states: initial_states,
             history_states: self.history.clone(),
@@ -767,42 +755,53 @@ where
 
     async fn transition(
         &self,
-        mut snapshot: MachineSnapshot<C, S, O>,
+        snapshot: MachineSnapshot<C, S, O>,
         event: E,
-    ) -> Result<MachineSnapshot<C, S, O>> {
-        println!(
-            "Transitioning: Current {:?}, Event: {}",
-            snapshot.current_states,
-            event.name()
-        );
-
+    ) -> Result<MachineSnapshot<C, S, O>, StateError> {
+        let mut current_snapshot = snapshot;
         let mut temp_machine = self.clone();
-        temp_machine.current_states = snapshot.current_states.clone();
-        temp_machine.context = snapshot.inner.context.clone();
-        temp_machine.history = snapshot.history_states.clone();
+        temp_machine.current_states = current_snapshot.current_states.clone();
+        temp_machine.context = current_snapshot.inner.context.clone();
+        temp_machine.history = current_snapshot.history_states.clone();
 
         let processed = temp_machine.send(event.clone()).await?;
 
-        println!("Transitioned: New {:?}", temp_machine.current_states);
+        if processed {
+            current_snapshot.current_states = temp_machine.current_states;
+            current_snapshot.inner.context = temp_machine.context;
+            current_snapshot.history_states = temp_machine.history;
+            current_snapshot.inner.value =
+                serde_json::to_value(&current_snapshot.current_states).unwrap_or(Value::Null);
+            current_snapshot.inner.output = current_snapshot
+                .current_states
+                .iter()
+                .find_map(|state_id| self.outputs.get(state_id))
+                .cloned();
 
-        snapshot.current_states = temp_machine.current_states;
-        snapshot.inner.context = temp_machine.context;
-        snapshot.history_states = temp_machine.history;
-        snapshot.inner.value =
-            serde_json::to_value(&snapshot.current_states).unwrap_or(Value::Null);
-        snapshot.inner.output = None;
-        snapshot.inner.status = ActorStatus::Active;
-        snapshot.inner.error = None;
-
-        if snapshot
-            .current_states
-            .iter()
-            .any(|s| self.states.get(s).map_or(false, |st| st.is_final()))
-        {
-            snapshot.inner.status = ActorStatus::Done;
-            snapshot.inner.output = Some(O::default());
+            if current_snapshot
+                .current_states
+                .iter()
+                .any(|s| self.states.get(s).map_or(false, |st| st.is_final()))
+            {
+                current_snapshot.inner.status = ActorStatus::Done;
+                if current_snapshot.inner.output.is_none() {
+                     current_snapshot.inner.output = Some(O::default());
+                }
+            } else {
+                 current_snapshot.inner.status = ActorStatus::Active;
+            }
         }
 
-        Ok(snapshot)
+        Ok(current_snapshot)
+    }
+
+    fn on_error(
+        &self,
+        error: StateError,
+        mut snapshot: MachineSnapshot<C, S, O>,
+    ) -> MachineSnapshot<C, S, O> {
+        eprintln!("Actor state machine error: {:?}", error);
+        snapshot.inner.status = ActorStatus::Error;
+        snapshot
     }
 }
