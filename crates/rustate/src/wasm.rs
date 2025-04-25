@@ -12,8 +12,8 @@ use crate::{
     Machine, // Use crate::Machine
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use serde_json::json;
+use serde_json; // Import the crate itself
+use serde_json::Value; // Add this import
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
@@ -141,30 +141,30 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
         "trafficLight",
         "green".to_string(),
     )
-    .context(Context::new()) // Fix Context::new call
+    .context(Context::new()) // Call with zero args
     .state(green)
     .state(yellow)
     .state(red)
     .transition(green_to_yellow)
     .transition(yellow_to_red)
     .transition(red_to_green)
-    // Pass closures directly
+    // Change closure signature to Fn(&C, &E)
     .on_entry(
         &"green".to_string(),
-        |_ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
-            console_log!("TRAFFIC LIGHT: Turned Green");
+        |ctx: &Context, _event: &TrafficLightEvent| {
+            console_log!("TRAFFIC LIGHT: Turned Green (Context: {:?})", ctx);
         },
     )
     .on_entry(
         &"yellow".to_string(),
-        |_ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
-            console_log!("TRAFFIC LIGHT: Turned Yellow");
+        |ctx: &Context, _event: &TrafficLightEvent| {
+             console_log!("TRAFFIC LIGHT: Turned Yellow (Context: {:?})", ctx);
         },
     )
     .on_entry(
         &"red".to_string(),
-        |_ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
-            console_log!("TRAFFIC LIGHT: Turned Red");
+        |ctx: &Context, _event: &TrafficLightEvent| {
+             console_log!("TRAFFIC LIGHT: Turned Red (Context: {:?})", ctx);
         },
     )
     .build()
@@ -189,7 +189,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
         },
     );
 
-    let initial_context = Context::new();
+    let initial_context = Context::new(); // Call with zero args
     initial_context.set("track", 1).ok();
 
     MachineBuilder::<Context, MusicPlayerEvent, String, ()>::new(
@@ -204,38 +204,33 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
     .state(normal_speed)
     .state(double_speed)
     .state(paused)
-    // Pass closures directly to on_entry/on_exit
+    // Change closure signature to Fn(&C, &E)
     .on_entry(
         &"player".to_string(),
-        |_ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
-            console_log!("MUSIC PLAYER: Powered On");
+        |ctx: &Context, _event: &MusicPlayerEvent| {
+            console_log!("MUSIC PLAYER: Powered On (Context: {:?})", ctx);
         },
     )
     .on_exit(
         &"player".to_string(),
-        |_ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
-            console_log!("MUSIC PLAYER: Powered Off");
+        |ctx: &Context, _event: &MusicPlayerEvent| {
+            console_log!("MUSIC PLAYER: Powered Off (Context: {:?})", ctx);
         },
     )
     .on_entry(
         &"playing".to_string(),
-        |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
-            let ctx_read = ctx_arc.read().await;
-            let track_result: Option<Result<usize, _>> = ctx_read.get("track");
+        |ctx: &Context, _event: &MusicPlayerEvent| {
+            let track_result: Option<Result<usize, _>> = ctx.get("track");
             let track = track_result.map(|r| r.unwrap_or(0)).unwrap_or(0);
-            console_log!("MUSIC PLAYER: Playing track {}", track);
+            console_log!("MUSIC PLAYER: Playing track {} (Context: {:?})", track, ctx);
         },
     )
-    // Add transitions WITH closures directly if Transition::new allows?
-    // Otherwise, create Action structs and pass them in the Vec
     .transition(Transition::new(
         "playing".to_string(),
         Some("playing".to_string()),
         Some(MusicPlayerEvent::NextTrack),
         None,
-        // Pass closure directly if IntoAction is impl'd for it
-        // Otherwise create Action::from_fn here or pass pre-made action
-        vec![Action::from_fn( // Create Action struct for transition
+        vec![Action::from_fn( // Transition actions still use Arc<RwLock<>>
             move |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
                 let mut ctx_write = ctx_arc.write().await;
                 let current_track_result: Option<Result<usize, _>> = ctx_write.get("track");
@@ -252,7 +247,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
         Some("playing".to_string()),
         Some(MusicPlayerEvent::PrevTrack),
         Some(is_track_valid_guard.clone()),
-        vec![Action::from_fn( // Create Action struct for transition
+        vec![Action::from_fn( // Transition actions still use Arc<RwLock<>>
             move |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
                 let mut ctx_write = ctx_arc.write().await;
                 let current_track_result: Option<Result<usize, _>> = ctx_write.get("track");
