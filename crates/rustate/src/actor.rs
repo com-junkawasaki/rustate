@@ -1,9 +1,9 @@
 #![allow(dead_code)] // Allow dead code for now during refactoring
 
-use crate::error::{Error as CrateError, Result, StateError};
-use crate::event::EventTrait;
-use crate::state::StateTrait;
-use crate::Context;
+use crate::context::Context;
+use crate::error::{self as CrateErrorModule, Result, StateError};
+use crate::event::{Event, EventTrait, QueryableEvent};
+use crate::state::{State, StateId, StateTrait, StateType};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
@@ -73,14 +73,14 @@ pub trait ActorLogic<S, E, I, Q, R>: Send + Sync {
         state: &mut S,
         context: &Context,
         event: &E,
-    ) -> Result<(), CrateError>;
-    async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Result<R, CrateError>;
+    ) -> Result<(), CrateErrorModule>;
+    async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Result<R, CrateErrorModule>;
     async fn decide(
         &self,
         state: &S,
         context: &Context,
         snapshot: &Option<Snapshot<Context>>,
-    ) -> Result<Vec<E>, CrateError>;
+    ) -> Result<Vec<E>, CrateErrorModule>;
     // Placeholder methods to match Machine impl ActorLogic usage
     fn get_initial_snapshot(&self, input: Option<I>) -> S; // Assuming S is the snapshot type here
     async fn transition(&self, snapshot: S, event: E) -> Result<S, StateError>; // Assuming S is the snapshot type
@@ -375,7 +375,7 @@ mod tests {
         create_actor, run_actor, ActorCommand, ActorImpl, ActorLogic, ActorRefImpl, ActorTrait,
     }; // Import necessary items
     use crate::actor::Snapshot;
-    use crate::error::{Error as CrateError, StateError};
+    use crate::error::{self as CrateErrorModule, StateError};
     use crate::event::EventTrait;
     use crate::state::{State, StateTrait, StateType}; // Import StateTrait
     use crate::{Context, Event as CrateEvent, QueryableEvent}; // Import EventTrait
@@ -475,7 +475,7 @@ mod tests {
             state: &mut TestState,
             _context: &Context,
             event: &TestEvent,
-        ) -> Result<(), CrateError> {
+        ) -> Result<(), CrateErrorModule> {
             match event {
                 TestEvent::Increment => state.count += 1,
                 TestEvent::Decrement => state.count -= 1,
@@ -489,7 +489,7 @@ mod tests {
             state: &TestState,
             _context: &Context,
             query: TestQuery,
-        ) -> Result<TestResponse, CrateError> {
+        ) -> Result<TestResponse, CrateErrorModule> {
             match query {
                 TestQuery::GetCount => Ok(TestResponse(format!("Count: {}", state.count))),
                 TestQuery::GetName => Ok(TestResponse(format!("Name: {}", state.name))),
@@ -501,7 +501,7 @@ mod tests {
             _state: &TestState,
             _context: &Context,
             _snapshot: &Option<Snapshot<Context>>,
-        ) -> Result<Vec<TestEvent>, CrateError> {
+        ) -> Result<Vec<TestEvent>, CrateErrorModule> {
             Ok(vec![])
         }
 

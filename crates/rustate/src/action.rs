@@ -3,16 +3,30 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 /// Represents an action to be executed
 pub type ActionFn<C, E> =
-    Box<dyn Fn(&mut C, &E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+    Arc<dyn Fn(&mut C, &E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Represents an action to be executed
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Action<C = Context, E = crate::Event> {
     // Use crate::Event
     /// Type of the action (e.g., function call, event emission)
+    #[serde(skip)]
+    #[serde(default = "default_action_type")]
     pub action_type: ActionType<C, E>,
+}
+
+// Default function needed for serde skip/default
+fn default_action_type<C, E>() -> ActionType<C, E> {
+    // Provide a default, perhaps indicating it's non-serializable
+    // This is tricky because ActionFn needs a concrete function.
+    // For now, let's panic or return a placeholder if needed, though ideally, this default
+    // is only used if deserialization encounters a missing field.
+    // A better approach might involve custom Serialize/Deserialize impls.
+    ActionType::Function(Arc::new(|_, _| Box::pin(async {})))
 }
 
 impl<C, E> Debug for Action<C, E> {
@@ -34,16 +48,9 @@ where
         F: Fn(&mut C, &E) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let action_fn: ActionFn<C, E> = Box::new(move |ctx, evt| Box::pin(f(ctx, evt)));
+        let action_fn: ActionFn<C, E> = Arc::new(move |ctx, evt| Box::pin(f(ctx, evt)));
         Self {
             action_type: ActionType::Function(action_fn),
-        }
-    }
-
-    /// Create a new action that sends an event
-    pub fn send(event: E) -> Self {
-        Self {
-            action_type: ActionType::SendEvent(event),
         }
     }
 
@@ -51,19 +58,18 @@ where
     pub async fn execute(&self, context: &mut C, event: &E) {
         match &self.action_type {
             ActionType::Function(f) => f(context, event).await,
-            ActionType::SendEvent(_event_to_send) => {
-                // Logic to actually send the event needs context/actor reference
-                eprintln!("SendEvent action needs implementation to dispatch event");
-            }
         }
     }
 }
 
 /// Different types of actions
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum ActionType<C, E> {
+    #[serde(skip)]
     Function(ActionFn<C, E>),
-    SendEvent(E), // Action to send an event back to the machine/actor
 }
+
+impl<C, E> Eq for ActionType<C, E> {}
 
 /// Trait to convert various types into an Action
 pub trait IntoAction<C, E> {
@@ -80,16 +86,5 @@ where
 {
     fn into_action(self) -> Action<C, E> {
         Action::from_fn(self)
-    }
-}
-
-// Implement IntoAction for sending an event
-impl<C, E> IntoAction<C, E> for E
-where
-    E: EventTrait + Send + Sync + 'static + Clone,
-    C: Send + Sync + 'static,
-{
-    fn into_action(self) -> Action<C, E> {
-        Action::send(self)
     }
 }
