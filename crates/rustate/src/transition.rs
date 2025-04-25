@@ -28,7 +28,15 @@ pub struct Transition<S = String, C = Context, E = Event>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned,
 {
     /// Source state id
     pub source: S,
@@ -60,7 +68,15 @@ impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned,
 {
     /// Create a new transition
     pub fn new(
@@ -71,8 +87,6 @@ where
         actions: Vec<Action<C, E>>,
         transition_type: TransitionType,
     ) -> Self
-    where
-        E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
     {
         Self {
             id: Uuid::new_v4(),
@@ -109,7 +123,15 @@ where
     where
         S: 'static,
         C: Clone + Send + Sync + 'static,
-        E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
+        E: EventTrait
+            + Send
+            + Sync
+            + 'static
+            + Clone
+            + Eq
+            + Debug
+            + Serialize
+            + DeserializeOwned,
     {
         // Use Transition::new for internal transitions as well
         Transition::new(
@@ -167,8 +189,16 @@ where
 impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
     S: StateTrait + fmt::Debug,
-    C: Clone + Send + Sync + 'static + fmt::Debug,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
+    C: Clone + Send + Sync + 'static + Debug,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
@@ -185,15 +215,21 @@ where
 impl<S, C, E> PartialEq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
-    C: Clone + Send + Sync + 'static + PartialEq,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
             && self.target == other.target
             && self.event == other.event
-            && self.guard == other.guard
-            && self.actions == other.actions
             && self.transition_type == other.transition_type
     }
 }
@@ -202,7 +238,15 @@ impl<S, C, E> Eq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned,
 {
 }
 

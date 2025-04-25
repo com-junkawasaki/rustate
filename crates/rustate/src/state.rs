@@ -6,7 +6,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
-use std::ops::Deref;
 use uuid::Uuid;
 
 /// Trait defining requirements for a state identifier
@@ -58,13 +57,14 @@ pub enum HistoryType {
 pub struct State<S, C = Context, E = Event>
 where
     S: StateTrait, // S is the identifier type
-    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned, // Add C bounds
+    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned, // Add C bounds, ensure Default is present
     E: EventTrait
         + Send
         + Sync
         + 'static
         + Eq
         + Clone
+        + Debug // Add Debug bound
         + Serialize
         + DeserializeOwned, // Add E bounds
 {
@@ -113,13 +113,14 @@ where
 impl<S, C, E> State<S, C, E>
 where
     S: StateTrait,
-    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait
         + Send
         + Sync
         + 'static
         + Eq
         + Clone
+        + Debug
         + Serialize
         + DeserializeOwned,
 {
@@ -358,17 +359,19 @@ where
 pub struct StateCollection<S, C = Context, E = Event>
 where
     S: StateTrait,
-    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait
         + Send
         + Sync
         + 'static
         + Eq
         + Clone
+        + Debug
         + Serialize
         + DeserializeOwned,
 {
     // Use String as key for simplicity, derived from S::Display
+    // Ensure S satisfies Hash + Eq which is required by StateTrait
     states: HashMap<String, State<S, C, E>>,
 
     // Add PhantomData for C and E
@@ -381,17 +384,18 @@ where
 impl<S, C, E> StateCollection<S, C, E>
 where
     S: StateTrait,
-    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait
         + Send
         + Sync
         + 'static
         + Eq
         + Clone
+        + Debug
         + Serialize
         + DeserializeOwned,
 {
-    /// Create a new empty state collection
+    /// Creates a new, empty `StateCollection`.
     pub fn new() -> Self {
         Self {
             states: HashMap::new(),

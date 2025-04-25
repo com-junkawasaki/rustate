@@ -24,11 +24,11 @@ use std::str::FromStr;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "S: Serialize, C: Serialize",
-    deserialize = "S: DeserializeOwned, C: DeserializeOwned"
+    deserialize = "S: StateTrait, C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static"
 ))]
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
     E: EventTrait
         + Send
         + Sync
@@ -37,9 +37,10 @@ where
         + Eq
         + Serialize
         + DeserializeOwned
+        + Debug
         + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + Debug,
 {
     /// Name of the machine
     pub name: String,
@@ -76,7 +77,7 @@ where
 
 impl<C, E, S, O> Machine<C, E, S, O>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
     E: EventTrait
         + Send
         + Sync
@@ -85,9 +86,10 @@ where
         + Eq
         + Serialize
         + DeserializeOwned
+        + Debug
         + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + Debug,
 {
     /// Create a new state machine instance from a builder
     pub async fn new(builder: MachineBuilder<C, E, S, O>) -> Result<Self> {
@@ -186,9 +188,11 @@ where
         let event_ref: &E = &event;
         let mut processed = false;
 
+        // Clone necessary data before potential mutable borrows
         let current_state_ids: Vec<S> = self.current_states.iter().cloned().collect();
+        let current_context = self.context.clone(); // Clone context for read-only checks
 
-        let mut enabled_transition: Option<(&Transition<S, C, E>, &S)> = None;
+        let mut enabled_transition: Option<(&Transition<S, C, E>, S)> = None; // Store source_id clone
 
         // Find transitions that match the current state and event
         for state_id in &current_state_ids {
@@ -201,8 +205,8 @@ where
                         .map_or(false, |te| te.name() == event_ref.name());
                     if event_matches {
                         // Check guard condition if event matches
-                        if t.is_enabled(&self.context, event_ref).await {
-                            enabled_transition = Some((t, state_id));
+                        if t.is_enabled(&current_context, event_ref).await {
+                            enabled_transition = Some((t, state_id.clone())); // Clone state_id
                             break; // Found the highest priority transition for this state
                         }
                     }
@@ -223,7 +227,7 @@ where
                             if t.event.is_none() {
                                 // Check for transitions with no event specified
                                 if t.is_enabled(&self.context, event_ref).await {
-                                    enabled_transition = Some((t, current_state_id));
+                                    enabled_transition = Some((t, current_state_id.clone())); // Clone state_id
                                     break;
                                 }
                             }
@@ -244,15 +248,21 @@ where
                 && t.is_enabled(&self.context, event_ref).await
             {
                 if enabled_transition.is_none() {
-                    // Let's skip wildcards for now until source representation is clear.
-                    // Log a warning maybe?
-                    // eprintln!("Warning: Wildcard transition source representation unclear, skipping.");
+                    // Found a wildcard transition
+                    // TODO: Determine the correct source state for wildcard transitions if needed.
+                    // For now, let's assume it applies generally and pick the first current state.
+                    if let Some(first_current_state) = current_state_ids.first() {
+                        enabled_transition = Some((t, first_current_state.clone()));
+                    } else {
+                        // This case should ideally not happen if the machine is initialized
+                        return Err(Error::InvalidState("No current state to apply wildcard transition".to_string()));
+                    }
                 }
             }
         }
 
         if let Some((transition, source_state_id)) = enabled_transition {
-            self.execute_transition(&transition.clone(), source_state_id, event_ref)
+            self.execute_transition(&transition.clone(), &source_state_id, event_ref)
                 .await?;
             processed = true;
         } else {
@@ -349,51 +359,64 @@ where
     /// Enter a state and its initial children recursively
     #[async_recursion]
     async fn enter_state(&mut self, state_id: &S, event: &E) -> Result<()> {
-        let state_id_str = state_id.to_string();
-        println!("Entering state: {}", state_id_str);
+        // Ensure the state exists before proceeding
+        let state_exists = self.states.contains(state_id);
+        if !state_exists {
+            return Err(Error::StateNotFound(state_id.to_string()));
+        }
 
+        // Add state to current states
         self.current_states.insert(state_id.clone());
+
+        // Execute entry actions for this state
         self.execute_entry_actions(state_id, event).await?;
 
-        let state = self.states.get(state_id).unwrap();
+        // --- Handle entering child states --- Start
+        // Clone necessary info to avoid borrowing issues
+        let state_info = match self.states.get(state_id) {
+            Some(s) => Some((s.state_type.clone(), s.initial.clone(), s.history.clone(), s.children.keys().cloned().collect::<Vec<_>>())), // Clone required fields
+            None => None, // Should not happen due to check above, but handle defensively
+        };
 
-        if let Some(parent_id) = &state.parent {
-            if let Some(parent_state) = self.states.get(parent_id) {
-                if parent_state.is_history() {
-                    self.history.insert(parent_id.to_string(), state_id.clone());
+        if let Some((state_type, initial_child_opt, history_type_opt, child_keys)) = state_info {
+            match state_type {
+                StateType::Compound => {
+                    // Determine the child state to enter
+                    let child_to_enter: Option<S> = if let Some(history_type) = history_type_opt {
+                        let state_id_str = state_id.to_string(); // Use Display impl of S
+                        match history_type {
+                            // Shallow history: Use last active direct child
+                            HistoryType::Shallow => self.history.get(&state_id_str).cloned(), // Clone the value
+                            // Deep history: TODO: Implement deep history logic (needs tracking nested history)
+                            HistoryType::Deep => {
+                                // For now, fallback to initial if deep history not found or implemented
+                                self.history.get(&state_id_str).cloned().or(initial_child_opt.clone()) // Clone initial
+                            }
+                        }.or(initial_child_opt.clone()) // Fallback to initial if history is empty
+                    } else {
+                        initial_child_opt.clone() // Use the defined initial state if no history
+                    };
+
+                    if let Some(child_id) = child_to_enter {
+                        self.enter_state(&child_id, event).await?; // Recurse into child
+                    }
                 }
+                StateType::Parallel => {
+                    // Enter all child states in parallel
+                    let mut enter_futures = Vec::new();
+                    // Iterate over cloned keys to avoid borrowing self.states within the loop
+                    for child_key in child_keys {
+                        // Assuming child_key (String) can be converted back to S
+                        // This might need adjustment based on how S is defined and used as HashMap key
+                        let child_id = S::from(child_key); // Use From<String> bound
+                        enter_futures.push(self.enter_state(&child_id, event));
+                    }
+                    try_join_all(enter_futures).await?;
+                }
+                _ => {} // Normal, Final states have no children to enter
             }
         }
-
-        match state.state_type {
-            StateType::Compound => {
-                if let Some(initial_child_id) = &state.initial {
-                    self.enter_state(initial_child_id, event).await?;
-                } else if let Some(history_type) = state.history() {
-                    if let Some(last_active_child) = self.history.get(&state_id_str) {
-                        self.enter_state(last_active_child, event).await?;
-                    } else if let Some(initial_child_id) = &state.initial {
-                        self.enter_state(initial_child_id, event).await?;
-                    }
-                    if history_type == HistoryType::Deep {
-                        // TODO: Implement deep history traversal logic
-                    }
-                } else {
-                    if let Some(first_child_key) = state.children().keys().next() {
-                        if let Some(first_child_state) = state.children().get(first_child_key) {
-                            self.enter_state(&first_child_state.id, event).await?;
-                        }
-                    }
-                }
-            }
-            StateType::Parallel => {
-                let child_ids: Vec<S> = state.children().values().map(|s| s.id.clone()).collect();
-                for child_id in child_ids {
-                    self.enter_state(&child_id, event).await?;
-                }
-            }
-            _ => {}
-        }
+        // --- Handle entering child states --- End
 
         Ok(())
     }
@@ -401,25 +424,42 @@ where
     /// Exit a state and its active children recursively
     #[async_recursion]
     async fn exit_state(&mut self, state_id: &S, event: &E) -> Result<()> {
-        let state_id_str = state_id.to_string();
-        println!("Exiting state: {}", state_id_str);
+        // --- Handle exiting child states first (recursion/iteration needed) --- Start
+        // Clone necessary info to avoid borrowing issues
+        let children_to_exit = self.current_states.iter()
+            .filter_map(|current_id| {
+                // Check if current_id is a descendant of state_id
+                // This requires traversing the parent links up from current_id
+                let mut parent_opt = self.states.get(current_id).and_then(|s| s.parent.clone());
+                while let Some(p_id) = parent_opt {
+                    if &p_id == state_id {
+                        return Some(current_id.clone()); // Found a child to exit
+                    }
+                    parent_opt = self.states.get(&p_id).and_then(|s| s.parent.clone());
+                }
+                None
+            })
+            .collect::<Vec<_>>();
 
-        let state = self.states.get(state_id).unwrap().clone();
+        for child_id in children_to_exit {
+            self.exit_state(&child_id, event).await?; // Recurse into children
+        }
+        // --- Handle exiting child states first --- End
 
-        let active_children: Vec<S> = state
-            .children()
-            .values()
-            .filter(|child| self.current_states.contains(&child.id))
-            .map(|child| child.id.clone())
-            .collect();
-
-        for child_id in active_children {
-            self.exit_state(&child_id, event).await?;
+        // Ensure state still exists after potential child exits
+        if !self.states.contains(state_id) {
+            // Might have been removed if it was a child of a previously exited state
+            // This logic might need refinement depending on desired behavior.
+            return Ok(()); // Or potentially an error/warning
         }
 
+        // Update history before executing exit actions and removing state
         self.update_history_on_exit(state_id);
 
+        // Execute exit actions for this state
         self.execute_exit_actions(state_id, event).await?;
+
+        // Remove state from current states
         self.current_states.remove(state_id);
 
         Ok(())
@@ -427,9 +467,12 @@ where
 
     /// Execute entry actions for a state
     async fn execute_entry_actions(&self, state_id: &S, event: &E) -> Result<(), Error> {
-        if let Some(actions) = self.entry_actions.get(&state_id.to_string()) {
+        let id_str = state_id.to_string();
+        // Clone actions to avoid borrowing `self` mutably while iterating
+        if let Some(actions) = self.entry_actions.get(&id_str).cloned() {
             for action in actions {
-                action.execute(&mut self.context.clone(), event).await?;
+                // Execute action with mutable access to context
+                action.execute(&mut self.context, event).await?;
             }
         }
         Ok(())
@@ -437,9 +480,12 @@ where
 
     /// Execute exit actions for a state
     async fn execute_exit_actions(&self, state_id: &S, event: &E) -> Result<(), Error> {
-        if let Some(actions) = self.exit_actions.get(&state_id.to_string()) {
+        let id_str = state_id.to_string();
+        // Clone actions to avoid borrowing `self` mutably while iterating
+        if let Some(actions) = self.exit_actions.get(&id_str).cloned() {
             for action in actions {
-                action.execute(&mut self.context.clone(), event).await?;
+                // Execute action with mutable access to context
+                action.execute(&mut self.context, event).await?;
             }
         }
         Ok(())
@@ -580,10 +626,10 @@ where
 #[derive(Clone)]
 pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned + Debug + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + Debug,
 {
     /// Name of the machine
     pub name: String,
@@ -606,10 +652,10 @@ where
 
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned + Debug + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + Debug,
 {
     /// Create a new MachineBuilder
     pub fn new(name: impl Into<String>, initial: S) -> Self {
@@ -670,7 +716,17 @@ where
 
 /// Snapshot of the machine state for actors
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MachineSnapshot<C, S, O> {
+#[serde(bound(
+    serialize = "S: Serialize, C: Serialize, O: Serialize",
+    deserialize = "S: StateTrait, C: DeserializeOwned, O: DeserializeOwned"
+))]
+pub struct MachineSnapshot<C, S, O>
+where
+    C: Clone + Serialize + DeserializeOwned + Send + Sync + 'static + Debug,
+    S: StateTrait + Send + Sync + 'static,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Debug,
+{
+    #[serde(flatten)]
     pub inner: ActorSnapshot<C, O>,
     pub current_states: HashSet<S>,
     pub history_states: HashMap<S, HashSet<S>>,
@@ -679,9 +735,9 @@ pub struct MachineSnapshot<C, S, O> {
 
 impl<C, S, O> MachineSnapshot<C, S, O>
 where
-    S: StateTrait + Eq + Hash + Send + Sync + 'static + Serialize + DeserializeOwned,
-    C: Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
-    O: Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
+    C: Clone + Serialize + DeserializeOwned + Send + Sync + 'static + Debug,
+    S: StateTrait + Send + Sync + 'static,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Debug,
 {
     pub fn value(&self) -> &Value {
         &self.inner.value
@@ -706,8 +762,7 @@ where
 #[async_trait]
 impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E, O> for Machine<C, E, S, O>
 where
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
     E: EventTrait
         + Send
         + Sync
@@ -717,8 +772,10 @@ where
         + Eq
         + Serialize
         + DeserializeOwned
+        + Debug
         + IntoEvent,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + Debug,
 {
     fn get_initial_snapshot(&self, input: Option<O>) -> MachineSnapshot<C, S, O> {
         let initial_state_id = self.initial.clone();

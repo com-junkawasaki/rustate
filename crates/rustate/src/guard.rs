@@ -12,7 +12,7 @@ pub type GuardPredicate =
     Box<dyn Fn(&Context, &Event) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
 /// Represents a guard condition for a transition
-#[derive(Clone, Serialize, PartialEq, Debug)]
+#[derive(Clone, Serialize)]
 pub struct Guard<C = Context, E = Event>
 where
     C: Clone + Send + Sync + 'static,
@@ -108,4 +108,38 @@ where
     fn into_guard(self) -> Guard<C, E> {
         Guard::new(self.0, self.1)
     }
+}
+
+// Manually implement Debug
+impl<C, E> fmt::Debug for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Guard")
+            .field("name", &self.name)
+            .field("condition", &"<Fn>") // Don't print the function itself
+            .finish()
+    }
+}
+
+// Manually implement PartialEq
+impl<C, E> PartialEq for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+        // Cannot compare closures (condition)
+    }
+}
+
+// If PartialEq is manually implemented, Eq can often be derived or implemented simply.
+impl<C, E> Eq for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
 }

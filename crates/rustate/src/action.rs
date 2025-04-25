@@ -43,6 +43,26 @@ where
     _phantom_e: PhantomData<E>,
 }
 
+// Need to manually implement PartialEq because BoxFuture is not PartialEq
+impl<C, E> PartialEq for Action<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.action_type == other.action_type
+        // We cannot compare the execute_fn closures directly
+    }
+}
+
+// If PartialEq is manually implemented, Eq can often be derived or implemented simply.
+impl<C, E> Eq for Action<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+}
+
 // Need to manually implement Debug because BoxFuture is not Debug
 impl<C, E> fmt::Debug for Action<C, E>
 where
