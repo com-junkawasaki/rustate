@@ -16,12 +16,12 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 
 /// Represents a state machine instance
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + ToString + Eq + Hash + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
@@ -55,7 +55,7 @@ impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + ToString + Eq + Hash + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine instance from a builder
@@ -360,40 +360,6 @@ where
         Ok(json)
     }
 
-    /// Deserialize the machine from JSON
-    pub fn from_json(json: &str) -> Result<Self> {
-        let machine: Self = serde_json::from_str(json)?;
-        Ok(machine)
-    }
-
-    /// 状態IDから型Sへのマッピング関数を設定
-    pub fn with_state_mapper(mut self, mapper: fn(&str) -> S) -> Self {
-        self.state_mapper = Some(mapper);
-        self
-    }
-
-    /// Get the current state
-    pub fn current_state(&self) -> S {
-        // 現在アクティブな状態IDを取得
-        if self.current_states.is_empty() {
-            // 初期化されていない場合はエラー
-            panic!("ステートマシンが初期化されていません。send() を呼び出す前に initialize() を呼び出してください。");
-        }
-
-        // アクティブな状態の中から最初の一つを取得
-        // 注: より複雑な状態階層では、最も具体的な（leaf）状態を選択するロジックが必要かもしれません
-        let state_id = self.current_states.iter().next().unwrap();
-
-        // 状態IDからS型への変換
-        if let Some(mapper) = self.state_mapper {
-            // 現在の状態を返す（所有権を移す）
-            mapper(state_id)
-        } else {
-            // マッパーが設定されていない場合はエラー
-            panic!("状態マッパーが設定されていません。Machine::with_state_mapper()を使用してマッパーを設定してください。");
-        }
-    }
-
     /// Apply a transition with the given event
     pub async fn transition<EV: IntoEvent + Send>(
         &mut self,
@@ -419,21 +385,18 @@ impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E> for Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + ToString + Eq + Hash + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
-    fn get_initial_snapshot(&self, input: Option<()>) -> MachineSnapshot<C, S, O> {
-        let initial_context = C::default(); // Or from machine definition/input
-        let initial_value = serde_json::Value::String(self.initial.clone());
-
-        MachineSnapshot {
-            inner: ActorSnapshot {
-                value: initial_value,
-                context: initial_context,
-                output: None,
-                status: ActorStatus::Active,
-            },
-        }
+    fn get_initial_snapshot(&self, _input: Option<()>) -> MachineSnapshot<C, S, O> {
+        let mut initial_states = HashSet::new();
+        // TODO: Correctly determine initial active states based on hierarchy/parallel
+        initial_states.insert(self.initial.clone());
+        MachineSnapshot::new(
+            ActorSnapshot::new(self.context.clone().unwrap_or_default(), None, ActorStatus::Active),
+            initial_states,
+            self.history.clone(), // Pass initial history
+        )
     }
 
     async fn transition(
@@ -450,7 +413,7 @@ pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + ToString + Eq + Hash + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
@@ -478,7 +441,7 @@ impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + ToString + Eq + Hash + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine builder
@@ -506,10 +469,7 @@ where
 
     /// Add a state to the machine
     pub fn state(mut self, state: State<S>) -> Self {
-        if self.states.is_empty() && self.initial.is_empty() {
-            self.initial = state.id.clone();
-        }
-        self.states.insert(state.id.clone(), state);
+        self.states.insert(state.id.to_string(), state);
         self
     }
 
@@ -521,17 +481,19 @@ where
 
     /// Add an entry action to a state
     pub fn on_entry<A: IntoAction<C, E>>(mut self, state_id: impl Into<String>, action: A) -> Self {
-        let state_id = state_id.into();
-        let action = action.into_action(ActionType::Entry);
-        self.entry_actions.entry(state_id).or_default().push(action);
+        self.entry_actions
+            .entry(state_id.into())
+            .or_default()
+            .push(action.into_action());
         self
     }
 
     /// Add an exit action to a state
     pub fn on_exit<A: IntoAction<C, E>>(mut self, state_id: impl Into<String>, action: A) -> Self {
-        let state_id = state_id.into();
-        let action = action.into_action(ActionType::Exit);
-        self.exit_actions.entry(state_id).or_default().push(action);
+        self.exit_actions
+            .entry(state_id.into())
+            .or_default()
+            .push(action.into_action());
         self
     }
 
@@ -581,6 +543,9 @@ where
     O: Clone + Send + Sync + 'static,
 {
     inner: ActorSnapshot<C, O>,
+    current_states: HashSet<String>,
+    history_states: HashMap<String, String>,
+    _phantom_s: PhantomData<S>,
 }
 
 impl<C, S, O> MachineSnapshot<C, S, O>
@@ -632,7 +597,7 @@ impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + ToString + Eq + Hash + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     async fn step(
@@ -718,6 +683,9 @@ where
                 output: next_output,
                 status: next_status,
             },
+            current_states: active_states,
+            history_states: self.history.clone(),
+            _phantom_s: PhantomData,
         })
     }
 

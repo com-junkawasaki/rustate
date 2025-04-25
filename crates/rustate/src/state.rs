@@ -4,9 +4,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
 use std::fmt;
+use std::hash::Hash;
 
 /// Trait for state objects in a state machine
-pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + std::hash::Hash + Send + Sync + 'static {
+pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync + 'static {
     /// Get the unique identifier for this state
     fn id(&self) -> &str;
 
@@ -68,24 +69,6 @@ where
     pub meta: Option<Value>,
 }
 
-impl<S> Default for State<S>
-where
-    S: StateTrait + Send + Sync + 'static,
-{
-    fn default() -> Self {
-        Self {
-            id: "default".into(),
-            state_type: StateType::Normal,
-            parent: None,
-            children: Vec::new(),
-            initial: None,
-            data: None,
-            uuid: Uuid::new_v4(),
-            meta: None,
-        }
-    }
-}
-
 impl<S> State<S>
 where
     S: StateTrait + Send + Sync + 'static,
@@ -105,7 +88,7 @@ where
     }
 
     /// Create a new compound state
-    pub fn new_compound(id: S, initial: S) -> Self {
+    pub fn new_compound(id: S, initial: S) -> Self where S: Into<String> {
         Self {
             id,
             state_type: StateType::Compound,
@@ -213,6 +196,11 @@ where
     /// Check if the state is a final state
     pub fn is_final(&self) -> bool {
         self.state_type == StateType::Final
+    }
+
+    /// Check if the state is atomic (has no children)
+    pub fn is_atomic(&self) -> bool {
+        self.children.is_empty()
     }
 }
 

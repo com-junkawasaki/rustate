@@ -6,6 +6,8 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+use crate::error::{Result, StateError};
+use tokio::sync::{mpsc, oneshot};
 
 // --- Snapshot ---
 
@@ -221,5 +223,83 @@ where
         id: actor_id,
         event_sender,
         snapshot: snapshot_arc,
+    }
+}
+
+pub fn spawn<A>(
+    mut actor: A,
+    options: ActorOptions,
+) -> ActorRef<A::Event, A::Query, A::Response>
+where
+    A: Actor + Send + 'static,
+    A::Event: Send,
+    A::Query: Send,
+    A::Response: Send,
+{
+    let (command_sender, mut command_receiver) = mpsc::channel(options.mailbox_capacity);
+    let actor_id = options
+        .id
+        .unwrap_or_else(|| format!("actor-{}", uuid::Uuid::new_v4()));
+
+    let actor_id_clone = actor_id.clone(); // Clone actor_id here
+    tokio::spawn(async move {
+        let mut status = ActorStatus::Active;
+        println!("Actor [{}] started.", actor_id_clone);
+
+        while let Some(command) = command_receiver.recv().await {
+            if status == ActorStatus::Stopped {
+                println!(
+                    "Actor [{}] received command while stopped, ignoring.",
+                    actor_id_clone
+                );
+                continue;
+            }
+
+            match command {
+                ActorCommand::Event(event) => {
+                    if let Err(e) = actor.handle_event(event).await {
+                        eprintln!(
+                            "Actor [{}] event handling error: {}",
+                            actor_id_clone, // Use cloned id
+                            e
+                        );
+                        // Optionally change status or stop based on error
+                    }
+                }
+                ActorCommand::Query { query, responder } => {
+                    match actor.handle_query(query).await {
+                        Ok(response) => {
+                            if responder.send(Ok(response)).is_err() {
+                                eprintln!(
+                                    "Actor [{}] failed to send query response.",
+                                    actor_id_clone // Use cloned id
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            if responder.send(Err(e)).is_err() {
+                                eprintln!(
+                                    "Actor [{}] failed to send query error response.",
+                                    actor_id_clone // Use cloned id
+                                );
+                            }
+                        }
+                    }
+                }
+                ActorCommand::Stop => {
+                    println!("Actor [{}] stopping...", actor_id_clone);
+                    status = ActorStatus::Stopped;
+                    actor.stopped().await;
+                    break; // Exit the loop
+                }
+            }
+        }
+
+        println!("Actor [{}] terminated.", actor_id_clone);
+    });
+
+    ActorRef {
+        id: actor_id, // Original actor_id here
+        sender: command_sender,
     }
 }
