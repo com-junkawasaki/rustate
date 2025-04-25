@@ -1,9 +1,12 @@
+use crate::{Context, Error, Event, EventTrait, IntoAction, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
+use std::fmt;
 
 /// Trait for state objects in a state machine
-pub trait StateTrait {
+pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + std::hash::Hash + Send + Sync + 'static {
     /// Get the unique identifier for this state
     fn id(&self) -> &str;
 
@@ -20,11 +23,11 @@ pub trait StateTrait {
     fn initial(&self) -> Option<&str>;
 
     /// Get data associated with this state
-    fn data(&self) -> Option<&serde_json::Value>;
+    fn data(&self) -> Option<&Value>;
 }
 
 /// Represents a type of state
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum StateType {
     /// A normal state
     Normal,
@@ -41,10 +44,13 @@ pub enum StateType {
 }
 
 /// Represents a state in a state machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct State {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct State<S = String>
+where
+    S: StateTrait + Send + Sync + 'static,
+{
     /// Unique identifier for the state
-    pub id: String,
+    pub id: S,
     /// Type of state
     pub state_type: StateType,
     /// Optional parent state id
@@ -54,13 +60,18 @@ pub struct State {
     /// Initial state (for compound states)
     pub initial: Option<String>,
     /// Data associated with this state
-    pub data: Option<serde_json::Value>,
+    pub data: Option<Value>,
     /// Internal unique identifier
     #[serde(default = "Uuid::new_v4")]
     pub(crate) uuid: Uuid,
+    /// Optional meta information for the state
+    pub meta: Option<Value>,
 }
 
-impl Default for State {
+impl<S> Default for State<S>
+where
+    S: StateTrait + Send + Sync + 'static,
+{
     fn default() -> Self {
         Self {
             id: "default".into(),
@@ -70,87 +81,96 @@ impl Default for State {
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 }
 
-impl State {
+impl<S> State<S>
+where
+    S: StateTrait + Send + Sync + 'static,
+{
     /// Create a new normal state
-    pub fn new(id: impl Into<String>) -> Self {
+    pub fn new(id: S) -> Self {
         Self {
-            id: id.into(),
+            id,
             state_type: StateType::Normal,
             parent: None,
             children: Vec::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 
     /// Create a new compound state
-    pub fn new_compound(id: impl Into<String>, initial: impl Into<String>) -> Self {
-        let initial = initial.into();
+    pub fn new_compound(id: S, initial: S) -> Self {
         Self {
-            id: id.into(),
+            id,
             state_type: StateType::Compound,
             parent: None,
             children: Vec::new(),
-            initial: Some(initial),
+            initial: Some(initial.into()),
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 
     /// Create a new parallel state
-    pub fn new_parallel(id: impl Into<String>) -> Self {
+    pub fn new_parallel(id: S) -> Self {
         Self {
-            id: id.into(),
+            id,
             state_type: StateType::Parallel,
             parent: None,
             children: Vec::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 
     /// Create a new final state
-    pub fn new_final(id: impl Into<String>) -> Self {
+    pub fn new_final(id: S) -> Self {
         Self {
-            id: id.into(),
+            id,
             state_type: StateType::Final,
             parent: None,
             children: Vec::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 
     /// Create a new history state
-    pub fn new_history(id: impl Into<String>) -> Self {
+    pub fn new_history(id: S) -> Self {
         Self {
-            id: id.into(),
+            id,
             state_type: StateType::History,
             parent: None,
             children: Vec::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 
     /// Create a new deep history state
-    pub fn new_deep_history(id: impl Into<String>) -> Self {
+    pub fn new_deep_history(id: S) -> Self {
         Self {
-            id: id.into(),
+            id,
             state_type: StateType::DeepHistory,
             parent: None,
             children: Vec::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
+            meta: None,
         }
     }
 
@@ -161,15 +181,47 @@ impl State {
     }
 
     /// Set the data associated with this state
-    pub fn with_data(&mut self, data: impl Into<serde_json::Value>) -> &mut Self {
-        self.data = Some(data.into());
+    pub fn with_data(&mut self, data: Value) -> &mut Self {
+        self.data = Some(data);
         self
+    }
+
+    /// Set the state type
+    pub fn with_type(mut self, state_type: StateType) -> Self {
+        self.state_type = state_type;
+        self
+    }
+
+    /// Set the parent state ID
+    pub fn with_parent(mut self, parent_id: impl Into<String>) -> Self {
+        self.parent = Some(parent_id.into());
+        self
+    }
+
+    /// Set the initial child state ID
+    pub fn with_initial(mut self, initial_id: impl Into<String>) -> Self {
+        self.initial = Some(initial_id.into());
+        self
+    }
+
+    /// Set the state meta information
+    pub fn with_meta(mut self, meta: Value) -> Self {
+        self.meta = Some(meta);
+        self
+    }
+
+    /// Check if the state is a final state
+    pub fn is_final(&self) -> bool {
+        self.state_type == StateType::Final
     }
 }
 
-impl StateTrait for State {
+impl<S> StateTrait for State<S>
+where
+    S: StateTrait + Send + Sync + 'static,
+{
     fn id(&self) -> &str {
-        &self.id
+        &self.id.to_string()
     }
 
     fn state_type(&self) -> &StateType {
@@ -188,7 +240,7 @@ impl StateTrait for State {
         self.initial.as_deref()
     }
 
-    fn data(&self) -> Option<&serde_json::Value> {
+    fn data(&self) -> Option<&Value> {
         self.data.as_ref()
     }
 }
@@ -196,7 +248,7 @@ impl StateTrait for State {
 /// A collection of states
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StateCollection {
-    states: HashMap<String, State>,
+    states: HashMap<String, State<String>>,
 }
 
 impl StateCollection {
@@ -208,18 +260,18 @@ impl StateCollection {
     }
 
     /// Add a state to the collection
-    pub fn add(&mut self, state: State) -> &mut Self {
-        self.states.insert(state.id.clone(), state);
+    pub fn add(&mut self, state: State<String>) -> &mut Self {
+        self.states.insert(state.id.to_string(), state);
         self
     }
 
     /// Get a state by id
-    pub fn get(&self, id: &str) -> Option<&State> {
+    pub fn get(&self, id: &str) -> Option<&State<String>> {
         self.states.get(id)
     }
 
     /// Get a mutable reference to a state by id
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut State> {
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut State<String>> {
         self.states.get_mut(id)
     }
 
@@ -229,7 +281,28 @@ impl StateCollection {
     }
 
     /// Get all states
-    pub fn all(&self) -> impl Iterator<Item = &State> {
+    pub fn all(&self) -> impl Iterator<Item = &State<String>> {
         self.states.values()
+    }
+}
+
+impl StateTrait for String {
+    fn id(&self) -> &str {
+        self
+    }
+    fn state_type(&self) -> &StateType {
+        &StateType::Normal
+    }
+    fn parent(&self) -> Option<&str> {
+        None
+    }
+    fn children(&self) -> &[String] {
+        &[]
+    }
+    fn initial(&self) -> Option<&str> {
+        None
+    }
+    fn data(&self) -> Option<&Value> {
+        None
     }
 }

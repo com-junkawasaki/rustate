@@ -89,7 +89,7 @@ where
         &self.description
     }
 
-    async fn decide(&self, _context: DecisionContext<S, E>) -> Result<Decision<E>> {
+    async fn decide(&self, context: DecisionContext<S, E>) -> Result<Decision<E>> {
         let mut rng = rand::thread_rng();
 
         if self.available_events.is_empty() {
@@ -108,8 +108,8 @@ where
             uuid::Uuid::new_v4().to_string(),
             event,
             0.5, // ランダム選択なので信頼度は中程度
-            Some(context.current_state),
-            Some(context.goal_state),
+            Some(context.current_state.clone()),
+            Some(context.goal_state.clone()),
         ))
     }
 }

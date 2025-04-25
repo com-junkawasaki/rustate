@@ -76,7 +76,7 @@ where
     /// エージェントの一意ID
     pub id: Uuid,
     /// エージェントの状態機械（共有参照または所有）
-    machine_ref: Option<SharedMachineRef<S, E>>,
+    machine_ref: Option<SharedMachineRef>,
     machine: Option<Machine<S, E>>,
     /// エージェントの設定
     pub config: AgentConfig,
@@ -133,7 +133,7 @@ where
 
     /// 共有状態機械参照を使用してエージェントを作成します
     pub fn with_shared_machine(
-        machine_ref: SharedMachineRef<S, E>,
+        machine_ref: SharedMachineRef,
         policy: P,
         storage: SM,
     ) -> Self {
@@ -169,7 +169,7 @@ where
     }
 
     /// 現在の状態機械を取得します
-    pub fn machine(&self) -> Result<&Machine<S, E>, AgentError> {
+    pub fn machine(&self) -> Result<&Machine<S, E>> {
         if let Some(ref machine) = self.machine {
             Ok(machine)
         } else if let Some(ref machine_ref) = self.machine_ref {
@@ -184,7 +184,7 @@ where
     }
 
     /// 現在の状態を取得します
-    pub fn current_state(&self) -> Result<S, AgentError> {
+    pub fn current_state(&self) -> Result<S> {
         if let Some(ref machine) = self.machine {
             Ok(machine.current_state().clone())
         } else if let Some(ref machine_ref) = self.machine_ref {
@@ -204,7 +204,7 @@ where
         &mut self,
         name: impl Into<String>,
         goal_state: Option<S>,
-    ) -> Result<(), AgentError> {
+    ) -> Result<()> {
         // 初期状態を取得
         let initial_state = self.current_state()?;
 
@@ -214,7 +214,7 @@ where
             None => {
                 return Err(AgentError::Other(
                     "目標状態が設定されていません".to_string(),
-                ))
+                ));
             }
         };
 
@@ -234,7 +234,7 @@ where
     pub async fn complete_episode(
         &mut self,
         is_successful: bool,
-    ) -> Result<Option<Episode<S, E>>, AgentError> {
+    ) -> Result<Option<Episode<S, E>>> {
         if let Some(mut episode) = self.current_episode.take() {
             episode.complete(is_successful);
             self.storage.save_episode(&episode).await?;
@@ -244,7 +244,7 @@ where
     }
 
     /// 次の決定を生成します
-    pub async fn next_decision(&self) -> Result<Decision<E>, AgentError> {
+    pub async fn next_decision(&self) -> Result<Decision<E>> {
         // 現在のエピソードがなければエラー
         if self.current_episode.is_none() {
             return Err(AgentError::Other(
@@ -257,7 +257,7 @@ where
     }
 
     /// 決定に基づいてイベントを適用します
-    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S, AgentError> {
+    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S> {
         let previous_state = self.current_state()?;
         let context = if let Some(ref shared_ctx) = self.shared_context {
             // 共有コンテキストから値を取得してContextに変換
@@ -358,20 +358,20 @@ where
     }
 
     /// 1ステップ実行します（決定して適用）
-    pub async fn step(&mut self) -> Result<S, AgentError> {
+    pub async fn step(&mut self) -> Result<S> {
         let decision = self.next_decision().await?;
         self.apply_decision(&decision).await
     }
 
     /// 目標状態に達するまで実行します
-    pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool, AgentError> {
+    pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool> {
         // 現在のエピソードがなければエラー
         let episode = match &self.current_episode {
             Some(ep) => ep,
             None => {
                 return Err(AgentError::Other(
                     "エピソードが開始されていません".to_string(),
-                ))
+                ));
             }
         };
 
@@ -402,7 +402,7 @@ where
     }
 
     /// 洞察を追加します
-    pub async fn add_insight(&mut self, insight: Insight) -> Result<(), AgentError> {
+    pub async fn add_insight(&mut self, insight: Insight) -> Result<()> {
         // 洞察を保存
         self.storage.save_insight(&insight).await?;
 
@@ -427,7 +427,7 @@ where
     }
 
     /// フィードバックを追加します
-    pub async fn add_feedback(&mut self, feedback: Feedback<E>) -> Result<(), AgentError> {
+    pub async fn add_feedback(&mut self, feedback: Feedback<E>) -> Result<()> {
         // フィードバックを保存
         self.storage.save_feedback(&feedback).await?;
 
@@ -457,14 +457,14 @@ where
     }
 
     /// 決定を生成します
-    pub async fn make_decision(&self) -> Result<Decision<E>, AgentError> {
+    pub async fn make_decision(&self) -> Result<Decision<E>> {
         // 現在のエピソードがなければエラー
         let episode = match &self.current_episode {
             Some(ep) => ep,
             None => {
                 return Err(AgentError::Other(
                     "エピソードが開始されていません".to_string(),
-                ))
+                ));
             }
         };
 
@@ -485,6 +485,114 @@ where
 
         Ok(decision)
     }
+
+    /// Creates a new Agent integrated with an external state machine via SharedMachineRef.
+    pub fn from_shared_machine(
+        id: impl Into<String>,
+        machine_ref: SharedMachineRef,
+        policy: P,
+        storage: SM,
+        config: Option<AgentConfig>,
+    ) -> Result<Self> {
+        // Create a dummy internal machine.
+        // The actual state is managed externally by the shared machine.
+        // We need a placeholder ID for the dummy machine's initial state.
+        // This assumes StateTrait is implemented for String or a suitable default exists.
+        // Ideally, the initial state should be queried from the shared machine if possible.
+        let placeholder_state_id = "__shared_placeholder__";
+        let mut internal_machine = MachineBuilder::new("agent_internal_dummy")
+             // We cannot easily create an instance of S here.
+             // The dummy machine doesn't need a real state object if we don't transition it.
+             .initial(placeholder_state_id)
+             .build()
+             .map_err(|e| AgentError::InternalError(format!("Failed to create dummy machine: {}", e)))?;
+
+        Ok(Self {
+            id: id.into(),
+            machine: internal_machine, // Use the dummy machine
+            policy,
+            storage,
+            goal_state: None,
+            current_episode: None,
+            insights: Vec::new(),
+            machine_ref: Some(machine_ref), // Store the shared machine reference
+            config: config.unwrap_or_default(),
+        })
+    }
+
+    /// Returns a reference to the internal state machine.
+    /// NOTE: If using SharedMachineRef, this returns the dummy internal machine.
+    pub fn machine(&self) -> Result<&Machine<S, E>> {
+         // Always return the internal machine (which might be a dummy)
+         Ok(&self.machine)
+     }
+
+    /// Returns a mutable reference to the internal state machine.
+    /// NOTE: If using SharedMachineRef, this returns the dummy internal machine.
+    pub fn machine_mut(&mut self) -> Result<&mut Machine<S, E>> {
+        // Always return the internal machine (which might be a dummy)
+         Ok(&mut self.machine)
+     }
+
+    /// Returns the current state of the agent.
+    /// NOTE: If using SharedMachineRef, this is NOT IMPLEMENTED and returns an error,
+    /// as SharedMachineRef doesn't currently expose state reading.
+    pub fn current_state(&self) -> Result<S> {
+         if self.machine_ref.is_some() {
+             // We cannot get the state from the shared machine currently.
+             Err(AgentError::NotSupported(
+                 "Fetching current state from SharedMachineRef is not supported.".to_string(),
+             ))
+         } else {
+              // Get state from the internal machine.
+              self.machine
+                 .current_state()
+                 .cloned()
+                 .ok_or_else(|| AgentError::InternalError("Machine has no current state".to_string()))
+         }
+     }
+
+    /// Applies a decision, transitioning the state machine.
+    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S> {
+         // Get state BEFORE transition for observation recording
+         // This will fail if using shared machine due to current_state() limitation
+         let previous_state = self.current_state()?;
+
+         let transition_result = if let Some(shared_ref) = &self.machine_ref {
+             // Send event to the shared machine
+             shared_ref
+                 .send_event(decision.event()) // Assumes EventTrait ~ IntoEvent
+                 .map_err(|e| AgentError::IntegrationError(format!("Shared machine send error: {}", e)))?;
+             // Successfully sent, but we CANNOT know the resulting state.
+             // Return the *previous* state or an error?
+             // Returning previous state might be misleading. Let's return error for now.
+             Err(AgentError::NotSupported(
+                 "Cannot determine next state after sending event via SharedMachineRef".to_string(),
+             ))
+
+         } else {
+             // Send event to the internal machine
+             self.machine
+                 .send(decision.event())
+                 .map_err(|e| AgentError::StateMachineError(format!("Internal machine send error: {}", e)))?;
+             // Get the new state from the internal machine
+             Ok(self.machine.current_state().cloned().ok_or_else(|| AgentError::InternalError(
+                 "Internal machine has no current state after transition".to_string()
+             ))?)
+         };
+
+         let next_state = transition_result?;
+
+         // Record observation using the state *before* the transition and the *result* state
+         if self.current_episode.is_some() {
+             self.record_observation(decision.event.clone(), next_state.clone())?;
+         }
+
+         // Store the decision
+         self.storage.save_decision(decision).await?;
+
+         Ok(next_state)
+     }
 }
 
 #[cfg(test)]
@@ -661,7 +769,7 @@ mod tests {
         // エージェントの作成
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::with_shared_machine(shared_machine.clone(), policy, storage);
+        let mut agent = Agent::with_shared_machine(shared_machine.clone());
 
         // 目標状態設定
         let goal_state = TestState::Completed;

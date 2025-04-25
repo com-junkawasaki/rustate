@@ -22,69 +22,69 @@ where
         + 'static,
 {
     /// 観測データを保存します
-    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError>;
+    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()>;
 
     /// IDで観測データを取得します
-    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>, AgentError>;
+    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>>;
 
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
         filter: Option<for<'a> fn(&'a Observation<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Observation<S, E>>, AgentError>;
+    ) -> Result<Vec<Observation<S, E>>>;
 
     /// 決定を保存します
-    async fn save_decision(&self, decision: &Decision<E>) -> Result<(), AgentError>;
+    async fn save_decision(&self, decision: &Decision<E>) -> Result<()>;
 
     /// IDで決定を取得します
-    async fn get_decision(&self, id: &str) -> Result<Decision<E>, AgentError>;
+    async fn get_decision(&self, id: &str) -> Result<Decision<E>>;
 
     /// 条件に一致する決定を検索します
     async fn find_decisions(
         &self,
         filter: Option<for<'a> fn(&'a Decision<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Decision<E>>, AgentError>;
+    ) -> Result<Vec<Decision<E>>>;
 
     /// 洞察を保存します
-    async fn save_insight(&self, insight: &Insight) -> Result<(), AgentError>;
+    async fn save_insight(&self, insight: &Insight) -> Result<()>;
 
     /// IDで洞察を取得します
-    async fn get_insight(&self, id: &str) -> Result<Insight, AgentError>;
+    async fn get_insight(&self, id: &str) -> Result<Insight>;
 
     /// 条件に一致する洞察を検索します
     async fn find_insights(
         &self,
         filter: Option<for<'a> fn(&'a Insight) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Insight>, AgentError>;
+    ) -> Result<Vec<Insight>>;
 
     /// エピソードを保存します
-    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<(), AgentError>;
+    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<()>;
 
     /// IDでエピソードを取得します
-    async fn get_episode(&self, id: &str) -> Result<Episode<S, E>, AgentError>;
+    async fn get_episode(&self, id: &str) -> Result<Episode<S, E>>;
 
     /// 条件に一致するエピソードを検索します
     async fn find_episodes(
         &self,
         filter: Option<for<'a> fn(&'a Episode<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Episode<S, E>>, AgentError>;
+    ) -> Result<Vec<Episode<S, E>>>;
 
     /// フィードバックを保存します
-    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError>;
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<()>;
 
     /// IDでフィードバックを取得します
-    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>, AgentError>;
+    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>>;
 
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
         filter: Option<for<'a> fn(&'a Feedback<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Feedback<E>>, AgentError>;
+    ) -> Result<Vec<Feedback<E>>>;
 }
 
 /// ストレージのクエリパラメータ
@@ -264,7 +264,7 @@ where
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
 {
-    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), AgentError> {
+    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()> {
         let mut observations = self
             .observations
             .lock()
@@ -273,7 +273,7 @@ where
         Ok(())
     }
 
-    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>, AgentError> {
+    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>> {
         let observations = self
             .observations
             .lock()
@@ -289,7 +289,7 @@ where
         &self,
         filter: Option<for<'a> fn(&'a Observation<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Observation<S, E>>, AgentError> {
+    ) -> Result<Vec<Observation<S, E>>> {
         let observations = self
             .observations
             .lock()
@@ -308,7 +308,7 @@ where
         Ok(result)
     }
 
-    async fn save_decision(&self, decision: &Decision<E>) -> Result<(), AgentError> {
+    async fn save_decision(&self, decision: &Decision<E>) -> Result<()> {
         let mut decisions = self
             .decisions
             .lock()
@@ -317,7 +317,7 @@ where
         Ok(())
     }
 
-    async fn get_decision(&self, id: &str) -> Result<Decision<E>, AgentError> {
+    async fn get_decision(&self, id: &str) -> Result<Decision<E>> {
         let decisions = self
             .decisions
             .lock()
@@ -333,7 +333,7 @@ where
         &self,
         filter: Option<for<'a> fn(&'a Decision<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Decision<E>>, AgentError> {
+    ) -> Result<Vec<Decision<E>>> {
         let decisions = self
             .decisions
             .lock()
@@ -352,7 +352,7 @@ where
         Ok(result)
     }
 
-    async fn save_insight(&self, insight: &Insight) -> Result<(), AgentError> {
+    async fn save_insight(&self, insight: &Insight) -> Result<()> {
         let mut insights = self
             .insights
             .lock()
@@ -361,7 +361,7 @@ where
         Ok(())
     }
 
-    async fn get_insight(&self, id: &str) -> Result<Insight, AgentError> {
+    async fn get_insight(&self, id: &str) -> Result<Insight> {
         let insights = self
             .insights
             .lock()
@@ -377,7 +377,7 @@ where
         &self,
         filter: Option<for<'a> fn(&'a Insight) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Insight>, AgentError> {
+    ) -> Result<Vec<Insight>> {
         let insights = self
             .insights
             .lock()
@@ -396,7 +396,7 @@ where
         Ok(result)
     }
 
-    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<(), AgentError> {
+    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<()> {
         let mut episodes = self
             .episodes
             .lock()
@@ -405,7 +405,7 @@ where
         Ok(())
     }
 
-    async fn get_episode(&self, id: &str) -> Result<Episode<S, E>, AgentError> {
+    async fn get_episode(&self, id: &str) -> Result<Episode<S, E>> {
         let episodes = self
             .episodes
             .lock()
@@ -427,7 +427,7 @@ where
         &self,
         filter: Option<for<'a> fn(&'a Episode<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Episode<S, E>>, AgentError> {
+    ) -> Result<Vec<Episode<S, E>>> {
         let episodes = self
             .episodes
             .lock()
@@ -446,7 +446,7 @@ where
         Ok(result)
     }
 
-    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError> {
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<()> {
         let mut feedbacks = self
             .feedback
             .lock()
@@ -455,7 +455,7 @@ where
         Ok(())
     }
 
-    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>, AgentError> {
+    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>> {
         let feedbacks = self
             .feedback
             .lock()
@@ -473,7 +473,7 @@ where
         &self,
         filter: Option<for<'a> fn(&'a Feedback<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Feedback<E>>, AgentError> {
+    ) -> Result<Vec<Feedback<E>>> {
         let feedback = self
             .feedback
             .lock()

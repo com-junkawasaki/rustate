@@ -1,8 +1,11 @@
-use crate::{Context, Event};
+use crate::{Context, Event, EventTrait, Result};
+use async_trait::async_trait;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 /// Type alias for the action executor function
 pub type ActionExecutor =
@@ -19,85 +22,108 @@ pub enum ActionType {
     Transition,
 }
 
-/// An action that can be executed during state transitions
-#[derive(Serialize, Deserialize)]
-pub struct Action {
+/// Define Action as generic over C, E
+#[derive(Clone)]
+pub struct Action<C = Context, E = Event>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     /// The name of this action
     pub name: String,
     /// The type of action execution
     pub action_type: ActionType,
+    #[allow(clippy::type_complexity)]
     /// Function pointer to execute the action
-    #[serde(skip)]
-    pub(crate) executor: Option<ActionExecutor>,
+    pub(crate) execute_fn: Arc<dyn Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync>,
+    _phantom_c: std::marker::PhantomData<C>,
+    _phantom_e: std::marker::PhantomData<E>,
 }
 
-impl Clone for Action {
-    fn clone(&self) -> Self {
-        // Note: We can't actually clone the executor function,
-        // so this creates an action with the same name and type but no executor
-        Self {
-            name: self.name.clone(),
-            action_type: self.action_type,
-            executor: None,
-        }
-    }
-}
-
-impl fmt::Debug for Action {
+// Need to manually implement Debug because BoxFuture is not Debug
+impl<C, E> fmt::Debug for Action<C, E>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Action")
             .field("name", &self.name)
             .field("action_type", &self.action_type)
-            .field(
-                "executor",
-                &self
-                    .executor
-                    .as_ref()
-                    .map(|_| "AsyncFn(&mut Context, &Event)"),
-            )
-            .finish()
+            .finish_non_exhaustive() // Indicate that execute_fn is not shown
     }
 }
 
-impl Action {
-    /// Create a new action with a name and executor function
-    pub fn new<F, Fut>(name: impl Into<String>, action_type: ActionType, executor: F) -> Self
+impl<C, E> Action<C, E>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    /// Create a new action with an async function
+    pub fn new<F>(name: impl Into<String>, action_type: ActionType, execute_fn: F) -> Self
     where
-        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
         Self {
             name: name.into(),
             action_type,
-            executor: Some(Box::new(move |ctx, evt| Box::pin(executor(ctx, evt)))),
+            execute_fn: Arc::new(execute_fn),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
-    /// Create a new entry action
-    pub fn entry<F, Fut>(name: impl Into<String>, executor: F) -> Self
+    /// Create a new action with a synchronous function
+    pub fn new_sync<F>(name: impl Into<String>, action_type: ActionType, execute_fn: F) -> Self
     where
-        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(&mut C, &E) + Send + Sync + 'static,
     {
-        Self::new(name, ActionType::Entry, executor)
+        let async_fn = move |ctx: &mut C, evt: &E| {
+            execute_fn(ctx, evt);
+            Box::pin(async {}) as BoxFuture<'static, ()>
+        };
+        Self {
+            name: name.into(),
+            action_type,
+            execute_fn: Arc::new(async_fn),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
+        }
+    }
+
+    /// Execute the action.
+    pub async fn execute(&self, context: &mut C, event: &E) {
+        (self.execute_fn)(context, event).await;
+    }
+}
+
+impl<C, E> Action<C, E>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    /// Create a new entry action
+    pub fn entry<F>(name: impl Into<String>, execute_fn: F) -> Self
+    where
+        F: Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    {
+        Self::new(name, ActionType::Entry, execute_fn)
     }
 
     /// Create a new exit action
-    pub fn exit<F, Fut>(name: impl Into<String>, executor: F) -> Self
+    pub fn exit<F>(name: impl Into<String>, execute_fn: F) -> Self
     where
-        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
-        Self::new(name, ActionType::Exit, executor)
+        Self::new(name, ActionType::Exit, execute_fn)
     }
 
     /// Create a new transition action
-    pub fn transition<F, Fut>(name: impl Into<String>, executor: F) -> Self
+    pub fn transition<F>(name: impl Into<String>, execute_fn: F) -> Self
     where
-        F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
-        Self::new(name, ActionType::Transition, executor)
+        Self::new(name, ActionType::Transition, execute_fn)
     }
 
     /// Create a new action with a name only (for serialization)
@@ -105,55 +131,66 @@ impl Action {
         Self {
             name: name.into(),
             action_type,
-            executor: None,
-        }
-    }
-
-    /// Execute the action with a context and event
-    pub async fn execute(&self, context: &mut Context, event: &Event) {
-        if let Some(executor) = &self.executor {
-            executor(context, event).await;
-        } else {
-            // Default behavior for serialized actions with no executor
-            // In a real implementation, you might look up an executor from a registry
+            execute_fn: Arc::new(|_ctx, _evt| Box::pin(async {})),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
     /// Clone without the executor
     pub fn without_executor(&self) -> Self {
-        // so this creates an action with the same name and type but no executor
         Self {
             name: self.name.clone(),
             action_type: self.action_type,
-            executor: None,
+            execute_fn: Arc::new(|_ctx, _evt| Box::pin(async {})),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 }
 
-impl fmt::Display for Action {
+impl<C, E> fmt::Display for Action<C, E>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Action({}, {:?})", self.name, self.action_type)
     }
 }
 
-/// Trait for types that can be converted into an action
-pub trait IntoAction {
-    /// Convert into an action
-    fn into_action(self, action_type: ActionType) -> Action;
+/// Trait to convert various types into an Action
+#[async_trait]
+pub trait IntoAction<C, E>
+where
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn into_action(self) -> Action<C, E>;
 }
 
-impl IntoAction for Action {
-    fn into_action(self, _action_type: ActionType) -> Action {
-        self
+// Implement IntoAction for functions
+#[async_trait]
+impl<F, C, E> IntoAction<C, E> for F
+where
+    F: Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn into_action(self) -> Action<C, E> {
+        // Default name and type for closures
+        Action::new("anonymous_action", ActionType::Transition, self)
     }
 }
 
-impl<F, Fut> IntoAction for (&str, F)
+// Implement IntoAction for Action itself (identity conversion)
+#[async_trait]
+impl<C, E> IntoAction<C, E> for Action<C, E>
 where
-    F: Fn(&mut Context, &Event) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + 'static,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
 {
-    fn into_action(self, action_type: ActionType) -> Action {
-        Action::new(self.0, action_type, self.1)
+    fn into_action(self) -> Action<C, E> {
+        self
     }
 }

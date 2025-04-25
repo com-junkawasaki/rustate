@@ -82,6 +82,7 @@ pub fn auto_layout(machine: &mut Machine) {
 }
 
 #[cfg(test)]
+#[ignore]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

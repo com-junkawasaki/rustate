@@ -2,9 +2,8 @@ use crate::event::IntoEvent;
 use crate::{
     action::ActionType,
     actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
-    event::EventObject,
     state::StateType,
-    Action, Context, Error, Event, IntoAction, Result, State, Transition,
+    Action, Context, Error, Event, EventTrait, IntoAction, Result, State, StateTrait, Transition,
 };
 use async_recursion::async_recursion;
 use async_trait::async_trait;
@@ -21,8 +20,8 @@ use std::str::FromStr;
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
@@ -55,8 +54,8 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine instance from a builder
@@ -65,8 +64,8 @@ where
     ) -> Result<Self>
     where
         BuilderC: Clone + Send + Sync + Default + 'static,
-        BuilderE: EventObject + Send + Sync + 'static,
-        BuilderS: StateType + Send + Sync + 'static,
+        BuilderE: EventTrait + Send + Sync + 'static,
+        BuilderS: StateTrait + Send + Sync + 'static,
         BuilderO: Clone + Send + Sync + 'static,
     {
         let MachineBuilder {
@@ -419,8 +418,8 @@ where
 impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E> for Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     fn get_initial_snapshot(&self, input: Option<()>) -> MachineSnapshot<C, S, O> {
@@ -450,8 +449,8 @@ where
 pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
@@ -478,8 +477,8 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine builder
@@ -551,8 +550,8 @@ where
 impl<C, E, S, O> Clone for MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Clone + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     fn clone(&self) -> Self {
@@ -577,7 +576,7 @@ where
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineSnapshot<C, S, O = ()>
 where
-    S: StateType + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
@@ -586,7 +585,7 @@ where
 
 impl<C, S, O> MachineSnapshot<C, S, O>
 where
-    S: StateType + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
@@ -632,8 +631,8 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventObject + Send + Sync + 'static,
-    S: StateType + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     async fn step(
