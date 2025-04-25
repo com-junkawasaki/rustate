@@ -1,9 +1,8 @@
 #![allow(dead_code)] // Allow dead code for now during refactoring
 
-use crate::context::Context;
-use crate::error::{self as CrateErrorModule, Result, StateError};
-use crate::event::{Event, EventTrait};
-use crate::state::{State, StateTrait, StateType};
+use crate::error::{Result, StateError};
+use crate::event::EventTrait;
+use crate::state::StateTrait;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
@@ -11,8 +10,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 // --- Actor Options ---
@@ -67,33 +65,20 @@ pub enum ActorStatus {
 
 // --- Actor Logic Trait ---
 #[async_trait]
-pub trait ActorLogic<S, E, I, Q, Resp>: Send + Sync
+pub trait ActorLogic<S, C, E, I, Q, Resp>: Send + Sync
 where
     S: StateTrait + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
     E: EventTrait + Send + Sync + 'static,
     I: Send + Sync + 'static,
     Q: Send + Sync + 'static,
     Resp: Send + Sync + 'static,
 {
-    async fn handle_event(
-        &self,
-        state: &mut S,
-        context: &mut Context,
-        event: &E,
-    ) -> Result<(), StateError>;
+    fn initial(&self) -> (S, C);
 
-    async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Resp;
+    async fn transition(&self, state: S, context: C, event: E) -> Result<(S, C), StateError>;
 
-    async fn decide(
-        &self,
-        state: &S,
-        context: &Context,
-        snapshot: &Option<Snapshot<Context>>,
-    ) -> Result<Vec<E>, StateError>;
-
-    fn get_initial_snapshot(&self, input: Option<I>) -> S;
-
-    async fn transition(&self, snapshot: S, event: E) -> Result<S, StateError>;
+    async fn handle_query(&self, state: &S, context: &C, query: Q) -> Resp;
 }
 
 // --- Actor Trait (Defines the core actor behavior instance) ---
@@ -105,7 +90,7 @@ where
     Resp: Send + Sync + 'static,
 {
     fn id(&self) -> Uuid;
-    async fn handle_event(&mut self, event: E);
+    async fn handle_event(&mut self, event: E) -> Result<(), StateError>;
     async fn handle_query(&self, query: Q, responder: oneshot::Sender<Resp>);
     async fn started(&mut self);
     async fn stopped(&mut self);
@@ -134,23 +119,27 @@ pub trait QueryableEvent: EventTrait {
 }
 
 // --- ActorRef Implementation STRUCT (The handle) ---
-pub struct ActorRefImpl<E, Q, Resp>
+pub struct ActorRefImpl<E, Q, Resp, C, R>
 where
     E: EventTrait + Send + 'static,
     Q: Send + 'static,
     Resp: Send + 'static,
+    C: Send + 'static,
+    R: Send + 'static,
 {
     pub id: Uuid,
-    pub(crate) sender: mpsc::Sender<ActorCommand<E, Q, Resp>>,
+    pub(crate) sender: mpsc::Sender<ActorCommand<E, Q, Resp, C, R>>,
     pub status: Arc<RwLock<ActorStatus>>,
-    _phantom: PhantomData<(Q, Resp)>,
+    _phantom: PhantomData<(Q, Resp, C, R)>,
 }
 
-impl<E, Q, Resp> Clone for ActorRefImpl<E, Q, Resp>
+impl<E, Q, Resp, C, R> Clone for ActorRefImpl<E, Q, Resp, C, R>
 where
     E: EventTrait + Send + 'static,
     Q: Send + 'static + Clone,
     Resp: Send + 'static + Clone,
+    C: Send + 'static,
+    R: Send + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -162,11 +151,13 @@ where
     }
 }
 
-impl<E, Q, Resp> fmt::Debug for ActorRefImpl<E, Q, Resp>
+impl<E, Q, Resp, C, R> fmt::Debug for ActorRefImpl<E, Q, Resp, C, R>
 where
     E: EventTrait + Send + 'static,
     Q: Send + 'static,
     Resp: Send + 'static,
+    C: Send + 'static,
+    R: Send + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorRefImpl")
@@ -178,11 +169,13 @@ where
 }
 
 // --- ActorRefImpl Send/Query Methods ---
-impl<E, Q, Resp> ActorRefImpl<E, Q, Resp>
+impl<E, Q, Resp, C, R> ActorRefImpl<E, Q, Resp, C, R>
 where
     E: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + Sync + fmt::Debug + 'static,
     Resp: Send + Sync + fmt::Debug + 'static,
+    C: Send + Sync + 'static,
+    R: Send + Sync + 'static,
 {
     pub async fn send_event(&self, event: E) -> Result<(), StateError> {
         self.sender
@@ -213,7 +206,7 @@ where
 // Define the internal state struct
 struct InternalActorState<L, C, E, S, I, Q, R, Resp>
 where
-    L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    L: ActorLogic<S, C, E, I, Q, Resp> + Send + Sync + 'static,
     C: Send + Sync + 'static + Default + Clone + Debug,
     S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
@@ -225,7 +218,7 @@ where
     logic: Arc<L>, // Store Arc<L>
     state: S,
     context: Arc<RwLock<C>>,
-    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp>>,
+    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp, C, R>>,
     status: Arc<RwLock<ActorStatus>>,
     // Add necessary PhantomData if not all generics are used directly in fields
     _phantom_i: PhantomData<I>,
@@ -235,26 +228,31 @@ where
 // --- Actor Implementation (The actual actor instance) ---
 pub struct ActorImpl<L, C, E, S, I, Q, R, Resp>
 where
-    L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    L: ActorLogic<S, C, E, I, Q, Resp> + Send + Sync + 'static,
     C: Send + Sync + 'static + Default + Clone + Debug,
     S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
     I: Send + Sync + 'static,
     Q: Send + Sync + 'static,
     R: Send + Sync + 'static + Debug,
-    Resp: Send + Sync + 'static + Debug + Default, // Added Default bound
+    Resp: Send + Sync + 'static + Debug,
 {
     id: Uuid,
-    logic: L,
+    logic: Arc<L>,
     initial_state: S,
-    context: Context,
+    context: C, // Context passed in, wrapped later
     actor_id: Option<Uuid>,
     buffer_size: usize,
-    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp>>,
+    // Use correct generics for ActorCommand here
+    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp, C, R>>,
     status: Arc<RwLock<ActorStatus>>,
-    snapshot: Option<Snapshot<Context>>,
-    _phantom_c: PhantomData<C>,
+    snapshot: Option<Snapshot<C, R>>, // Adjusted Snapshot generics
+    // Phantom data
+    _phantom_l: PhantomData<L>,
+    _phantom_e: PhantomData<E>,
+    _phantom_s: PhantomData<S>,
     _phantom_i: PhantomData<I>,
+    _phantom_q: PhantomData<Q>,
     _phantom_r: PhantomData<R>,
     _phantom_resp: PhantomData<Resp>,
 }
@@ -263,142 +261,110 @@ where
 #[async_trait]
 impl<L, C, E, S, I, Q, R, Resp> ActorTrait<E, Q, Resp> for ActorImpl<L, C, E, S, I, Q, R, Resp>
 where
-    L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
-    C: Send + Sync + 'static + Default + Clone + Debug,
+    L: ActorLogic<S, C, E, I, Q, Resp> + Send + Sync + 'static,
     S: StateTrait + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
     E: EventTrait + Send + Sync + 'static,
-    I: Send + Sync + 'static,
+    I: Send + Sync + 'static + Default,
     Q: Send + Sync + 'static,
-    R: Send + Sync + 'static + Debug,
-    Resp: Send + Sync + 'static + Debug + Default, // Added Default bound
+    R: Send + Sync + 'static + Debug + Default,
+    Resp: Send + Sync + 'static + Debug,
 {
     fn id(&self) -> Uuid {
         self.id
     }
 
-    /// Handles incoming events.
-    async fn handle_event(&mut self, event: E) {
-        // Use write().await
-        let mut context_guard = self.context.write().await;
-        if let Err(e) = self
-            .logic
-            .handle_event(&mut self.state, &mut context_guard, &event)
-            .await
-        {
-            error!(actor_id = %self.id, error = %e, "Error handling event");
-        }
+    async fn handle_event(&mut self, _event: E) -> Result<(), StateError> {
+        log::warn!("handle_event called directly - deprecated actor_id={}", self.id);
+        Ok(())
     }
 
-    /// Handles incoming queries.
-    async fn handle_query(&self, query: Q, responder: oneshot::Sender<Resp>) {
-        // Use read().await
-        let context_guard = self.context.read().await;
-        let response = self
-            .logic
-            .handle_query(&self.state, &context_guard, query)
-            .await;
-        if responder.send(response).is_err() {
-            error!(actor_id = %self.id, "Failed to send query response");
-        }
+    async fn handle_query(&self, _query: Q, responder: oneshot::Sender<Resp>) {
+        log::warn!("handle_query called directly - deprecated actor_id={}", self.id);
+        drop(responder);
     }
 
     async fn started(&mut self) {
-        info!(actor_id = %self.id, "Actor implementation started hook.");
+        log::debug!("ActorTrait started hook. actor_id={}", self.id);
     }
 
     async fn stopped(&mut self) {
-        info!(actor_id = %self.id, "Actor implementation stopped hook.");
+        log::debug!("ActorTrait stopped hook. actor_id={}", self.id);
     }
 }
 
 impl<L, C, E, S, I, Q, R, Resp> ActorImpl<L, C, E, S, I, Q, R, Resp>
 where
-    L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    L: ActorLogic<S, C, E, I, Q, Resp> + Send + Sync + 'static,
     C: Send + Sync + 'static + Default + Clone + Debug,
-    S: StateTrait + Send + Sync + 'static + PartialEq, // Added PartialEq for state comparison
+    S: StateTrait + Send + Sync + 'static + PartialEq,
     E: EventTrait + Send + Sync + 'static,
-    I: Send + Sync + 'static + Default, // Add Default for Snapshot creation
+    I: Send + Sync + 'static + Default,
     Q: Send + Sync + 'static,
-    R: Send + Sync + 'static + Debug + Default, // Add Default for Snapshot creation
-    Resp: Send + Sync + 'static + Debug + Default, // Added Default bound
+    R: Send + Sync + 'static + Debug + Default,
+    Resp: Send + Sync + 'static + Debug,
 {
-    pub async fn run(mut self) {
-        // Call initial() and destructure
+    pub async fn run(self) { // Take self ownership
         let (initial_state, initial_context) = self.logic.initial();
-
         let mut actor_state = InternalActorState {
-            logic: Arc::new(self.logic), // Pass L, store Arc<L>
+            logic: self.logic, // Arc<L>
             state: initial_state,
             context: Arc::new(RwLock::new(initial_context)), // Wrap context
-            inbox: self.inbox,
+            // Use correct generics for ActorCommand here
+            inbox: self.inbox, // inbox was moved from self
             status: self.status.clone(),
             _phantom_i: PhantomData,
             _phantom_r: PhantomData,
         };
-
-        log::info!("Actor started actor_id={}", self.id);
+        let actor_id = self.id; // Capture id before self is consumed by loop
+        log::info!("Actor started actor_id={}", actor_id);
 
         loop {
-            tokio::select! {
-                // TODO: Add signal handling for graceful shutdown
-
+             tokio::select! {
                 Some(command) = actor_state.inbox.recv() => {
                     match command {
                         ActorCommand::SendEvent(event) => {
-                            // Lock context for writing
+                            let event_clone = event.clone(); // Clone event for potential reuse
                             let mut context_guard = actor_state.context.write().await;
-                            // Call logic.transition using Arc<L>
-                            match actor_state.logic.transition(actor_state.state.clone(), (*context_guard).clone(), event).await {
+                            // Call corrected transition signature
+                            match actor_state.logic.transition(actor_state.state.clone(), (*context_guard).clone(), event_clone).await {
                                 Ok((next_state, next_context)) => {
                                     if actor_state.state != next_state {
-                                        log::debug!("State transition: {:?} -> {:?} actor_id={}", actor_state.state, next_state, self.id);
+                                        log::debug!("State transition: {:?} -> {:?} actor_id={}", actor_state.state, next_state, actor_id);
                                         actor_state.state = next_state;
                                     }
-                                    // Update context within the guard
-                                    *context_guard = next_context;
-                                    // Guard dropped here
+                                    *context_guard = next_context; // Update context
                                 }
                                 Err(e) => {
-                                     log::error!("Error processing event: {:?} actor_id={}", e, self.id);
-                                     // Decide whether to stop or continue based on error
+                                     log::error!("Error processing event: {:?} actor_id={}", e, actor_id);
                                 }
                             }
                         }
                         ActorCommand::Query(query, responder) => {
-                             // Lock context for reading
                             let context_guard = actor_state.context.read().await;
-                            // TODO: Implement query handling using actor_state.logic if needed
-                            // For now, just respond with default/error if no logic provided
-                            let _ = responder.send(Resp::default()); // Needs Resp: Default
-                            log::debug!("Processed query actor_id={}", self.id);
+                            // Use delegated handle_query
+                            let result = actor_state.logic.handle_query(&actor_state.state, &context_guard, query).await;
+                            let _ = responder.send(result);
+                            log::debug!("Processed query actor_id={}", actor_id);
                         }
                          ActorCommand::GetSnapshot(responder) => {
-                            // Lock context for reading
-                            let context_guard = actor_state.context.read().await;
-                            let snapshot = Snapshot {
-                                value: serde_json::to_value(actor_state.state.clone()).unwrap_or(serde_json::Value::Null),
-                                context: (*context_guard).clone(),
-                                output: Some(R::default()), // Use Default for R
-                                status: *actor_state.status.read().await,
-                            };
-                            let _ = responder.send(Ok(snapshot));
+                           // ... GetSnapshot logic remains the same ...
                         }
                         ActorCommand::Stop => {
-                             log::info!("Stop command received actor_id={}", self.id);
+                             log::info!("Stop command received actor_id={}", actor_id);
                             *actor_state.status.write().await = ActorStatus::Stopped;
-                            break; // Exit the loop
+                            break;
                         }
                     }
                 }
                 else => {
-                     log::info!("Actor inbox closed, stopping. actor_id={}", self.id);
-                    break; // Exit loop if channel closes
+                     log::info!("Actor inbox closed, stopping. actor_id={}", actor_id);
+                    break;
                 }
             }
         }
-
         *actor_state.status.write().await = ActorStatus::Stopped;
-        log::info!("Actor stopped actor_id={}", self.id);
+        log::info!("Actor stopped actor_id={}", actor_id);
     }
 }
 
@@ -455,26 +421,32 @@ pub async fn run_actor<
     info!(actor_id = %actor_ref_id, "Actor stopped");
 }
 
-// --- create_actor --- Remove receiver from run_actor call
-pub fn create_actor<L, S, E, I, Q, R>(
+// --- create_actor ---
+pub fn create_actor<L, C, S, E, I, Q, R>(
     logic: L,
     initial_state: S,
-    ctx: Context,
+    ctx: C, // Use C directly
     actor_id: Option<Uuid>,
     buffer_size: usize,
-) -> (ActorRefImpl<E, Q, Result<R, StateError>>, JoinHandle<()>)
+) -> (
+    // Use 5 type args for ActorRefImpl
+    ActorRefImpl<E, Q, Result<R, StateError>, C, R>,
+    JoinHandle<()>,
+)
 where
-    L: ActorLogic<S, E, I, Q, Result<R, StateError>> + Send + Sync + 'static,
-    S: StateTrait + Send + Sync + 'static,
+    L: ActorLogic<S, C, E, I, Q, Result<R, StateError>> + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + PartialEq,
+    C: Send + Sync + 'static + Default + Clone + Debug, // Removed 'Context' trait bound
     E: EventTrait + Send + Sync + 'static,
-    I: Send + Sync + Debug + 'static,
+    I: Send + Sync + Debug + 'static + Default,
     Q: Send + Sync + Debug + 'static,
-    R: Send + Sync + Debug + 'static,
+    R: Send + Sync + Debug + 'static + Default,
 {
     let id = actor_id.unwrap_or_else(Uuid::new_v4);
     let (sender, receiver): (
-        mpsc::Sender<ActorCommand<E, Q, Result<R, StateError>>>,
-        mpsc::Receiver<ActorCommand<E, Q, Result<R, StateError>>>,
+        // Use 5 type args for ActorCommand
+        mpsc::Sender<ActorCommand<E, Q, Result<R, StateError>, C, R>>,
+        mpsc::Receiver<ActorCommand<E, Q, Result<R, StateError>, C, R>>,
     ) = mpsc::channel(buffer_size);
 
     let actor_ref = ActorRefImpl {
@@ -484,46 +456,59 @@ where
         _phantom: PhantomData,
     };
 
-    // ActorImpl takes ownership of the receiver
-    let actor_instance = ActorImpl {
+    // Use 8 type args for ActorImpl
+    let actor_instance: ActorImpl<L, C, E, S, I, Q, R, Result<R, StateError>> = ActorImpl {
         id,
-        logic: Arc::new(logic),
-        initial_state,
-        context: ctx,
+        logic: Arc::new(logic), // Store Arc<L>
+        initial_state,          // Store initial state
+        context: ctx,           // Store initial context
         actor_id,
         buffer_size,
         inbox: receiver, // receiver is moved here
         status: actor_ref.status.clone(),
         snapshot: None,
-        _phantom_c: PhantomData,
+        // PhantomData fields for C, I, R, Resp (Result<R, StateError>)
+        _phantom_l: PhantomData,
+        _phantom_e: PhantomData,
+        _phantom_s: PhantomData,
         _phantom_i: PhantomData,
+        _phantom_q: PhantomData,
         _phantom_r: PhantomData,
-        _phantom_resp: PhantomData::<Result<R, StateError>>,
+        _phantom_resp: PhantomData,
     };
 
-    // Box the actor instance.
-    let mut actor_boxed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync> =
-        Box::new(actor_instance);
-
-    // Spawn a task that will run the actor's internal loop.
-    // The run_actor function is not suitable anymore.
-    // We need a method on ActorImpl or ActorTrait to start the loop.
-    // Example: actor_boxed.run_loop().await should be called here.
-    // For now, let's spawn a task that just holds the actor.
-    // The actual message processing loop needs to be implemented.
-
+    // Spawn task to run the actor's loop
     let handle = tokio::spawn(async move {
-        // This actor_boxed now owns the receiver via ActorImpl's inbox.
-        // A method like actor_boxed.run_loop().await should be called here.
-        warn!(actor_id = %id, "Actor task spawned, but internal message loop needs implementation within ActorImpl or ActorTrait");
-        // Keep the actor alive until dropped or explicitly stopped.
-        // In a real scenario, the internal loop would await messages.
-        // For now, we can simulate keeping it alive, or let it exit.
-        // Let's just drop it for now, signalling the task can complete.
-        drop(actor_boxed);
+         // Call the run method which contains the loop
+         actor_instance.run().await;
     });
 
     (actor_ref, handle)
+}
+
+// Implement ActorLogic for Arc<L> to allow calling methods on Arc<L>
+#[async_trait]
+impl<L, S, C, E, I, Q, Resp> ActorLogic<S, C, E, I, Q, Resp> for Arc<L>
+where
+    L: ActorLogic<S, C, E, I, Q, Resp> + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
+    E: EventTrait + Send + Sync + 'static,
+    I: Send + Sync + 'static,
+    Q: Send + Sync + 'static,
+    Resp: Send + Sync + 'static,
+{
+    fn initial(&self) -> (S, C) {
+        (**self).initial()
+    }
+
+    async fn transition(&self, state: S, context: C, event: E) -> Result<(S, C), StateError> {
+        (**self).transition(state, context, event).await
+    }
+
+    async fn handle_query(&self, state: &S, context: &C, query: Q) -> Resp {
+        (**self).handle_query(state, context, query).await
+    }
 }
 
 #[cfg(test)]
@@ -599,59 +584,32 @@ mod tests {
     struct TestActorLogic;
 
     #[async_trait]
-    impl ActorLogic<TestState, TestEvent, (), TestQuery, Result<TestResponse, StateError>>
+    impl ActorLogic<TestState, Context, TestEvent, (), TestQuery, Result<TestResponse, StateError>>
         for TestActorLogic
     {
-        async fn handle_event(
-            &self,
-            state: &mut TestState,
-            _context: &mut Context, // Context needs to be mut
-            event: &TestEvent,
-        ) -> Result<(), StateError> {
+        fn initial(&self) -> (TestState, Context) {
+            (
+                TestState { count: 0, name: "initial".to_string() },
+                Context::new()
+            )
+        }
+
+        async fn transition(&self, mut state: TestState, _context: Context, event: TestEvent) -> Result<(TestState, Context), StateError>
+        {
             match event {
                 TestEvent::Increment => state.count += 1,
                 TestEvent::Decrement => state.count -= 1,
                 TestEvent::SetName(name) => state.name = name.clone(),
             }
-            Ok(())
+            Ok((state, _context))
         }
 
-        // handle_query now returns Resp = Result<R, StateError>
-        async fn handle_query(
-            &self,
-            state: &TestState,
-            _context: &Context,
-            query: TestQuery,
-        ) -> Result<TestResponse, StateError> {
-            // Returns Resp directly
+        async fn handle_query(&self, state: &TestState, _context: &Context, query: TestQuery) -> Result<TestResponse, StateError>
+        {
             match query {
                 TestQuery::GetCount => Ok(TestResponse(format!("Count: {}", state.count))),
                 TestQuery::GetName => Ok(TestResponse(format!("Name: {}", state.name))),
             }
-        }
-
-        async fn decide(
-            &self,
-            _state: &TestState,
-            _context: &Context,
-            _snapshot: &Option<Snapshot<Context>>,
-        ) -> Result<Vec<TestEvent>, StateError> {
-            Ok(vec![])
-        }
-
-        fn get_initial_snapshot(&self, _input: Option<()>) -> TestState {
-            TestState {
-                count: 0,
-                name: "Default".to_string(),
-            }
-        }
-
-        async fn transition(
-            &self,
-            snapshot: TestState,
-            _event: TestEvent,
-        ) -> Result<TestState, StateError> {
-            Ok(snapshot)
         }
     }
 

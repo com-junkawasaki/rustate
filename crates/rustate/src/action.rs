@@ -1,4 +1,4 @@
-use crate::{Context, EventTrait, Result};
+use crate::{Context, EventTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::future::Future;

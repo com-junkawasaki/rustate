@@ -6,23 +6,18 @@ use crate::{
     transition::TransitionType,
     Action, Context, Error, Event, EventTrait, IntoAction, Result, StateTrait, Transition,
 };
-use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use futures::FutureExt;
 use log;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Display};
-use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, warn};
-use uuid::Uuid;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,7 +97,7 @@ where
     pub async fn new(builder: MachineBuilder<C, E, S, O>) -> Result<Self> {
         let MachineBuilder {
             name,
-            mut states,
+            states,
             transitions,
             initial,
             entry_actions,
@@ -272,19 +267,19 @@ where
         };
 
         // 1. Find the LCCA (Least Common Compound Ancestor)
-        // For transitions originating from the machine root (no source specified in transition def)
-        // or for targetless transitions, LCCA is implicitly the root.
-        let source_state_id = transition.source.as_ref().unwrap_or(&self.initial); // Assume root if source is None
+        // Source is not optional
+        let source_state_id = &transition.source;
+        // Clone the result of find_lcca to avoid holding the borrow
         let lcca_id = target_states
             .as_ref()
-            .and_then(|target_id| self.find_lcca(source_state_id, target_id));
+            .and_then(|target_id| self.find_lcca(source_state_id, target_id))
+            .cloned(); // Clone the Option<&S> to Option<S>
 
         // 2. Determine states to exit
         let mut exit_states = HashSet::new();
         for current_id in current_state_ids {
-            // Only exit states that are descendants of the LCCA (or all if LCCA is root)
-            // For external transitions, the source state itself should also be exited if it's an ancestor of the target within LCCA boundary
-            if let Some(lcca) = lcca_id {
+            // Use cloned lcca_id
+            if let Some(ref lcca) = lcca_id { // Borrow lcca_id here
                 if self.is_descendant(current_id, lcca) && current_id != lcca {
                     // For external transitions, exit source even if it's the LCCA?
                     // Let's stick to exiting only proper descendants for now.
@@ -296,7 +291,8 @@ where
                     }
                 } else if transition.transition_type == TransitionType::External
                     && current_id == lcca
-                    && self.is_ancestor(target_states.as_ref().unwrap(), lcca)
+                    // Borrow target_states instead of unwrap
+                    && target_states.as_ref().map_or(false, |ts| self.is_ancestor(ts, lcca))
                 {
                     // Special case for external transition where LCCA is the source state
                     exit_states.insert(current_id.clone());
@@ -311,15 +307,14 @@ where
 
         // Refine exit states based on transition type (especially for external)
         if transition.transition_type == TransitionType::External {
-            if let Some(source) = transition.source {
-                if exit_states.contains(&source)
-                    || (lcca_id == Some(&source) && target_states.is_some())
-                {
-                    // Ensure source is exited for external
-                    exit_states.insert(source.clone());
-                } else if lcca_id.map_or(false, |lcca| self.is_ancestor(&source, lcca)) {
-                    exit_states.insert(source.clone());
-                }
+            let source = &transition.source;
+            // Use cloned lcca_id
+            if exit_states.contains(source)
+                || (lcca_id.as_ref() == Some(source) && target_states.is_some())
+            {
+                exit_states.insert(source.clone());
+            } else if lcca_id.as_ref().map_or(false, |lcca| self.is_ancestor(source, lcca)) {
+                exit_states.insert(source.clone());
             }
         }
 
@@ -343,28 +338,28 @@ where
         }
 
         // 4. Execute transition actions (if any)
-        if let Some(actions) = &transition.actions {
+        // actions is not optional
+        if !transition.actions.is_empty() {
             let mut context_guard = self.context.write().await;
-            for action in actions {
+            for action in &transition.actions { // Iterate directly
                 action.execute(&mut *context_guard, event).await;
             }
-            // Drop guard explicitly to release lock before entering states
             drop(context_guard);
         }
 
         // 5. Determine states to enter
         let mut enter_states = HashSet::new();
-        if let Some(target_id) = target_states {
-            // Add target and its ancestors up to (but not including) the LCCA
+        // Borrow target_states instead of moving
+        if let Some(ref target_id) = target_states {
             let mut current = Some(target_id.clone());
             while let Some(id) = current {
-                if let Some(lcca) = lcca_id {
-                    // Stop if we reach LCCA, unless it's an internal transition *within* LCCA
-                    if id == *lcca {
+                 // Use cloned lcca_id
+                if let Some(ref lcca) = lcca_id { // Borrow lcca_id here
+                    if &id == lcca {
                         // If it's an internal transition and target is LCCA itself, don't enter it again.
                         // If target is a descendant of LCCA, LCCA should not be entered.
                         if transition.transition_type == TransitionType::Internal
-                            && &target_id == lcca
+                            && target_id == lcca // Compare references
                         {
                             // Don't enter LCCA on internal transition targeting LCCA
                         } else {
@@ -378,8 +373,9 @@ where
 
             // For external transitions, if LCCA was exited, it needs to be re-entered if it's an ancestor of the target
             if transition.transition_type == TransitionType::External {
-                if let Some(lcca) = lcca_id {
-                    if exit_states.contains(lcca) && self.is_ancestor(&target_id, lcca) {
+                // Use cloned lcca_id
+                if let Some(ref lcca) = lcca_id {
+                    if exit_states.contains(lcca) && self.is_ancestor(target_id, lcca) {
                         enter_states.insert(lcca.clone());
                     }
                 }
@@ -505,26 +501,14 @@ where
 
         // Clone context for recursive calls
         let context_clone = context.clone();
-        let event_clone = event.clone(); // Clone event for the async block
-        let mut exit_futures = Vec::new();
+        let event_clone = event.clone(); // Clone event for the loop
+
+        // Execute child exits sequentially to avoid potential Send issues with join_all
         for child_id in active_children_to_exit {
             log::debug!("Exiting child {} of {}", child_id, state_id);
-            let child_id_clone = child_id.clone(); // Clone child_id for the async block
-            let context_for_child = context_clone.clone(); // Clone Arc for the async block
-            let event_for_child = event_clone.clone(); // Clone event for the async block
             // Pass context down recursively
-            exit_futures.push(
-                // Wrap the recursive call in an async block to ensure the resulting future is Send
-                async move {
-                    self.exit_state(&child_id_clone, &event_for_child, context_for_child).await
-                }.boxed()
-            );
-        }
-        // Await all child exits before exiting the parent
-        let results: Vec<Result<(), StateError>> = futures::future::join_all(exit_futures).await;
-        // Check all results, return first error
-        for result in results {
-            result?; // Propagate errors
+            self.exit_state(&child_id, &event_clone, context_clone.clone()).await?;
+            // Propagate errors immediately
         }
         log::debug!("Finished exiting children of {}", state_id);
         // --- Handle exiting child states first --- End

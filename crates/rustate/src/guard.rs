@@ -1,7 +1,6 @@
 use crate::{Context, Event, EventTrait};
 use serde::Serialize;
 use std::fmt;
-use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
