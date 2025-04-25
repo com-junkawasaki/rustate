@@ -2,20 +2,19 @@ use crate::{
     action::{Action, ActionType, IntoAction},
     context::Context,
     error::Result,
-    event::{Event, EventTrait},
+    event::{Event, EventTrait, IntoEvent},
     guard::{Guard, IntoGuard},
     state::{State, StateTrait},
 };
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::sync::Arc;
 use thiserror::Error;
 
 /// Represents a transition between states
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Transition<S, C = Context, E = Event>
 where
     S: StateTrait + Send + Sync + 'static,
@@ -45,7 +44,7 @@ impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Send + Sync + 'static + Clone,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
 {
     /// Create a new transition
     pub fn new(source: S, event: E, target: Option<S>) -> Self {
@@ -80,11 +79,14 @@ where
     }
 
     /// Create a new internal transition (no exit/entry actions, just the transition actions)
-    pub fn internal_transition(state: S, event: E) -> Self {
+    pub fn internal_transition<SId: Into<String>, EIn: IntoEvent>(state_id: SId, event: EIn) -> Self
+    where
+        S: From<String>,
+    {
         Self {
-            source: state,
+            source: S::from(state_id.into()),
             target: None,
-            event,
+            event: event.into_event().into(),
             guard: None,
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
@@ -109,7 +111,7 @@ where
 
     /// Check if this transition is triggered by the given event
     pub fn matches_event(&self, event: &E) -> bool {
-        self.event == event || self.event == crate::event::WILDCARD_EVENT
+        self.event == *event
     }
 
     /// Check if this transition is enabled given the context and event
@@ -125,15 +127,13 @@ where
 
     /// Execute this transition's actions
     #[async_recursion]
-    pub async fn execute_actions(&self, context: &mut C, event: &E) {
+    pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
         let futures = self
             .actions
             .iter()
             .map(|action| action.execute(context, event));
-        let results = try_join_all(futures).await;
-        if let Err(e) = results {
-            eprintln!("Error executing transition action: {:?}", e);
-        }
+        try_join_all(futures).await?;
+        Ok(())
     }
 }
 

@@ -6,6 +6,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use crate::error::ActionError;
 
 /// Type alias for the action executor function
 pub type ActionExecutor =
@@ -91,9 +92,9 @@ where
         }
     }
 
-    /// Execute the action.
-    pub async fn execute(&self, context: &mut C, event: &E) {
-        (self.execute_fn)(context, event).await;
+    /// Execute the action
+    pub async fn execute(&self, context: &mut C, event: &E) -> Result<(), ActionError> {
+        (self.execute_fn)(context, event).await
     }
 }
 
@@ -159,32 +160,36 @@ where
     }
 }
 
-/// Trait to convert various types into an Action
-#[async_trait]
+/// Trait for types that can be converted into an action.
 pub trait IntoAction<C, E>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
+    /// Converts the type into an action.
     fn into_action(self) -> Action<C, E>;
 }
 
-// Implement IntoAction for functions
-#[async_trait]
-impl<F, C, E> IntoAction<C, E> for F
+// Implement IntoAction for closures
+impl<F, Fut, C, E> IntoAction<C, E> for F
 where
-    F: Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    F: Fn(&mut C, &E) -> Fut + Send + Sync + 'static + Clone,
+    Fut: futures::Future<Output = Result<(), ActionError>> + Send + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     fn into_action(self) -> Action<C, E> {
-        // Default name and type for closures
-        Action::new("anonymous_action", ActionType::Transition, self)
+        Action {
+            name: "closure_action".to_string(), // Consider a way to name these?
+            action_type: ActionType::Transition, // Default type, might need adjustment
+            execute_fn: Arc::new(move |ctx, evt| Box::pin(self(ctx, evt)) as _),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
+        }
     }
 }
 
-// Implement IntoAction for Action itself (identity conversion)
-#[async_trait]
+// Implement IntoAction for Action itself
 impl<C, E> IntoAction<C, E> for Action<C, E>
 where
     C: Clone + Send + Sync + Default + 'static,

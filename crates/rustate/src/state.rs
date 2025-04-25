@@ -18,7 +18,7 @@ pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync +
     fn parent(&self) -> Option<&str>;
 
     /// Get child states (for compound and parallel states)
-    fn children(&self) -> &[String];
+    fn children(&self) -> &[S];
 
     /// Get initial state id (for compound states)
     fn initial(&self) -> Option<&str>;
@@ -85,7 +85,7 @@ pub enum HistoryType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub struct State<S = String>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
 {
     /// Unique identifier for the state
     pub id: S,
@@ -110,7 +110,7 @@ where
 
 impl<S> State<S>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + Clone + From<String> + Serialize + for<'de> Deserialize<'de>,
 {
     /// Create a new normal state
     pub fn new(id: S) -> Self {
@@ -206,8 +206,8 @@ where
     }
 
     /// Add a child state to this state
-    pub fn add_child(&mut self, child_id: impl Into<String>) -> &mut Self {
-        self.children.push(child_id.into());
+    pub fn add_child(&mut self, child_id: S) -> &mut Self {
+        self.children.push(child_id);
         self
     }
 
@@ -224,14 +224,14 @@ where
     }
 
     /// Set the parent state ID
-    pub fn with_parent(mut self, parent_id: impl Into<String>) -> Self {
-        self.parent = Some(parent_id.into());
+    pub fn with_parent(mut self, parent_id: S) -> Self {
+        self.parent = Some(parent_id);
         self
     }
 
     /// Set the initial child state ID
-    pub fn with_initial(mut self, initial_id: impl Into<String>) -> Self {
-        self.initial = Some(initial_id.into());
+    pub fn with_initial(mut self, initial_id: S) -> Self {
+        self.initial = Some(initial_id);
         self
     }
 
@@ -250,10 +250,10 @@ where
 
 impl<S> StateTrait for State<S>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + Clone + From<String> + fmt::Display + Serialize + for<'de> Deserialize<'de>,
 {
     fn id(&self) -> &str {
-        &self.id.to_string()
+        Box::leak(self.id.to_string().into_boxed_str())
     }
 
     fn state_type(&self) -> &StateType {
@@ -261,19 +261,15 @@ where
     }
 
     fn parent(&self) -> Option<&str> {
-        self.parent.as_deref().map(|s| s.to_string().as_str())
+        self.parent.as_ref().map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
     }
 
-    fn children(&self) -> &[String] {
-        &self
-            .children
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
+    fn children(&self) -> &[S] {
+        &self.children
     }
 
     fn initial(&self) -> Option<&str> {
-        self.initial.as_deref().map(|s| s.to_string().as_str())
+        self.initial.as_ref().map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
     }
 
     fn data(&self) -> Option<&Value> {
@@ -323,29 +319,5 @@ impl StateCollection {
     /// Get all states
     pub fn all(&self) -> impl Iterator<Item = &State<String>> {
         self.states.values()
-    }
-}
-
-impl StateTrait for String {
-    fn id(&self) -> &str {
-        self
-    }
-    fn state_type(&self) -> &StateType {
-        &StateType::Normal
-    }
-    fn parent(&self) -> Option<&str> {
-        None
-    }
-    fn children(&self) -> &[String] {
-        &[]
-    }
-    fn initial(&self) -> Option<&str> {
-        None
-    }
-    fn data(&self) -> Option<&Value> {
-        None
-    }
-    fn history(&self) -> Option<HistoryType> {
-        None
     }
 }

@@ -45,6 +45,13 @@ impl Event {
     }
 }
 
+// Add From<Event> for Event to handle the .into() call in transition.rs
+impl From<Event> for Event {
+    fn from(event: Event) -> Self {
+        event
+    }
+}
+
 impl EventTrait for Event {
     fn event_type(&self) -> &str {
         &self.event_type
