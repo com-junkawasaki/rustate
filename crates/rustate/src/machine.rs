@@ -11,6 +11,7 @@ use crate::{
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,7 +48,7 @@ where
     pub name: String,
     /// Collection of states (Use StateCollection for better management)
     #[serde(flatten)]
-    pub states: StateCollection<S>,
+    pub states: StateCollection<S, C, E>,
     /// Collection of transitions (Grouped by source state ID)
     pub transitions: HashMap<S, Vec<Transition<S, C, E>>>,
     /// Initial state id
@@ -151,13 +152,13 @@ where
                 final_entry_actions
                     .entry(id_str.clone())
                     .or_default()
-                    .extend(state.entry.iter().cloned().map(|ia| ia.into_action()));
+                    .extend(state.entry.iter().cloned());
             }
             if !state.exit.is_empty() {
                 final_exit_actions
                     .entry(id_str)
                     .or_default()
-                    .extend(state.exit.iter().cloned().map(|ia| ia.into_action()));
+                    .extend(state.exit.iter().cloned());
             }
         }
 
@@ -235,7 +236,7 @@ where
                     }
                     if let Some(parent_id) = self
                         .states
-                        .get(current_check_id)
+                        .get(&current_check_id)
                         .and_then(|s| s.parent.clone())
                     {
                         current_check_id = parent_id;
@@ -246,46 +247,45 @@ where
             }
         }
 
-        for t in &self.transitions {
-            if t.source.to_string() == "*"
-                && t.event.as_ref().map_or(false, |te| te == &event)
-                && t.is_enabled(&current_context, &event).await?
-            {
-                if enabled_transition.is_none() {
-                    // Found a wildcard transition
-                    // TODO: Determine the correct source state for wildcard transitions if needed.
-                    // For now, let's assume it applies generally and pick the first current state.
-                    if let Some(first_current_state) = current_state_ids.first() {
-                        enabled_transition = Some((t, first_current_state.clone()));
-                    } else {
-                        // This case should ideally not happen if the machine is initialized
-                        return Err(Error::InvalidState(
-                            "No current state to apply wildcard transition".to_string(),
-                        ));
-                    }
-                }
-            }
-        }
-
         // Check for wildcard transitions (*) last
-        let wildcard_transition = async {
-            self.transitions.values().flatten().find(|t| {
-                t.source.to_string() == "*"
-                    && t.event.as_ref().map_or(false, |te| te == &event)
-                    && t.is_enabled(&current_context, &event).await
+        let stream = stream::iter(self.transitions.values().flatten())
+            .filter(|t| {
+                let is_wildcard = t.source.to_string() == "*";
+                let event_matches = t.event.as_ref().map_or(false, |te| te == &event);
+                // Check synchronous parts first
+                futures::future::ready(is_wildcard && event_matches)
             })
-        }
-        .await;
+            .then(|t| async {
+                // Asynchronously check the guard
+                if t.is_enabled(&current_context, &event).await {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .filter_map(|t_opt| futures::future::ready(t_opt)) // Filter out None results
+            ; // End stream definition before pinning
+
+        let mut pinned_stream = Box::pin(stream); // Pin the stream to the heap
+        let wildcard_transition = pinned_stream.next().await; // Now .next().await works
 
         if let Some((transition, source_state_id)) = enabled_transition {
             self.execute_transition(&transition.clone(), &source_state_id, &event)
                 .await?;
             processed = true;
-        } else {
-            if let Some(wildcard_t) = wildcard_transition {
-                self.execute_transition(&wildcard_t.clone(), &self.initial.clone(), &event)
+        } else if let Some(wildcard_t) = wildcard_transition {
+            // Determine the source state ID for the wildcard transition
+            // Using self.initial might be incorrect
+            // Use the first current state ID if available
+            if let Some(first_current_state) = current_state_ids.first() {
+                self.execute_transition(&wildcard_t.clone(), first_current_state, &event)
                     .await?;
                 processed = true;
+            } else {
+                // Handle case where no current state exists (shouldn't happen if initialized)
+                return Err(Error::InvalidState(
+                    "No current state to apply wildcard transition".to_string(),
+                ));
             }
         }
 
@@ -320,7 +320,7 @@ where
             exit_queue.push_back(state_to_exit.clone());
             current_exit = self
                 .states
-                .get(state_to_exit)
+                .get(&state_to_exit)
                 .and_then(|s| s.parent.clone());
         }
 
@@ -333,7 +333,7 @@ where
             entry_queue.push_front(state_to_enter.clone());
             current_entry = self
                 .states
-                .get(state_to_enter)
+                .get(&state_to_enter)
                 .and_then(|s| s.parent.clone());
         }
 
@@ -412,9 +412,8 @@ where
                         // Assuming child_key (String) can be converted back to S
                         // This might need adjustment based on how S is defined and used as HashMap key
                         let child_id = S::from(child_key); // Use From<String> bound
-                        enter_futures.push(self.enter_state(&child_id, event));
+                        self.enter_state(&child_id, event).await?;
                     }
-                    try_join_all(enter_futures).await?;
                 }
                 _ => {} // Normal, Final states have no children to enter
             }
@@ -649,7 +648,7 @@ where
     /// Name of the machine
     pub name: String,
     /// Collection of states (Use StateCollection for better management)
-    pub states: StateCollection<S>,
+    pub states: StateCollection<S, C, E>,
     /// Collection of transitions (Will be grouped in Machine::new)
     pub transitions: Vec<Transition<S, C, E>>,
     /// Initial state id (Use S directly)
@@ -698,7 +697,7 @@ where
     }
 
     /// Add a state definition
-    pub fn state(mut self, state: State<S>) -> Self {
+    pub fn state(mut self, state: State<S, C, E>) -> Self {
         self.states.add(state);
         self
     }

@@ -1,20 +1,18 @@
-use crate::error::Result;
-use crate::error::StateError;
-use crate::event::EventTrait;
+use crate::error::{Result, StateError};
+use crate::event::{Event as RustateEvent, EventTrait};
+use crate::guard::Guard;
 use crate::state::StateTrait;
-use crate::{Context, Event, Machine, MachineBuilder, State, StateType};
+use crate::Context;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::fmt;
-use std::hash::Hash;
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
-use tokio::time::{self, Duration};
-use tracing::{debug, error, info, instrument};
+use tokio::time::{Duration, Instant};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 // --- Actor Options ---
@@ -67,44 +65,22 @@ pub enum ActorStatus {
     Error,
 }
 
-// --- Actor Logic ---
+// --- Actor Logic Trait ---
+#[async_trait]
+pub trait Logic<S, E, I, Q, R>: Send + Sync {
+    async fn handle_event(&self, state: &mut S, context: &Context, event: &E) -> Result<(), Error>;
+    async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Result<R, Error>;
+    async fn decide(&self, state: &S, context: &Context, snapshot: &Option<Snapshot<Context>>) -> Result<Vec<E>, Error>;
+}
 
-/// Defines the behavior of an actor: how it computes its initial state
-/// and transitions to new states based on received events.
-///
-/// Generic Parameters:
-/// - TSnapshot: The type of the snapshot produced by this logic.
-/// - TEvent: The type of event the actor logic accepts.
-/// - TInput: The type of input data provided when the actor starts (must be Send + Sync + 'static).
-#[async_trait] // Make the trait async
-pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
-    // Added Send + Sync bounds as async traits often require them
-
-    /// Computes the initial snapshot (state) of the actor logic.
-    /// May use input data provided when the actor is started.
-    fn get_initial_snapshot(&self, input: Option<TInput>) -> TSnapshot;
-
-    /// Computes the next snapshot based on the current snapshot and a received event.
-    async fn transition(&self, snapshot: TSnapshot, event: TEvent)
-        -> Result<TSnapshot, StateError>; // Mark transition as async
-
-    /// Handles an incoming query, returning a response without changing state.
-    /// This is optional for ActorLogic implementations.
-    async fn handle_query(&self, _query: TEvent::Query) -> Result<TEvent::Response, StateError>
-    where
-        TEvent: QueryableEvent,
-    {
-        Err(StateError::NotImplemented(
-            "Query handling not implemented for this logic".to_string(),
-        ))
-    }
-
-    // Potential future additions:
-    // fn get_persisted_snapshot(&self, snapshot: TSnapshot) -> ...; // For serialization/restoration
-    // fn restore_snapshot(&self, persisted_state: ...) -> TSnapshot;
-
-    async fn started(&mut self) {}
-    async fn stopped(&mut self) {}
+// --- Actor Trait ---
+#[async_trait]
+pub trait ActorTrait<E, Q, Resp>: Send + Sync {
+    fn id(&self) -> Uuid;
+    async fn handle_event(&mut self, event: E);
+    async fn handle_query(&self, query: Q) -> Resp;
+    async fn started(&mut self);
+    async fn stopped(&mut self);
 }
 
 // --- Actor Reference ---
@@ -129,27 +105,19 @@ where
     /// Gets the latest snapshot emitted by the actor.
     /// Note: This might require internal state management (e.g., caching the last snapshot)
     /// or specific implementations for different actor types.
-    fn get_snapshot(&self) -> TSnapshot; // Consider returning Option<TSnapshot> or Result
-
-    // Potential future additions:
-    // fn subscribe(&self, observer: impl FnMut(TSnapshot)) -> Subscription;
-    // fn stop(&self);
-    // fn to_json(&self) -> serde_json::Value; // For inspection/serialization
+    fn get_snapshot(&self) -> TSnapshot;
 
     /// Clones the ActorRef (typically involves cloning an Arc or channel sender).
     fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>>;
 
-    // Added stop method signature
     fn stop(&self) -> Result<(), StateError>;
 
-    // Added async query method signature
     async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
     where
         TEvent: QueryableEvent,
         TEvent::Query: Send + Sync,
         TEvent::Response: Send + Sync + fmt::Debug;
 
-    // Added actor_ref method signature
     fn actor_ref(&self) -> &dyn ActorRef<TEvent, TSnapshot>;
 }
 
@@ -172,156 +140,190 @@ pub trait QueryableEvent: EventTrait {
     type Response: Send + fmt::Debug;
 }
 
-/// Implementation of ActorRef using a Tokio MPSC channel.
-pub struct ActorRefImpl<TEvent, TSnapshot, Q, Resp>
+// --- ActorRef Implementation ---
+pub struct ActorRef<E, Q, Resp>
 where
-    TEvent: EventTrait + Send + Sync + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    E: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + Sync + fmt::Debug + 'static,
     Resp: Send + Sync + fmt::Debug + 'static,
 {
-    id: String,
-    sender: mpsc::Sender<ActorCommand<TEvent, Q, Resp>>,
-    snapshot: Arc<RwLock<TSnapshot>>,
+    pub id: Uuid,
+    pub sender: mpsc::Sender<ActorCommand<E, Q, Resp>>,
     _query_marker: PhantomData<Q>,
     _response_marker: PhantomData<Resp>,
 }
 
-impl<TEvent, TSnapshot, Q, Resp> Clone for ActorRefImpl<TEvent, TSnapshot, Q, Resp>
+impl<E, Q, Resp> Clone for ActorRef<E, Q, Resp>
 where
-    TEvent: EventTrait + Send + Sync + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    E: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + fmt::Debug + Sync + 'static,
     Resp: Send + Sync + fmt::Debug + 'static,
 {
     fn clone(&self) -> Self {
         Self {
-            id: self.id.clone(),
+            id: self.id,
             sender: self.sender.clone(),
-            snapshot: self.snapshot.clone(),
             _query_marker: PhantomData,
             _response_marker: PhantomData,
         }
     }
 }
 
-impl<TEvent, TSnapshot, Q, Resp> fmt::Debug for ActorRefImpl<TEvent, TSnapshot, Q, Resp>
+impl<E, Q, Resp> fmt::Debug for ActorRef<E, Q, Resp>
 where
-    TEvent: EventTrait + Send + Sync + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    E: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + fmt::Debug + Sync + 'static,
     Resp: Send + Sync + fmt::Debug + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ActorRefImpl")
+        f.debug_struct("ActorRef")
             .field("id", &self.id)
-            .field("snapshot", &self.snapshot) // Consider not printing the whole snapshot
             .finish()
     }
 }
 
-#[async_trait::async_trait]
-impl<TEvent, TSnapshot, Q, Resp> ActorRef<TEvent, TSnapshot>
-    for ActorRefImpl<TEvent, TSnapshot, Q, Resp>
+// --- ActorRef Send/Query Methods ---
+impl<E, Q, Resp> ActorRef<E, Q, Resp>
 where
-    TEvent: QueryableEvent<Query = Q, Response = Resp> + Send + Sync + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + fmt::Debug + 'static,
+    E: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + Sync + fmt::Debug + 'static,
     Resp: Send + Sync + fmt::Debug + 'static,
 {
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn send(&self, event: TEvent) -> Result<(), StateError> {
+    pub async fn send_event(&self, event: E) -> Result<(), StateError> {
         self.sender
-            .try_send(ActorCommand::Send(event))
-            .map_err(|e| StateError::ActorSendError(e.to_string()))
+            .send(ActorCommand::Send(event))
+            .await
+            .map_err(|e| StateError::SendError(format!("Failed to send event: {}", e)))
     }
 
-    fn stop(&self) -> Result<(), StateError> {
+    pub async fn query(&self, query: Q) -> Result<Resp, StateError>
+    where
+    {
+        let (tx, rx) = oneshot::channel();
         self.sender
-            .try_send(ActorCommand::Stop)
-            .map_err(|e| StateError::ActorSendError(e.to_string()))
+            .send(ActorCommand::Query(query, tx))
+            .await
+            .map_err(|e| StateError::SendError(format!("Failed to send query: {}", e)))?;
+        rx.await
+            .map_err(|e| StateError::ReceiveError(format!("Failed to receive query response: {}", e)))
     }
 
-    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError> {
-        let (response_sender, response_receiver) =
-            tokio::sync::oneshot::channel::<Result<TEvent::Response, StateError>>();
-        let command = ActorCommand::Query(query, response_sender);
-        self.sender.send(command).await.map_err(|e| {
-            StateError::ActorSendError(format!("Failed to send query command: {}", e))
-        })?;
-        response_receiver.await.map_err(|e| {
-            StateError::ActorReceiveError(format!("Failed to receive query response: {}", e))
-        })?
-    }
-
-    fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>> {
-        Box::new(self.clone())
-    }
-
-    fn get_snapshot(&self) -> TSnapshot {
-        self.snapshot.blocking_read().clone()
-    }
-
-    fn actor_ref(&self) -> &dyn ActorRef<TEvent, TSnapshot> {
-        self
+    pub async fn stop(&self) -> Result<(), StateError> {
+        self.sender
+            .send(ActorCommand::Stop)
+            .await
+            .map_err(|e| StateError::SendError(format!("Failed to send stop command: {}", e)))
     }
 }
 
-// Actor lifecycle management function
+// --- Actor Implementation ---
+pub struct ActorImpl<L, S, E, I, Q, R>
+where
+    L: Logic<S, E, I, Q, R> + Send + Sync + 'static,
+    S: StateTrait<Context = Context, Event = E> + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    I: Send + Sync + Debug + 'static,
+    Q: Send + Sync + Debug + 'static,
+    R: Send + Sync + Debug + 'static,
+{
+    id: Uuid,
+    logic: Arc<L>,
+    state: S,
+    sender: mpsc::Sender<ActorCommand<E, Q, Result<R, StateError>>>,
+    context: Arc<tokio::sync::Mutex<Context>>,
+    _marker: PhantomData<(I, R)>,
+}
+
+// Implementation for ActorImpl using the defined ActorTrait
+#[async_trait]
+impl<L, S, E, I, Q, R> ActorTrait<E, Q, Result<R, StateError>> for ActorImpl<L, S, E, I, Q, R>
+where
+    L: Logic<S, E, I, Q, R> + Send + Sync + 'static,
+    S: StateTrait<Context = Context, Event = E> + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    I: Send + Sync + Debug + 'static,
+    Q: Send + Sync + Debug + 'static,
+    R: Send + Sync + Debug + 'static,
+{
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    async fn handle_event(&mut self, event: E) {
+        let mut context_guard = self.context.lock().await;
+        if let Err(e) = self
+            .logic
+            .handle_event(&mut self.state, &mut context_guard, &event)
+            .await
+        {
+            error!(actor_id = %self.id, error = ?e, event = ?event, "Error handling event");
+        } else {
+            // Event handled successfully
+        }
+    }
+
+    async fn handle_query(&self, query: Q) -> Result<R, StateError> {
+        let context_guard = self.context.lock().await;
+        match self.logic.handle_query(&self.state, &context_guard, query).await {
+            Ok(response) => Ok(response),
+            Err(e) => {
+                error!(actor_id = %self.id, error = ?e, "Error handling query");
+                Err(StateError::QueryError(format!(
+                    "Query handling failed: {:?}",
+                    e
+                )))
+            }
+        }
+    }
+
+    async fn started(&mut self) {
+        info!(actor_id = %self.id, "Actor implementation started hook.");
+    }
+
+    async fn stopped(&mut self) {
+        info!(actor_id = %self.id, "Actor implementation stopped hook.");
+    }
+}
+
+// Run the actor main loop
 pub async fn run_actor<
-    A: Actor<TEvent, TSnapshot> + Send + 'static,
-    TEvent: EventTrait + Send + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    TEvent: Send + Sync + fmt::Debug + 'static,
     Q: Send + Sync + fmt::Debug + 'static,
     Resp: Send + Sync + fmt::Debug + 'static,
 >(
-    mut actor: A,
+    mut actor: Box<dyn ActorTrait<TEvent, Q, Resp> + Send + Sync>,
     mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, Resp>>,
-) where
-    A: Actor<TEvent, TSnapshot, Query = Q, Response = Result<Resp, StateError>>,
-    TEvent: QueryableEvent<Query = Q, Response = Resp>,
-    Q: Send + Sync + fmt::Debug + 'static,
-    Resp: Send + Sync + fmt::Debug + 'static,
-{
-    info!(actor_id = %actor.actor_ref().id(), "Actor started");
+    actor_ref_id: Uuid,
+) {
+    info!(actor_id = %actor_ref_id, "Actor started");
     actor.started().await;
 
     while let Some(command) = receiver.recv().await {
         match command {
             ActorCommand::Send(event) => {
-                debug!(actor_id = %actor.actor_ref().id(), event = ?event, "Received event");
+                debug!(actor_id = %actor_ref_id, event = ?event, "Received event");
                 actor.handle_event(event).await;
             }
-            ActorCommand::Query(query, responder) => {
-                debug!(actor_id = %actor.actor_ref().id(), query = ?query, "Received query");
-                match actor.handle_query(query).await {
-                    Ok(response_result) => {
-                        if let Err(_) = responder.send(response_result) {
-                            error!(actor_id = %actor.actor_ref().id(), "Failed to send query response back");
-                        }
-                    }
-                    Err(e) => {
-                        error!(actor_id = %actor.actor_ref().id(), error = %e, "Actor query handling error");
-                        let _ = responder.send(Err(e));
-                    }
+            ActorCommand::Query { query, responder } => {
+                debug!(actor_id = %actor_ref.id, query = ?query, "Received query");
+                let response_result = actor.handle_query(query).await;
+                if let Err(_) = responder.send(response_result) {
+                    error!(actor_id = %actor_ref.id, "Failed to send query response: receiver dropped");
                 }
             }
             ActorCommand::Stop => {
-                info!(actor_id = %actor.actor_ref().id(), "Stopping actor");
+                info!(actor_id = %actor_ref.id, "Stopping actor");
                 break;
             }
         }
     }
 
     actor.stopped().await;
-    info!(actor_id = %actor.actor_ref().id(), "Actor stopped");
+    info!(actor_id = %actor_ref.id, "Actor stopped");
 }
 
 // Helper to spawn an actor and return its reference
-pub fn spawn_actor<
+pub fn _spawn_actor<
     A: Actor<TEvent, TSnapshot> + Send + 'static,
     TEvent: EventTrait + Send + fmt::Debug + 'static,
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
@@ -351,10 +353,10 @@ where
     };
 
     let run_task = async move {
-        run_actor(actor, receiver).await;
+        run_actor(actor, receiver, actor_ref).await;
     };
 
-    let handle = tokio::spawn(run_task);
+    let _handle = tokio::spawn(run_task);
 
     Box::new(actor_ref)
 }
@@ -474,15 +476,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::StateError;
-    use crate::state::StateType;
-    use serde_json::json;
-    use std::fmt::{self, Display};
-    use tokio::sync::mpsc;
+    use crate::state::{State, StateType};
+    use crate::Event as CrateEvent;
+    use std::fmt::Display;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration as StdDuration;
+    use tokio::time::{sleep, timeout};
 
     // --- Test Fixtures ---
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
-    struct TestState(String);
+    /// Example state implementation
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub struct TestState(pub String);
 
     impl Display for TestState {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -490,32 +494,15 @@ mod tests {
         }
     }
 
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
-            &self.0
-        }
-        fn state_type(&self) -> &StateType {
-            &StateType::Normal
-        }
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-        fn children(&self) -> &[String] {
-            &[]
-        }
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
-    struct TestEvent(String);
+    /// Example event implementation
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct TestEvent(pub String);
 
     impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
             &self.0
         }
-        fn payload(&self) -> Option<&Value> {
+        fn payload(&self) -> Option<&serde_json::Value> {
             None
         }
         fn name(&self) -> &str {
@@ -528,15 +515,15 @@ mod tests {
             TestEvent(s.to_string())
         }
     }
-    impl From<Event> for TestEvent {
-        fn from(e: Event) -> Self {
+    impl From<CrateEvent> for TestEvent {
+        fn from(e: CrateEvent) -> Self {
             TestEvent(e.event_type)
         }
     }
 
-    #[derive(Debug, Clone, Send, Sync)]
+    #[derive(Debug, Clone)]
     struct TestQuery(String);
-    #[derive(Debug, Clone, Send, Sync)]
+    #[derive(Debug, Clone, PartialEq)]
     struct TestResponse(String);
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -555,7 +542,7 @@ mod tests {
     #[async_trait]
     impl Actor<TestEvent, TestSnapshot> for TestActor {
         type Query = TestQuery;
-        type Response = TestResponse;
+        type Response = Result<TestResponse, StateError>;
 
         async fn handle_event(&mut self, event: TestEvent) {
             debug!("Handling event: {:?}", event);
@@ -565,10 +552,10 @@ mod tests {
 
         async fn handle_query(&self, query: Self::Query) -> Self::Response {
             debug!("Handling query: {:?}", query);
-            TestResponse(format!(
+            Ok(TestResponse(format!(
                 "Response to {} from state {}",
                 query.0, self.state.0
-            ))
+            )))
         }
 
         fn snapshot(&self) -> TestSnapshot {
@@ -631,7 +618,7 @@ mod tests {
         let (actor, receiver, actor_ref_arc) =
             create_test_actor(TestState("initial".to_string()), 10);
         let actor_ref = actor_ref_arc.as_ref();
-        let handle = tokio::spawn(run_actor(actor, receiver));
+        let handle = tokio::spawn(run_actor(actor, receiver, actor_ref.clone()));
 
         assert_eq!(actor_ref.id().is_empty(), false);
 
@@ -671,15 +658,20 @@ mod tests {
         let (actor, receiver, actor_ref_arc) =
             create_test_actor(TestState("query_state".to_string()), 10);
         let actor_ref = actor_ref_arc.as_ref();
-        let handle = tokio::spawn(run_actor(actor, receiver));
+        let handle = tokio::spawn(run_actor(actor, receiver, actor_ref.clone()));
 
         let query = TestQuery("test_query".to_string());
         let result = actor_ref.query(query).await;
 
         assert!(result.is_ok());
-        let response = result.unwrap();
+        let response_result = result.unwrap();
+        assert!(response_result.is_ok());
+        let response = response_result.unwrap();
 
-        assert_eq!(response.0, "response_to_test_query");
+        assert_eq!(
+            response,
+            TestResponse("Response to test_query from state query_state".to_string())
+        );
 
         let stop_result = actor_ref.stop();
         assert!(stop_result.is_ok());
@@ -691,7 +683,7 @@ mod tests {
         let (actor, receiver, actor_ref_arc) =
             create_test_actor(TestState("snap_state".to_string()), 10);
         let actor_ref = actor_ref_arc.as_ref();
-        let handle = tokio::spawn(run_actor(actor, receiver));
+        let handle = tokio::spawn(run_actor(actor, receiver, actor_ref.clone()));
 
         let snapshot = actor_ref.get_snapshot();
 
@@ -701,5 +693,63 @@ mod tests {
         let stop_result = actor_ref.stop();
         assert!(stop_result.is_ok());
         handle.await.expect("Actor task panicked");
+    }
+}
+
+// Implementation for ActorImpl using the defined ActorTrait
+#[async_trait]
+impl<L, S, E, I, Q, R> ActorTrait<E, Q, Result<R, StateError>> for ActorRefImpl<E, S, Q, R>
+where
+    L: Logic<S, E, I, Q, R> + Send + Sync + 'static,
+    S: StateTrait<Context = Context, Event = E> + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    I: Send + Sync + Debug + 'static,
+    Q: Send + Sync + Debug + 'static,
+    R: Send + Sync + Debug + 'static,
+{
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    async fn handle_event(&mut self, event: E) {
+        let mut context_guard = self.context.lock().await;
+        if let Err(e) = self
+            .logic
+            .handle_event(&mut self.state, &mut context_guard, &event)
+            .await
+        {
+            error!(actor_id = %self.id, error = ?e, event = ?event, "Error handling event");
+        } else {
+            // Potentially trigger decide or other logic after successful event handling
+        }
+    }
+
+    async fn handle_query(&self, query: Q) -> Result<R, StateError> { // Return Result<R, StateError>
+        let context_guard = self.context.lock().await;
+        match self.logic.handle_query(&self.state, &context_guard, query).await {
+            Ok(response) => Ok(response),
+            Err(e) => {
+                error!(actor_id = %self.id, error = ?e, "Error handling query");
+                Err(StateError::QueryError(format!(
+                    "Query handling failed: {:?}",
+                    e
+                )))
+            }
+        }
+    }
+
+    async fn started(&mut self) {
+        info!(actor_id = %self.id, "Actor implementation started hook.");
+    }
+
+    async fn stopped(&mut self) {
+        info!(actor_id = %self.id, "Actor implementation stopped hook.");
+    }
+
+    fn as_actor_trait(&self) -> &(dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync) {
+        self
+    }
+     fn as_actor_trait_mut(&mut self) -> &mut (dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync) {
+        self
     }
 }

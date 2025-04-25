@@ -158,10 +158,7 @@ where
 
     /// Execute this transition's actions
     #[async_recursion]
-    pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>
-    where
-        C: Default,
-    {
+    pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
         for action in &self.actions {
             action.execute(context, event).await;
         }
@@ -230,9 +227,9 @@ trait TransitionTrait<C, E> {
 
 impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
 where
-    S: StateTrait + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static + fmt::Debug + Clone + Eq + Serialize + DeserializeOwned,
+    S: StateTrait + Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Check if the transition guard allows the transition (synchronous)
     fn is_enabled(&self, context: &C, event: &E) -> bool {
@@ -242,13 +239,9 @@ where
     }
 
     /// Execute all actions associated with this transition
-    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>
-    where
-        C: Default,
-    {
-        for action in &self.actions {
-            action.execute(context, event).await;
-        }
-        Ok(())
+    #[tracing::instrument(skip(self, context))]
+    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
+        // Directly call the inherent method
+        self::Transition::execute_actions(self, context, event).await
     }
 }
