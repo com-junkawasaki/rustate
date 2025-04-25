@@ -15,6 +15,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::future::Future;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -184,118 +189,83 @@ where
     }
 
     /// Send an event to the machine
+    #[tracing::instrument(skip(self, event), fields(machine_id = %self.name, event = ?event))]
     pub async fn send(&mut self, event: E) -> Result<bool> {
-        let mut processed = false;
+        let event = event.clone(); // Clone event at the start
+        let current_state_ids = self.current_states.clone(); // Clone current state IDs
+        let mut executed = false;
 
-        // Clone necessary data before potential mutable borrows
-        let current_state_ids: Vec<S> = self.current_states.iter().cloned().collect();
-        let current_context = self.context.clone(); // Clone context for read-only checks
+        // Collect valid transitions first to avoid borrowing issues
+        let mut valid_transitions = Vec::new();
 
-        let mut enabled_transition: Option<(&Transition<S, C, E>, S)> = None; // Store source_id clone
+        // Create a stream from all transitions
+        let current_context = self.context.clone(); // Read context once
 
-        // Find transitions that match the current state and event
-        for state_id in &current_state_ids {
+        // Iterate through current states to find transitions
+        for state_id in current_state_ids.iter() {
             if let Some(state_transitions) = self.transitions.get(state_id) {
-                for t in state_transitions {
-                    // Check event match first
-                    let event_matches = t.event.as_ref().map_or(false, |te| te == &event);
-                    if event_matches {
-                        // Check guard condition if event matches
-                        if t.is_enabled(&current_context, &event).await {
-                            enabled_transition = Some((t, state_id.clone())); // Clone state_id
-                            break; // Found the highest priority transition for this state
-                        }
-                    }
-                }
-            }
-            if enabled_transition.is_some() {
-                break; // Found a transition from one of the current states
-            }
-        }
-
-        // Also check for transitions without a specific event (always triggers)
-        if enabled_transition.is_none() {
-            for current_state_id in &self.current_states {
-                let mut current_check_id = current_state_id.clone();
-                loop {
-                    if let Some(state_transitions) = self.transitions.get(&current_check_id) {
-                        for t in state_transitions {
-                            if t.event.is_none() {
-                                // Check for transitions with no event specified
-                                if t.is_enabled(&current_context, &event).await {
-                                    enabled_transition = Some((t, current_state_id.clone())); // Clone state_id
-                                    break;
-                                }
+                let stream = stream::iter(state_transitions)
+                    .filter(|t| futures::future::ready(t.matches_event(&event)))
+                    .then(|t| {
+                        // Clone context for the async block
+                        let context_clone = current_context.clone();
+                        // Clone event again for the async block if needed, though reference might be okay now
+                        let event_clone = event.clone(); 
+                        async move {
+                            // Check guard asynchronously
+                            if t.is_enabled(&context_clone, &event_clone).await {
+                                Some(t.clone()) // Clone transition if enabled
+                            } else {
+                                None
                             }
                         }
-                    }
-                    if let Some(parent_id) = self
-                        .states
-                        .get(&current_check_id)
-                        .and_then(|s| s.parent.clone())
-                    {
-                        current_check_id = parent_id;
-                    } else {
-                        break;
-                    }
-                }
+                    })
+                    .filter_map(|t| futures::future::ready(t)); // Keep only Some(t)
+
+                // Collect transitions from this state
+                let transitions_from_state: Vec<_> = stream.collect().await;
+                valid_transitions.extend(transitions_from_state);
+            }
+
+             // Check for wildcard transitions associated with the state
+            if let Some(wildcard_transitions) = self.transitions.get(&S::from("*".to_string())) { // Assuming S::from("*") works
+                 let stream = stream::iter(wildcard_transitions)
+                    // Wildcard event always matches
+                    .then(|t| {
+                        let context_clone = current_context.clone();
+                        let event_clone = event.clone(); 
+                        async move {
+                            if t.is_enabled(&context_clone, &event_clone).await {
+                                Some(t.clone()) // Clone transition if enabled
+                            } else {
+                                None
+                            }
+                        }
+                    })
+                    .filter_map(|t| futures::future::ready(t));
+                let wildcard_transitions_from_state: Vec<_> = stream.collect().await;
+                valid_transitions.extend(wildcard_transitions_from_state);
             }
         }
+        
 
-        // Check for wildcard transitions (*) last
-        let stream = stream::iter(self.transitions.values().flatten())
-            .filter(|t| {
-                let is_wildcard = t.source.to_string() == "*";
-                let event_matches = t.event.as_ref().map_or(false, |te| te == &event);
-                // Check synchronous parts first
-                futures::future::ready(is_wildcard && event_matches)
-            })
-            .then(|t| async {
-                // Asynchronously check the guard
-                if t.is_enabled(&current_context, &event).await {
-                    Some(t)
-                } else {
-                    None
-                }
-            })
-            .filter_map(|t_opt| futures::future::ready(t_opt)) // Filter out None results
-            ; // End stream definition before pinning
-
-        let mut pinned_stream = Box::pin(stream); // Pin the stream to the heap
-        let wildcard_transition = pinned_stream.next().await; // Now .next().await works
-
-        if let Some((transition, source_state_id)) = enabled_transition {
-            self.execute_transition(&transition.clone(), &source_state_id, &event)
-                .await?;
-            processed = true;
-        } else if let Some(wildcard_t) = wildcard_transition {
-            // Determine the source state ID for the wildcard transition
-            // Using self.initial might be incorrect
-            // Use the first current state ID if available
-            if let Some(first_current_state) = current_state_ids.first() {
-                self.execute_transition(&wildcard_t.clone(), first_current_state, &event)
-                    .await?;
-                processed = true;
-            } else {
-                // Handle case where no current state exists (shouldn't happen if initialized)
-                return Err(Error::InvalidState(
-                    "No current state to apply wildcard transition".to_string(),
-                ));
-            }
+        // TODO: Prioritize transitions (e.g., non-wildcard first?)
+        // For now, take the first valid one found
+        if let Some(transition) = valid_transitions.into_iter().next() {
+             // Now execute the transition with mutable self access
+            self.execute_transition(&transition, &current_state_ids, &event).await?;
+            executed = true;
         }
 
-        // Update history and potentially other logic after transition
-        // self.update_history(); // TODO: Implement general history update logic?
-
-        Ok(processed)
+        Ok(executed)
     }
 
     /// Execute a transition
     async fn execute_transition(
         &mut self,
         transition: &Transition<S, C, E>,
-        source_state_id: &S,
-        event: &E,
+        current_state_ids: &HashSet<S>,
+        event: &E, // Pass event as reference
     ) -> Result<()> {
         if transition.target.is_none() || transition.transition_type == TransitionType::Internal {
             transition.execute_actions(&mut self.context, event).await?;
@@ -304,10 +274,10 @@ where
 
         let target_state_id = transition.target.as_ref().unwrap();
 
-        let lcca_id_str = self.find_lcca(source_state_id, target_state_id);
+        let lcca_id_str = self.find_lcca(target_state_id, target_state_id);
 
         let mut exit_queue = VecDeque::new();
-        let mut current_exit: Option<S> = Some(source_state_id.clone());
+        let mut current_exit: Option<S> = Some(target_state_id.clone());
         while let Some(state_to_exit) = current_exit {
             if lcca_id_str.as_deref() == Some(&state_to_exit.to_string()) {
                 break;
@@ -400,13 +370,18 @@ where
                 }
                 StateType::Parallel => {
                     // Enter all child states in parallel
-                    let mut enter_futures = Vec::new();
+                    let mut enter_futures: Vec<Pin<Box<dyn Future<Output = Result<(), StateError>> + Send>>> = Vec::new();
                     // Iterate over cloned keys to avoid borrowing self.states within the loop
                     for child_key in child_keys {
                         // Assuming child_key (String) can be converted back to S
                         // This might need adjustment based on how S is defined and used as HashMap key
                         let child_id = S::from(child_key); // Use From<String> bound
-                        self.enter_state(&child_id, event).await?;
+                        enter_futures.push(Box::pin(self.enter_state(&child_id, event)));
+                    }
+                    // Await all parallel entry futures
+                    let results: Vec<Result<(), StateError>> = futures::future::join_all(enter_futures).await;
+                    for result in results {
+                        result?;
                     }
                 }
                 _ => {} // Normal, Final states have no children to enter

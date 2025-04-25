@@ -49,7 +49,7 @@ pub enum HistoryType {
 }
 
 /// Represents a state in a state machine
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(
     serialize = "S: Serialize",

@@ -2,8 +2,8 @@
 
 use crate::context::Context;
 use crate::error::{self as CrateErrorModule, Result, StateError};
-use crate::event::{Event, EventTrait, QueryableEvent};
-use crate::state::{State, StateId, StateTrait, StateType};
+use crate::event::{Event, EventTrait};
+use crate::state::{State, StateTrait, StateType};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
@@ -73,14 +73,14 @@ pub trait ActorLogic<S, E, I, Q, R>: Send + Sync {
         state: &mut S,
         context: &Context,
         event: &E,
-    ) -> Result<(), CrateErrorModule>;
-    async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Result<R, CrateErrorModule>;
+    ) -> Result<(), StateError>;
+    async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Result<R, StateError>;
     async fn decide(
         &self,
         state: &S,
         context: &Context,
         snapshot: &Option<Snapshot<Context>>,
-    ) -> Result<Vec<E>, CrateErrorModule>;
+    ) -> Result<Vec<E>, StateError>;
     // Placeholder methods to match Machine impl ActorLogic usage
     fn get_initial_snapshot(&self, input: Option<I>) -> S; // Assuming S is the snapshot type here
     async fn transition(&self, snapshot: S, event: E) -> Result<S, StateError>; // Assuming S is the snapshot type
@@ -122,13 +122,12 @@ where
 // Enum for commands sent to the actor channel
 #[derive(fmt::Debug)]
 pub enum ActorCommand<E, Q, Resp>
-// Removed E: EventTrait bound here, add where needed
 where
-    // E: EventTrait + Send + 'static,
+    E: EventTrait + Send + 'static,
     Q: Send + 'static,
     Resp: Send + 'static,
 {
-    Send(E),
+    SendEvent(E),
     Query(Q, oneshot::Sender<Resp>), // Resp is Result<R, StateError>
     Stop,
 }
@@ -142,24 +141,28 @@ pub trait QueryableEvent: EventTrait {
 // --- ActorRef Implementation STRUCT (The handle) ---
 pub struct ActorRefImpl<E, Q, Resp>
 where
-// Removed bounds here, enforce on methods/functions using it
-// E: EventTrait + Send + Sync + fmt::Debug + 'static,
-// Q: Send + Sync + fmt::Debug + 'static,
-// Resp: Send + Sync + fmt::Debug + 'static,
+    E: EventTrait + Send + 'static,
+    Q: Send + 'static,
+    Resp: Send + 'static,
 {
     pub id: Uuid,
     pub sender: mpsc::Sender<ActorCommand<E, Q, Resp>>,
-    _query_marker: PhantomData<Q>,
-    _response_marker: PhantomData<Resp>,
+    pub status: Arc<RwLock<ActorStatus>>,
+    _phantom: PhantomData<(Q, Resp)>,
 }
 
-impl<E, Q, Resp> Clone for ActorRefImpl<E, Q, Resp> {
+impl<E, Q, Resp> Clone for ActorRefImpl<E, Q, Resp>
+where
+    E: EventTrait + Send + 'static,
+    Q: Send + 'static + Clone,
+    Resp: Send + 'static + Clone,
+{
     fn clone(&self) -> Self {
         Self {
             id: self.id,
-            sender: self.sender.clone(), // Sender is clonable
-            _query_marker: PhantomData,
-            _response_marker: PhantomData,
+            sender: self.sender.clone(),
+            status: self.status.clone(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -168,6 +171,8 @@ impl<E, Q, Resp> fmt::Debug for ActorRefImpl<E, Q, Resp> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorRefImpl")
             .field("id", &self.id)
+            .field("sender", &"mpsc::Sender<...>") // Simplified
+            .field("status", &self.status)
             .finish()
     }
 }
@@ -175,18 +180,18 @@ impl<E, Q, Resp> fmt::Debug for ActorRefImpl<E, Q, Resp> {
 // --- ActorRefImpl Send/Query Methods ---
 impl<E, Q, Resp> ActorRefImpl<E, Q, Resp>
 where
-    E: Send + Sync + fmt::Debug + 'static, // Add necessary bounds here
+    E: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + Sync + fmt::Debug + 'static,
-    Resp: Send + Sync + fmt::Debug + 'static, // Resp here is Result<R, StateError>
+    Resp: Send + Sync + fmt::Debug + 'static,
 {
     pub async fn send_event(&self, event: E) -> Result<(), StateError> {
         self.sender
-            .send(ActorCommand::Send(event))
+            .send(ActorCommand::SendEvent(event))
             .await
             .map_err(|e| StateError::SendError(format!("Failed to send event: {}", e)))
     }
 
-    pub async fn query(&self, query: Q) -> Result<Resp, StateError> // Return Resp (Result<R, StateError>)
+    pub async fn query(&self, query: Q) -> Result<Resp, StateError>
     {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -210,17 +215,21 @@ where
 pub struct ActorImpl<L, S, E, I, Q, R>
 where
     L: ActorLogic<S, E, I, Q, R> + Send + Sync + 'static,
-    S: StateTrait<Context = Context, Event = E> + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
-    I: Send + Sync + Debug + 'static,
-    Q: Send + Sync + Debug + 'static,
-    R: Send + Sync + Debug + 'static,
+    I: Send + Sync + 'static,
+    Q: Send + Sync + 'static,
+    R: Send + Sync + 'static + Debug,
 {
     id: Uuid,
     logic: Arc<L>,
     state: S,
-    context: Arc<tokio::sync::Mutex<Context>>,
-    _marker: PhantomData<(I, Q, R)>,
+    context: Arc<tokio::sync::RwLock<Context>>,
+    inbox: mpsc::Receiver<ActorCommand<E, Q, R>>,
+    status: Arc<RwLock<ActorStatus>>,
+    snapshot: Option<Snapshot<Context>>,
+    _phantom_i: PhantomData<I>,
+    _phantom_e: PhantomData<E>,
 }
 
 // Implementation for ActorImpl using the defined ActorTrait
@@ -228,11 +237,11 @@ where
 impl<L, S, E, I, Q, R> ActorTrait<E, Q, Result<R, StateError>> for ActorImpl<L, S, E, I, Q, R>
 where
     L: ActorLogic<S, E, I, Q, R> + Send + Sync + 'static,
-    S: StateTrait<Context = Context, Event = E> + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
-    I: Send + Sync + Debug + 'static,
-    Q: Send + Sync + Debug + 'static,
-    R: Send + Sync + Debug + 'static,
+    I: Send + Sync + 'static,
+    Q: Send + Sync + 'static,
+    R: Send + Sync + 'static + Debug,
 {
     fn id(&self) -> Uuid {
         self.id
@@ -280,12 +289,12 @@ where
 
 // Run the actor main loop
 pub async fn run_actor<
-    TEvent: Send + Sync + fmt::Debug + 'static, // Removed EventTrait bound, add if needed by ActorCommand usage
+    TEvent: EventTrait + Send + Sync + fmt::Debug + 'static,
     Q: Send + Sync + fmt::Debug + 'static,
-    Resp: Send + Sync + fmt::Debug + 'static, // This is Result<R, StateError>
+    Resp: Send + Sync + fmt::Debug + 'static,
 >(
     mut actor: Box<dyn ActorTrait<TEvent, Q, Resp> + Send + Sync>,
-    mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, Resp>>, // Command uses Resp = Result<R, StateError>
+    mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, Resp>>,
     actor_ref_id: Uuid,
 ) {
     info!(actor_id = %actor_ref_id, "Actor started");
@@ -293,7 +302,7 @@ pub async fn run_actor<
 
     while let Some(command) = receiver.recv().await {
         match command {
-            ActorCommand::Send(event) => {
+            ActorCommand::SendEvent(event) => {
                 debug!(actor_id = %actor_ref_id, event = ?event, "Received event");
                 actor.handle_event(event).await;
             }
@@ -323,46 +332,50 @@ pub async fn run_actor<
 pub fn create_actor<L, S, E, I, Q, R>(
     logic: L,
     initial_state: S,
-    actor_id: Option<Uuid>,
     context: Context,
+    actor_id: Option<Uuid>,
+    buffer_size: usize,
 ) -> (
-    // Removed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync>, // Don't return the boxed actor itself
-    ActorRefImpl<E, Q, Result<R, StateError>>, // Return the handle to interact
-    JoinHandle<()>,                            // The task handle
+    ActorRefImpl<E, Q, Result<R, StateError>>,
+    JoinHandle<()>,
 )
 where
     L: ActorLogic<S, E, I, Q, R> + Send + Sync + 'static,
-    S: StateTrait<Context = Context, Event = E> + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
     I: Send + Sync + Debug + 'static,
     Q: Send + Sync + Debug + 'static,
     R: Send + Sync + Debug + 'static,
 {
     let id = actor_id.unwrap_or_else(Uuid::new_v4);
-    // Channel for Result<R, StateError>
-    let (sender, receiver) = mpsc::channel::<ActorCommand<E, Q, Result<R, StateError>>>(100);
+    // Adjust channel type to match ActorRefImpl
+    let (sender, receiver): (mpsc::Sender<ActorCommand<E, Q, Result<R, StateError>>>, _) =
+        mpsc::channel(buffer_size);
 
     let actor_ref = ActorRefImpl {
         id,
         sender: sender.clone(),
-        _query_marker: PhantomData,
-        _response_marker: PhantomData,
+        status: Arc::new(RwLock::new(ActorStatus::Active)),
+        _phantom: PhantomData::<fn() -> (Q, Result<R, StateError>)>,
     };
 
-    let actor_instance = ActorImpl::<L, S, E, I, Q, R> {
+    let actor_instance = ActorImpl {
         id,
         logic: Arc::new(logic),
         state: initial_state,
-        context: Arc::new(tokio::sync::Mutex::new(context)),
-        _marker: PhantomData,
+        context: Arc::new(tokio::sync::RwLock::new(context)),
+        inbox: receiver,
+        status: actor_ref.status.clone(),
+        snapshot: None,
+        _phantom_i: PhantomData,
+        _phantom_e: PhantomData,
     };
 
-    let actor_boxed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync> =
-        Box::new(actor_instance);
+    let actor_boxed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync> = Box::new(actor_instance);
 
-    let handle = tokio::spawn(run_actor(actor_boxed, receiver, id));
+    let handle = tokio::spawn(run_actor(actor_boxed, sender, id));
 
-    (actor_ref, handle) // Return the ref and the handle
+    (actor_ref, handle)
 }
 
 // Removed spawn function
@@ -373,12 +386,12 @@ where
 mod tests {
     use super::{
         create_actor, run_actor, ActorCommand, ActorImpl, ActorLogic, ActorRefImpl, ActorTrait,
-    }; // Import necessary items
+    };
     use crate::actor::Snapshot;
-    use crate::error::{self as CrateErrorModule, StateError};
+    use crate::error::StateError;
     use crate::event::EventTrait;
-    use crate::state::{State, StateTrait, StateType}; // Import StateTrait
-    use crate::{Context, Event as CrateEvent, QueryableEvent}; // Import EventTrait
+    use crate::state::{State, StateTrait, StateType};
+    use crate::{Context, Event as CrateEvent, QueryableEvent};
     use serde::{Deserialize, Serialize};
     use std::fmt::{self, Debug, Display};
     use std::marker::PhantomData;
@@ -386,7 +399,7 @@ mod tests {
     use tokio::sync::{mpsc, oneshot};
     use tokio::task::JoinHandle;
     use tokio::time::Duration;
-    use uuid::Uuid; // Use crate::actor::Snapshot
+    use uuid::Uuid;
 
     // --- Test Fixtures ---
     #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -475,7 +488,7 @@ mod tests {
             state: &mut TestState,
             _context: &Context,
             event: &TestEvent,
-        ) -> Result<(), CrateErrorModule> {
+        ) -> Result<(), StateError> {
             match event {
                 TestEvent::Increment => state.count += 1,
                 TestEvent::Decrement => state.count -= 1,
@@ -489,7 +502,7 @@ mod tests {
             state: &TestState,
             _context: &Context,
             query: TestQuery,
-        ) -> Result<TestResponse, CrateErrorModule> {
+        ) -> Result<TestResponse, StateError> {
             match query {
                 TestQuery::GetCount => Ok(TestResponse(format!("Count: {}", state.count))),
                 TestQuery::GetName => Ok(TestResponse(format!("Name: {}", state.name))),
@@ -501,7 +514,7 @@ mod tests {
             _state: &TestState,
             _context: &Context,
             _snapshot: &Option<Snapshot<Context>>,
-        ) -> Result<Vec<TestEvent>, CrateErrorModule> {
+        ) -> Result<Vec<TestEvent>, StateError> {
             Ok(vec![])
         }
 
@@ -534,8 +547,9 @@ mod tests {
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
-            None,
             Context::new(None, None, None),
+            None,
+            100,
         );
 
         // Use actor_ref (ActorRefImpl) for queries
@@ -567,8 +581,9 @@ mod tests {
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
-            None,
             Context::new(None, None, None),
+            None,
+            100,
         );
 
         actor_ref.send_event(TestEvent::Increment).await.unwrap();
@@ -607,8 +622,9 @@ mod tests {
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
-            None,
             Context::new(None, None, None),
+            None,
+            100,
         );
 
         let result = actor_ref.query(TestQuery::GetCount).await;
@@ -631,8 +647,9 @@ mod tests {
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
-            None,
             Context::new(None, None, None),
+            None,
+            100,
         );
 
         let stop_result = actor_ref.stop().await;

@@ -115,6 +115,9 @@ pub enum StateError {
     /// Feature not implemented
     #[error("Feature not implemented: {0}")]
     NotImplemented(String),
+    /// Error during query execution
+    #[error("Query error: {0}")]
+    QueryError(String),
 }
 
 /// Result type for operations that can fail

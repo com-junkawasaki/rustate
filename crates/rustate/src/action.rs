@@ -10,7 +10,7 @@ pub type ActionFn<C, E> =
     Arc<dyn Fn(&mut C, &E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Represents an action to be executed
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Action<C = Context, E = crate::Event> {
     // Use crate::Event
     /// Type of the action (e.g., function call, event emission)
@@ -63,13 +63,11 @@ where
 }
 
 /// Different types of actions
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ActionType<C, E> {
     #[serde(skip)]
     Function(ActionFn<C, E>),
 }
-
-impl<C, E> Eq for ActionType<C, E> {}
 
 /// Trait to convert various types into an Action
 pub trait IntoAction<C, E> {
