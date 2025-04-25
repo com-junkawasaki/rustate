@@ -1,6 +1,6 @@
 use rustate::{
-    Action, Context, Event, EventTrait, Machine, MachineBuilder, State, StateTrait, Transition,
-    TransitionType,
+    Action, Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, Transition,
+    transition::TransitionType,
 };
 use std::{any::Any, fmt};
 use serde::{Deserialize, Serialize};
@@ -47,15 +47,6 @@ impl EventTrait for ShoppingEvent {
     fn payload(&self) -> Option<&serde_json::Value> {
         None
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn box_clone(&self) -> Box<dyn EventTrait> {
-        Box::new(self.clone())
-    }
-    fn as_string(&self) -> String {
-        format!("{:?}", self)
-    }
 }
 
 // Implement IntoEvent for ShoppingEvent
@@ -85,7 +76,7 @@ async fn main() -> rustate::Result<()> {
     // 初期状態のコンテキスト
     println!(
         "初期アイテム数: {:?}",
-        machine.context.get::<i32>("itemCount").await
+        machine.context.read().await.get::<i32>("itemCount")
     );
 
     // イベントを送信してステートマシンを実行
@@ -96,7 +87,10 @@ async fn main() -> rustate::Result<()> {
     println!("\nAddItemイベントを送信");
     machine.send(ShoppingEvent::AddItem).await?;
     println!("現在の状態: {:?}", machine.current_states);
-    println!("アイテム数: {:?}", machine.context.get::<i32>("itemCount").await);
+    println!(
+        "アイテム数: {:?}",
+        machine.context.read().await.get::<i32>("itemCount")
+    );
 
     println!("\nCheckoutイベントを送信");
     machine.send(ShoppingEvent::Checkout).await?;
@@ -107,7 +101,7 @@ async fn main() -> rustate::Result<()> {
     println!("現在の状態: {:?}", machine.current_states);
     println!(
         "支払い処理済み: {:?}",
-        machine.context.get::<bool>("paymentProcessed").await
+        machine.context.read().await.get::<bool>("paymentProcessed")
     );
 
     println!("\nConfirmイベントを送信");
@@ -160,10 +154,10 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     let _ = context.set("paymentProcessed", false);
 
     // アクションの作成
-    let add_to_cart_action = Action::from_fn(|mut ctx, _| async move {
-        let item_count = ctx.get::<i32>("itemCount").await.unwrap_or(0);
+    let add_to_cart_action = Action::from_fn(|mut ctx: &mut Context, _| async move {
+        let item_count = ctx.read().await.get::<i32>("itemCount").unwrap_or(0);
         let new_count = item_count + 1;
-        let _ = ctx.set("itemCount", new_count).await;
+        let _ = ctx.write().await.set("itemCount", new_count);
         println!(
             "カートに商品を追加しました。現在の商品数: {}",
             new_count
@@ -171,9 +165,9 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     });
 
     let process_payment_action =
-        Action::from_fn(|mut ctx, _| async move {
+        Action::from_fn(|mut ctx: &mut Context, _| async move {
             println!("決済処理中...");
-            let _ = ctx.set("paymentProcessed", true).await;
+            let _ = ctx.write().await.set("paymentProcessed", true);
             println!("決済処理が完了しました");
         });
 
@@ -240,14 +234,12 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
         "shoppingCart".to_string(),
         idle.clone()
     )
-    .states(vec![
-        idle.clone(),
-        browsing.clone(),
-        cart.clone(),
-        checkout.clone(),
-        payment.clone(),
-        confirmed.clone(),
-    ])
+    .state(State::new(idle.clone()))
+    .state(State::new(browsing.clone()))
+    .state(State::new(cart.clone()))
+    .state(State::new(checkout.clone()))
+    .state(State::new(payment.clone()))
+    .state(State::new(confirmed.clone()))
     .transitions(vec![
         start_browsing,
         add_item,
