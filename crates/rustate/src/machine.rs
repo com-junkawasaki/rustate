@@ -492,8 +492,7 @@ where
     }
 
     /// Find the least common compound ancestor (LCCA) of two states
-    fn find_lcca(&self, state1_id: &S, state2_id: &S) -> Option<&S> {
-        // Simplified LCCA - assumes direct parent links are sufficient
+    fn find_lcca<'a>(&'a self, state1_id: &'a S, state2_id: &'a S) -> Option<&'a S> {
         let mut path1 = HashSet::new();
         let mut current = Some(state1_id);
         while let Some(id) = current {
@@ -508,7 +507,7 @@ where
             }
             current = self.states.get(id).and_then(|s| s.parent.as_ref());
         }
-        None // Should ideally return root if no common ancestor found besides root
+        None
     }
 
     /// Get all ancestors of a state, including itself (as Strings)
@@ -779,17 +778,15 @@ where
 
     async fn handle_event(
         &self,
-        state: &mut S,
-        _context: &Context,
+        _state: &mut S,
+        _context: &mut Context,
         _event: &E,
     ) -> Result<(), Error> {
         Ok(())
     }
 
-    async fn handle_query(&self, _state: &S, _context: &Context, _query: Q) -> Result<R, Error> {
-        Err(Error::NotImplemented(
-            "Query handling not implemented for Machine as ActorLogic".to_string(),
-        ))
+    async fn handle_query(&self, _state: &S, _context: &Context, _query: Q) -> R {
+        panic!("Query handling not implemented for Machine as ActorLogic");
     }
 
     async fn decide(
