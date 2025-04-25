@@ -3,6 +3,7 @@ use rustate::{
     TransitionType,
 };
 use std::{any::Any, fmt};
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "codegen")]
 use rustate::{CodegenExt, JsonExportOptions};
@@ -13,7 +14,7 @@ use rustate::ProtoExportOptions;
 use std::env;
 
 // Define the event enum
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 enum ShoppingEvent {
     Start,
     AddItem,
@@ -22,10 +23,30 @@ enum ShoppingEvent {
     Pay,
     Confirm,
     NewOrder,
+    #[default]
+    None,
 }
 
 // Implement EventTrait for the enum
 impl EventTrait for ShoppingEvent {
+    fn name(&self) -> &str {
+        match self {
+            ShoppingEvent::Start => "Start",
+            ShoppingEvent::AddItem => "AddItem",
+            ShoppingEvent::Continue => "Continue",
+            ShoppingEvent::Checkout => "Checkout",
+            ShoppingEvent::Pay => "Pay",
+            ShoppingEvent::Confirm => "Confirm",
+            ShoppingEvent::NewOrder => "NewOrder",
+            ShoppingEvent::None => "None",
+        }
+    }
+    fn event_type(&self) -> &str {
+        self.name()
+    }
+    fn payload(&self) -> Option<&serde_json::Value> {
+        None
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -37,9 +58,16 @@ impl EventTrait for ShoppingEvent {
     }
 }
 
+// Implement IntoEvent for ShoppingEvent
+impl IntoEvent for ShoppingEvent {
+    fn into_event(self) -> Event {
+        Event::new(self.name())
+    }
+}
+
 impl fmt::Display for ShoppingEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_string())
+        write!(f, "{:?}", self)
     }
 }
 
@@ -50,15 +78,14 @@ async fn main() -> rustate::Result<()> {
     println!("現在のディレクトリ: {}", current_dir.display());
 
     // オンラインショッピングのステートマシンを作成
-    let mut machine: Machine<String, ShoppingEvent, Context> =
-        create_shopping_machine().await?;
+    let mut machine: Machine<Context, ShoppingEvent, String, ()> = create_shopping_machine().await?;
     println!("ステートマシンを作成しました: {}", machine.name);
     println!("現在の状態: {:?}", machine.current_states);
 
     // 初期状態のコンテキスト
     println!(
         "初期アイテム数: {:?}",
-        machine.context.get::<i32>("itemCount")
+        machine.context.get::<i32>("itemCount").await
     );
 
     // イベントを送信してステートマシンを実行
@@ -69,10 +96,7 @@ async fn main() -> rustate::Result<()> {
     println!("\nAddItemイベントを送信");
     machine.send(ShoppingEvent::AddItem).await?;
     println!("現在の状態: {:?}", machine.current_states);
-    println!(
-        "アイテム数: {:?}",
-        machine.context.get::<i32>("itemCount")
-    );
+    println!("アイテム数: {:?}", machine.context.get::<i32>("itemCount").await);
 
     println!("\nCheckoutイベントを送信");
     machine.send(ShoppingEvent::Checkout).await?;
@@ -83,7 +107,7 @@ async fn main() -> rustate::Result<()> {
     println!("現在の状態: {:?}", machine.current_states);
     println!(
         "支払い処理済み: {:?}",
-        machine.context.get::<bool>("paymentProcessed")
+        machine.context.get::<bool>("paymentProcessed").await
     );
 
     println!("\nConfirmイベントを送信");
@@ -121,7 +145,7 @@ async fn main() -> rustate::Result<()> {
 }
 
 // ショッピングカートの状態マシンを作成
-async fn create_shopping_machine() -> rustate::Result<Machine<String, ShoppingEvent, Context>> {
+async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingEvent, String, ()>> {
     // 状態 ID (String implements StateTrait)
     let idle = "idle".to_string();
     let browsing = "browsing".to_string();
@@ -136,10 +160,10 @@ async fn create_shopping_machine() -> rustate::Result<Machine<String, ShoppingEv
     let _ = context.set("paymentProcessed", false);
 
     // アクションの作成
-    let add_to_cart_action = Action::from_fn("addToCart".to_string(), |mut ctx, _| async move {
-        let item_count = ctx.get::<i32>("itemCount").unwrap_or(0);
+    let add_to_cart_action = Action::from_fn(|mut ctx, _| async move {
+        let item_count = ctx.get::<i32>("itemCount").await.unwrap_or(0);
         let new_count = item_count + 1;
-        let _ = ctx.set("itemCount", new_count);
+        let _ = ctx.set("itemCount", new_count).await;
         println!(
             "カートに商品を追加しました。現在の商品数: {}",
             new_count
@@ -147,92 +171,95 @@ async fn create_shopping_machine() -> rustate::Result<Machine<String, ShoppingEv
     });
 
     let process_payment_action =
-        Action::from_fn("processPayment".to_string(), |mut ctx, _| async move {
+        Action::from_fn(|mut ctx, _| async move {
             println!("決済処理中...");
-            let _ = ctx.set("paymentProcessed", true);
+            let _ = ctx.set("paymentProcessed", true).await;
             println!("決済処理が完了しました");
         });
 
     // 遷移の作成
     let start_browsing = Transition::new(
         idle.clone(),
-        ShoppingEvent::Start,
-        browsing.clone(),
-        None, // No guard
-        vec![], // No actions
+        Some(browsing.clone()),
+        Some(ShoppingEvent::Start),
+        None,
+        vec![],
         TransitionType::External,
     );
     let add_item = Transition::new(
         browsing.clone(),
-        ShoppingEvent::AddItem,
-        cart.clone(),
+        Some(cart.clone()),
+        Some(ShoppingEvent::AddItem),
         None,
-        vec![add_to_cart_action.clone()], // Action on transition
+        vec![add_to_cart_action.clone()],
         TransitionType::External,
     );
     let continue_shopping = Transition::new(
         cart.clone(),
-        ShoppingEvent::Continue,
-        browsing.clone(),
+        Some(browsing.clone()),
+        Some(ShoppingEvent::Continue),
         None,
         vec![],
         TransitionType::External,
     );
     let proceed_checkout = Transition::new(
         cart.clone(),
-        ShoppingEvent::Checkout,
-        checkout.clone(),
+        Some(checkout.clone()),
+        Some(ShoppingEvent::Checkout),
         None,
         vec![],
         TransitionType::External,
     );
     let pay = Transition::new(
         checkout.clone(),
-        ShoppingEvent::Pay,
-        payment.clone(),
+        Some(payment.clone()),
+        Some(ShoppingEvent::Pay),
         None,
-        vec![process_payment_action.clone()], // Action on transition
+        vec![process_payment_action.clone()],
         TransitionType::External,
     );
     let confirm = Transition::new(
         payment.clone(),
-        ShoppingEvent::Confirm,
-        confirmed.clone(),
+        Some(confirmed.clone()),
+        Some(ShoppingEvent::Confirm),
         None,
         vec![],
         TransitionType::External,
     );
     let new_order = Transition::new(
         confirmed.clone(),
-        ShoppingEvent::NewOrder,
-        idle.clone(),
+        Some(idle.clone()),
+        Some(ShoppingEvent::NewOrder),
         None,
-        vec![], // Reset actions could go here if needed
+        vec![],
         TransitionType::External,
     );
 
     // マシンの構築
-    let machine = MachineBuilder::new("shoppingCart".to_string(), idle.clone())
-        .states(vec![
-            idle.clone(),
-            browsing.clone(),
-            cart.clone(),
-            checkout.clone(),
-            payment.clone(),
-            confirmed.clone(),
-        ])
-        .transitions(vec![
-            start_browsing,
-            add_item,
-            continue_shopping,
-            proceed_checkout,
-            pay,
-            confirm,
-            new_order,
-        ])
-        .context(context)
-        .build()
-        .await?;
+    let machine = MachineBuilder::new(
+        "shoppingCart".to_string(),
+        idle.clone()
+    )
+    .states(vec![
+        idle.clone(),
+        browsing.clone(),
+        cart.clone(),
+        checkout.clone(),
+        payment.clone(),
+        confirmed.clone(),
+    ])
+    .transitions(vec![
+        start_browsing,
+        add_item,
+        continue_shopping,
+        proceed_checkout,
+        pay,
+        confirm,
+        new_order,
+    ])
+    .context(context)
+    .build()
+    .await?;
 
     Ok(machine)
 }

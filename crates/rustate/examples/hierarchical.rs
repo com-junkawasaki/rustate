@@ -1,6 +1,6 @@
 use rustate::{
-    Action, Context, Event, EventTrait, Machine, MachineBuilder, State, StateTrait, Transition,
-    TransitionType,
+    Action, Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, State, StateTrait, Transition,
+    transition::TransitionType,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -50,13 +50,20 @@ impl EventTrait for MusicEvent {
     }
 }
 
+// Implement IntoEvent for MusicEvent
+impl IntoEvent for MusicEvent {
+    fn into_event(self) -> Event {
+        // Convert the enum variant into a standard Event struct
+        Event::new(self.name()) // Assuming no payload for simplicity here
+    }
+}
+
 // Implement Default for the custom event enum
 impl Default for MusicEvent {
     fn default() -> Self {
         MusicEvent::None // Provide a sensible default
     }
 }
-
 
 // Use String for StateTrait
 type PlayerState = String;
@@ -94,7 +101,7 @@ async fn main() -> rustate::Result<()> {
 }
 
 // Make create_player async
-async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerState>> {
+async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerState, ()>> {
     // Use String for State IDs
     let power_off = State::new("powerOff".to_string());
 
@@ -118,129 +125,35 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     let paused = State::new("paused".to_string());
     // paused.parent = Some("player".to_string()); // Remove manual parent setting
 
-    // Create transitions with full arguments (source, event, target, guard, actions, type)
-    let power_toggle = Transition::new(
-        "powerOff".to_string(),
-        MusicEvent::Power,
-        Some("player".to_string()),
-        None, // guard
-        vec![], // actions
-        TransitionType::External,
-    );
-    let power_off_transition = Transition::new(
-        "player".to_string(),
-        MusicEvent::Power,
-        Some("powerOff".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-
-    let play = Transition::new(
-        "stopped".to_string(),
-        MusicEvent::Play,
-        Some("playing".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-    let stop = Transition::new(
-        "playing".to_string(),
-        MusicEvent::Stop,
-        Some("stopped".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-    let pause = Transition::new(
-        "playing".to_string(),
-        MusicEvent::Pause,
-        Some("paused".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-    let resume = Transition::new(
-        "paused".to_string(),
-        MusicEvent::Play,
-        Some("playing".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-
-    let speed_up = Transition::new(
-        "normal".to_string(),
-        MusicEvent::SpeedUp,
-        Some("doubleSpeed".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-    let speed_normal = Transition::new(
-        "doubleSpeed".to_string(),
-        MusicEvent::SpeedNormal,
-        Some("normal".to_string()),
-        None,
-        vec![],
-        TransitionType::External,
-    );
-
-    // Internal transitions need actions added separately if needed
-    let next_track_trans = Transition::new(
-        "playing".to_string(), // Source state for internal transition
-        MusicEvent::Next,
-        None, // No target for internal
-        None,
-        vec![], // Actions will be added later
-        TransitionType::Internal,
-    );
-    let prev_track_trans = Transition::new(
-        "playing".to_string(),
-        MusicEvent::Prev,
-        None,
-        None,
-        vec![], // Actions will be added later
-        TransitionType::Internal,
-    );
-
-    // Create guards and actions using Action::from_fn
+    // Create actions first
     let log_power_on = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Power ON - Player ready")
     });
-
     let log_power_off = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Power OFF")
     });
-
     let log_playing = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Playing track")
     });
-
     let log_stopped = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Stopped")
     });
-
     let log_paused = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Paused")
     });
-
     let log_double_speed = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Playing at double speed")
     });
-
     let log_normal_speed = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
         println!("Playing at normal speed")
     });
-
-    let next_track_action = Action::from_fn(|ctx: &mut Context, _evt: &MusicEvent| async {
+    let next_track_action = Action::from_fn(|ctx: &mut Context, _evt: &MusicEvent| async move {
         let current_track = ctx.get::<usize>("track").unwrap_or(0);
         let next_track = current_track + 1;
         println!("Changing to track {}", next_track);
         let _ = ctx.set("track", next_track);
     });
-
-    let prev_track_action = Action::from_fn(|ctx: &mut Context, _evt: &MusicEvent| async {
+    let prev_track_action = Action::from_fn(|ctx: &mut Context, _evt: &MusicEvent| async move {
         let current_track = ctx.get::<usize>("track").unwrap_or(0);
         let prev_track = if current_track > 0 {
             current_track - 1
@@ -251,36 +164,119 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
         let _ = ctx.set("track", prev_track);
     });
 
+
+    // Create transitions with full arguments (source, target, event, guard, actions, type)
+    let power_toggle = Transition::new(
+        "powerOff".to_string(),
+        Some("player".to_string()), // Target
+        Some(MusicEvent::Power),   // Event (wrapped in Some)
+        None,                      // guard
+        vec![log_power_on.clone()], // actions (pass directly)
+        TransitionType::External,
+    );
+    let power_off_transition = Transition::new(
+        "player".to_string(),
+        Some("powerOff".to_string()), // Target
+        Some(MusicEvent::Power),    // Event (wrapped in Some)
+        None,
+        vec![log_power_off.clone()], // actions
+        TransitionType::External,
+    );
+
+    let play = Transition::new(
+        "stopped".to_string(),
+        Some("playing".to_string()), // Target
+        Some(MusicEvent::Play),     // Event
+        None,
+        vec![log_playing.clone()],   // actions
+        TransitionType::External,
+    );
+    let stop = Transition::new(
+        "playing".to_string(),
+        Some("stopped".to_string()), // Target
+        Some(MusicEvent::Stop),     // Event
+        None,
+        vec![log_stopped.clone()],   // actions
+        TransitionType::External,
+    );
+    let pause = Transition::new(
+        "playing".to_string(),
+        Some("paused".to_string()), // Target
+        Some(MusicEvent::Pause),   // Event
+        None,
+        vec![log_paused.clone()],   // actions
+        TransitionType::External,
+    );
+    let resume = Transition::new(
+        "paused".to_string(),
+        Some("playing".to_string()), // Target
+        Some(MusicEvent::Play),     // Event
+        None,
+        vec![log_playing.clone()],   // actions (reuse log_playing)
+        TransitionType::External,
+    );
+
+    let speed_up = Transition::new(
+        "normal".to_string(),
+        Some("doubleSpeed".to_string()), // Target
+        Some(MusicEvent::SpeedUp),      // Event
+        None,
+        vec![log_double_speed.clone()], // actions
+        TransitionType::External,
+    );
+    let speed_normal = Transition::new(
+        "doubleSpeed".to_string(),
+        Some("normal".to_string()),     // Target
+        Some(MusicEvent::SpeedNormal), // Event
+        None,
+        vec![log_normal_speed.clone()], // actions
+        TransitionType::External,
+    );
+
+    // Internal transitions
+    let next_track_trans = Transition::new(
+        "playing".to_string(), // Source state for internal transition
+        None::<PlayerState>,   // No target for internal (with type annotation)
+        Some(MusicEvent::Next), // Event
+        None,
+        vec![next_track_action.clone()], // Actions passed directly
+        TransitionType::Internal,
+    );
+    let prev_track_trans = Transition::new(
+        "playing".to_string(),
+        None::<PlayerState>,   // No target (with type annotation)
+        Some(MusicEvent::Prev), // Event
+        None,
+        vec![prev_track_action.clone()], // Actions passed directly
+        TransitionType::Internal,
+    );
+
     // Create context with initial track
     let mut context = Context::new();
     let _ = context.set("track", 0);
 
     // Create and configure the state machine
-    // Add actions directly to transitions or using on_entry/on_exit
-    let next_track_trans_with_action = next_track_trans.with_action(next_track_action);
-    let prev_track_trans_with_action = prev_track_trans.with_action(prev_track_action);
+    // Removed .with_action calls as actions are now passed directly
 
-    // MachineBuilder::new needs the initial state ID
-    let machine = MachineBuilder::<Context, MusicEvent, PlayerState>::new(
+    // Use add_child for hierarchy
+    player.add_child(stopped.clone());
+    player.add_child(paused.clone()); // Moved paused up
+    playing.add_child(normal.clone());
+    playing.add_child(double_speed.clone());
+    player.add_child(playing); // Add the 'playing' compound state as a child of 'player'
+
+
+    // MachineBuilder::new needs the initial state ID and O type parameter
+    let machine = MachineBuilder::<Context, MusicEvent, PlayerState, ()>::new( // Added O = ()
         "musicPlayer",
         "powerOff".to_string(), // Provide initial state ID here
     )
-    // Removed .initial("powerOff") - it's now a required arg for new()
     .state(power_off)
-    // Add player state with its children explicitly defined
-    .state(
-        player
-            .with_child(stopped.clone()) // Add children using with_child
-            .with_child(playing.clone())
-            .with_child(paused.clone()),
-    )
-    // Add playing state with its children
-    .state(
-        playing
-            .with_child(normal.clone())
-            .with_child(double_speed.clone()),
-    )
-    // Add leaf states (stopped, paused, normal, doubleSpeed were cloned above)
+    // Add player state (hierarchy defined above with add_child)
+    .state(player) // Add the configured player state
+    // Add leaf states (ensure they are added if not implicitly part of a parent)
+    // Note: States added via add_child might not need explicit .state() here if MachineBuilder handles it.
+    // Let's assume MachineBuilder is smart enough or add them just in case.
     .state(stopped)
     .state(paused)
     .state(normal)
@@ -294,15 +290,9 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     .transition(resume)
     .transition(speed_up)
     .transition(speed_normal)
-    .transition(next_track_trans_with_action) // Use transition with action
-    .transition(prev_track_trans_with_action) // Use transition with action
-    .on_entry(&"player".to_string(), log_power_on) // Use state ID directly
-    .on_entry(&"powerOff".to_string(), log_power_off)
-    .on_entry(&"playing".to_string(), log_playing)
-    .on_entry(&"stopped".to_string(), log_stopped)
-    .on_entry(&"paused".to_string(), log_paused)
-    .on_entry(&"doubleSpeed".to_string(), log_double_speed)
-    .on_entry(&"normal".to_string(), log_normal_speed)
+    .transition(next_track_trans) // Use transition with action already included
+    .transition(prev_track_trans) // Use transition with action already included
+    // Remove on_entry calls as actions are now part of transitions
     .context(context)
     .build() // Build is now async
     .await?; // Await the build result

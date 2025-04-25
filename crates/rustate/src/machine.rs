@@ -185,7 +185,8 @@ where
     /// Initialize the machine by entering the initial state
     async fn initialize(&mut self, initial_state_id: &S) -> Result<()> {
         let init_event = E::default();
-        self.enter_state(initial_state_id, &init_event, self.context.clone()).await?;
+        self.enter_state(initial_state_id, &init_event, self.context.clone())
+            .await?;
         Ok(())
     }
 
@@ -279,7 +280,8 @@ where
         let mut exit_states = HashSet::new();
         for current_id in current_state_ids {
             // Use cloned lcca_id
-            if let Some(ref lcca) = lcca_id { // Borrow lcca_id here
+            if let Some(ref lcca) = lcca_id {
+                // Borrow lcca_id here
                 if self.is_descendant(current_id, lcca) && current_id != lcca {
                     // For external transitions, exit source even if it's the LCCA?
                     // Let's stick to exiting only proper descendants for now.
@@ -313,7 +315,10 @@ where
                 || (lcca_id.as_ref() == Some(source) && target_states.is_some())
             {
                 exit_states.insert(source.clone());
-            } else if lcca_id.as_ref().map_or(false, |lcca| self.is_ancestor(source, lcca)) {
+            } else if lcca_id
+                .as_ref()
+                .map_or(false, |lcca| self.is_ancestor(source, lcca))
+            {
                 exit_states.insert(source.clone());
             }
         }
@@ -341,7 +346,8 @@ where
         // actions is not optional
         if !transition.actions.is_empty() {
             let mut context_guard = self.context.write().await;
-            for action in &transition.actions { // Iterate directly
+            for action in &transition.actions {
+                // Iterate directly
                 action.execute(&mut *context_guard, event).await;
             }
             drop(context_guard);
@@ -353,13 +359,15 @@ where
         if let Some(ref target_id) = target_states {
             let mut current = Some(target_id.clone());
             while let Some(id) = current {
-                 // Use cloned lcca_id
-                if let Some(ref lcca) = lcca_id { // Borrow lcca_id here
+                // Use cloned lcca_id
+                if let Some(ref lcca) = lcca_id {
+                    // Borrow lcca_id here
                     if &id == lcca {
                         // If it's an internal transition and target is LCCA itself, don't enter it again.
                         // If target is a descendant of LCCA, LCCA should not be entered.
                         if transition.transition_type == TransitionType::Internal
-                            && target_id == lcca // Compare references
+                            && target_id == lcca
+                        // Compare references
                         {
                             // Don't enter LCCA on internal transition targeting LCCA
                         } else {
@@ -465,9 +473,10 @@ where
                         let child_id_clone = child_id.clone(); // Clone child_id for the async block
                         let context_for_child = context.clone(); // Clone Arc for the async block
                         let event_for_child = event_clone.clone(); // Clone event for the async block
-                        // Pass context down recursively, clone Arc for each future
+                                                                   // Pass context down recursively, clone Arc for each future
                         enter_futures.push(Box::pin(async move {
-                            self.enter_state(&child_id_clone, &event_for_child, context_for_child).await
+                            self.enter_state(&child_id_clone, &event_for_child, context_for_child)
+                                .await
                         }));
                     }
                     let results: Vec<Result<(), StateError>> =
@@ -507,7 +516,8 @@ where
         for child_id in active_children_to_exit {
             log::debug!("Exiting child {} of {}", child_id, state_id);
             // Pass context down recursively
-            self.exit_state(&child_id, &event_clone, context_clone.clone()).await?;
+            self.exit_state(&child_id, &event_clone, context_clone.clone())
+                .await?;
             // Propagate errors immediately
         }
         log::debug!("Finished exiting children of {}", state_id);

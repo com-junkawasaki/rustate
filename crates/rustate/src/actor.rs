@@ -275,12 +275,18 @@ where
     }
 
     async fn handle_event(&mut self, _event: E) -> Result<(), StateError> {
-        log::warn!("handle_event called directly - deprecated actor_id={}", self.id);
+        log::warn!(
+            "handle_event called directly - deprecated actor_id={}",
+            self.id
+        );
         Ok(())
     }
 
     async fn handle_query(&self, _query: Q, responder: oneshot::Sender<Resp>) {
-        log::warn!("handle_query called directly - deprecated actor_id={}", self.id);
+        log::warn!(
+            "handle_query called directly - deprecated actor_id={}",
+            self.id
+        );
         drop(responder);
     }
 
@@ -304,7 +310,8 @@ where
     R: Send + Sync + 'static + Debug + Default,
     Resp: Send + Sync + 'static + Debug,
 {
-    pub async fn run(self) { // Take self ownership
+    pub async fn run(self) {
+        // Take self ownership
         let (initial_state, initial_context) = self.logic.initial();
         let mut actor_state = InternalActorState {
             logic: self.logic, // Arc<L>
@@ -320,7 +327,7 @@ where
         log::info!("Actor started actor_id={}", actor_id);
 
         loop {
-             tokio::select! {
+            tokio::select! {
                 Some(command) = actor_state.inbox.recv() => {
                     match command {
                         ActorCommand::SendEvent(event) => {
@@ -479,8 +486,8 @@ where
 
     // Spawn task to run the actor's loop
     let handle = tokio::spawn(async move {
-         // Call the run method which contains the loop
-         actor_instance.run().await;
+        // Call the run method which contains the loop
+        actor_instance.run().await;
     });
 
     (actor_ref, handle)
@@ -589,13 +596,20 @@ mod tests {
     {
         fn initial(&self) -> (TestState, Context) {
             (
-                TestState { count: 0, name: "initial".to_string() },
-                Context::new()
+                TestState {
+                    count: 0,
+                    name: "initial".to_string(),
+                },
+                Context::new(),
             )
         }
 
-        async fn transition(&self, mut state: TestState, _context: Context, event: TestEvent) -> Result<(TestState, Context), StateError>
-        {
+        async fn transition(
+            &self,
+            mut state: TestState,
+            _context: Context,
+            event: TestEvent,
+        ) -> Result<(TestState, Context), StateError> {
             match event {
                 TestEvent::Increment => state.count += 1,
                 TestEvent::Decrement => state.count -= 1,
@@ -604,8 +618,12 @@ mod tests {
             Ok((state, _context))
         }
 
-        async fn handle_query(&self, state: &TestState, _context: &Context, query: TestQuery) -> Result<TestResponse, StateError>
-        {
+        async fn handle_query(
+            &self,
+            state: &TestState,
+            _context: &Context,
+            query: TestQuery,
+        ) -> Result<TestResponse, StateError> {
             match query {
                 TestQuery::GetCount => Ok(TestResponse(format!("Count: {}", state.count))),
                 TestQuery::GetName => Ok(TestResponse(format!("Name: {}", state.name))),
