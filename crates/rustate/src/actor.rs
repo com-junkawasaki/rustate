@@ -458,7 +458,7 @@ where
     /// Handles an incoming event, potentially updating the actor's state.
     async fn handle_event(&mut self, event: E);
     /// Handles an incoming query, returning a response without changing state.
-    async fn handle_query(&self, query: Self::Query) -> Result<Self::Response, StateError>;
+    async fn handle_query(&self, query: Self::Query) -> Self::Response;
     /// Returns the current snapshot of the actor's state.
     fn snapshot(&self) -> S;
     /// Provides access to the actor's own reference.
@@ -543,9 +543,10 @@ mod tests {
         actor_ref: Arc<ActorRefImpl<TestEvent, TestSnapshot, TestQuery, TestResponse>>,
     }
 
+    #[async_trait]
     impl Actor<TestEvent, TestSnapshot> for TestActor {
         type Query = TestQuery;
-        type Response = Result<TestResponse, StateError>;
+        type Response = TestResponse;
 
         async fn handle_event(&mut self, event: TestEvent) {
             debug!("Handling event: {:?}", event);
@@ -555,10 +556,7 @@ mod tests {
 
         async fn handle_query(&self, query: Self::Query) -> Self::Response {
             debug!("Handling query: {:?}", query);
-            Ok(TestResponse(format!(
-                "Response to {} from state {}",
-                query.0, self.state.0
-            )))
+            TestResponse(format!("Response to {} from state {}", query.0, self.state.0))
         }
 
         fn snapshot(&self) -> TestSnapshot {
@@ -591,7 +589,7 @@ mod tests {
         buffer_size: usize,
     ) -> (
         TestActor,
-        mpsc::Receiver<ActorCommand<TestEvent, TestQuery, TestResponse>>,
+        mpsc::Receiver<ActorCommand<TestEvent, TestQuery, Result<TestResponse, StateError>>>,
         Arc<ActorRefImpl<TestEvent, TestSnapshot, TestQuery, TestResponse>>,
     ) {
         let (sender, receiver) = mpsc::channel(buffer_size);
@@ -615,7 +613,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_spawn_and_stop() {
-        let (actor, receiver, actor_ref) = create_test_actor(TestState("initial".to_string()), 10);
+        let (actor, receiver, actor_ref_arc) = create_test_actor(TestState("initial".to_string()), 10);
+        let actor_ref = actor_ref_arc.as_ref();
         let handle = tokio::spawn(run_actor(actor, receiver));
 
         assert_eq!(actor_ref.id().is_empty(), false);
@@ -628,7 +627,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_send_event() {
-        let (mut actor, mut receiver, actor_ref) = create_test_actor(TestState("start".to_string()), 10);
+        let (mut actor, mut receiver, actor_ref_arc) = create_test_actor(TestState("start".to_string()), 10);
+        let actor_ref = actor_ref_arc.as_ref();
         let handle = tokio::spawn(async move {
             if let Some(ActorCommand::Send(event)) = receiver.recv().await {
                 actor.handle_event(event).await;
@@ -651,7 +651,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_query() {
-        let (actor, receiver, actor_ref) = create_test_actor(TestState("query_state".to_string()), 10);
+        let (actor, receiver, actor_ref_arc) = create_test_actor(TestState("query_state".to_string()), 10);
+        let actor_ref = actor_ref_arc.as_ref();
         let handle = tokio::spawn(run_actor(actor, receiver));
 
         let query = TestQuery("test_query".to_string());
@@ -669,7 +670,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_actor_snapshot() {
-        let (actor, receiver, actor_ref) = create_test_actor(TestState("snap_state".to_string()), 10);
+        let (actor, receiver, actor_ref_arc) = create_test_actor(TestState("snap_state".to_string()), 10);
+        let actor_ref = actor_ref_arc.as_ref();
         let handle = tokio::spawn(run_actor(actor, receiver));
 
         let snapshot = actor_ref.get_snapshot();

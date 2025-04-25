@@ -16,6 +16,7 @@ use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use thiserror::Error;
+use uuid::Uuid;
 
 /// Represents a transition between states
 #[derive(Clone, Serialize, Deserialize)]
@@ -262,7 +263,7 @@ pub enum TransitionType {
 }
 
 trait TransitionTrait<C, E> {
-    async fn is_enabled(&self, context: &C, event: &E) -> bool;
+    fn is_enabled(&self, context: &C, event: &E) -> bool;
     async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>;
 }
 
@@ -272,13 +273,9 @@ where
     C: Clone + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static + fmt::Debug + Clone + Eq + Serialize + DeserializeOwned,
 {
-    /// Check if the transition guard allows the transition
-    async fn is_enabled(&self, context: &C, event: &E) -> bool {
-        if let Some(guard) = &self.guard {
-            guard.check(context, event)
-        } else {
-            true
-        }
+    /// Check if the transition guard allows the transition (synchronous)
+    fn is_enabled(&self, context: &C, event: &E) -> bool {
+        self.guard.as_ref().map_or(true, |g| g.check(context, event))
     }
 
     /// Execute all actions associated with this transition
