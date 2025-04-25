@@ -8,10 +8,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use uuid::Uuid;
 use crate::state::StateTrait;
-use crate::event::QueryableEvent;
 use std::marker::PhantomData;
 use crate::{
-    ActorRef,
     ActorOptions,
 };
 
@@ -89,9 +87,9 @@ pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
 /// Generic Parameters:
 /// - TEvent: The type of event the actor accepts.
 /// - TSnapshot: The type of snapshot the actor emits.
-pub trait ActorRef<TEvent: EventTrait, TSnapshot>: Send + Sync + fmt::Debug
+pub trait ActorRef<TEvent, TSnapshot>: Send + Sync + fmt::Debug
 where
-    TEvent: EventTrait + Send + fmt::Debug, // Added Send + Debug bound
+    TEvent: EventTrait + Send + fmt::Debug,
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
 {
     /// Sends an event to the actor asynchronously.
@@ -109,6 +107,9 @@ where
     // fn subscribe(&self, observer: impl FnMut(TSnapshot)) -> Subscription;
     // fn stop(&self);
     // fn to_json(&self) -> serde_json::Value; // For inspection/serialization
+
+    /// Clones the ActorRef (typically involves cloning an Arc or channel sender).
+    fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>>;
 }
 
 // Enum for commands sent to the actor
@@ -124,60 +125,10 @@ where
     Stop,
 }
 
-/// Trait defining the behavior of an actor (state machine processor).
-pub trait Actor<TEvent: EventTrait, TSnapshot> {
-    /// Returns a reference to the actor's mailbox sender.
-    fn actor_ref(&self) -> &dyn ActorRef<TEvent, TSnapshot>;
-
-    /// Handles an incoming event, potentially transitioning the state.
-    async fn handle_event(&mut self, event: TEvent) -> Result<(), StateError>;
-
-    /// Returns the current state snapshot of the actor.
-    fn get_snapshot(&self) -> TSnapshot;
-
-    /// Optional: Handle a query message (can be used for synchronous requests).
-    async fn handle_query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
-    where
-        TEvent: QueryableEvent, // Only if the event type supports queries
-    {
-        Err(StateError::UnsupportedOperation(
-            "Query not supported".to_string(),
-        ))
-    }
-
-    async fn started(&mut self) {}
-    async fn stopped(&mut self) {}
-}
-
 /// Trait for events that support a query/response pattern.
 pub trait QueryableEvent: EventTrait {
     type Query: Send;
     type Response: Send + fmt::Debug;
-}
-
-/// Represents a reference to an actor, allowing messages to be sent.
-pub trait ActorRef<TEvent, TSnapshot>: Send + Sync + fmt::Debug
-where
-    TEvent: EventTrait + Send + fmt::Debug, // Added Send + Debug bound
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-{
-    /// Sends an event to the actor asynchronously.
-    fn send(&self, event: TEvent) -> Result<(), StateError>;
-
-    /// Stops the actor.
-    fn stop(&self) -> Result<(), StateError>;
-
-    /// Optional: Sends a query and waits for a response.
-    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
-    where
-        TEvent: QueryableEvent,
-        TEvent::Query: fmt::Debug,
-        TEvent::Response: fmt::Debug;
-
-    // Clones the ActorRef (typically involves cloning an Arc or channel sender).
-    fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>>;
-
-    fn get_snapshot(&self) -> TSnapshot;
 }
 
 /// Implementation of ActorRef using a Tokio MPSC channel.

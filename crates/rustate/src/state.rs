@@ -1,67 +1,28 @@
 use crate::{Context, Error, Event, EventTrait, IntoAction, Result, StateTrait};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
 use uuid::Uuid;
-use crate::context::Context;
-use crate::event::Event;
-use crate::state::State;
 
 /// Trait defining requirements for a state identifier
 pub trait StateTrait:
-    Display + Debug + Eq + Hash + Clone + Send + Sync + 'static + Deref<Target = str> + From<String> + Serialize + for<'de> DeserializeOwned
-{}
-impl StateTrait for String {}
-// TODO: Add impl for other types if needed, ensure they meet bounds
-
-/// Trait for state objects in a state machine
-pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync + 'static {
-    /// Get the unique identifier for this state
+    Display + Debug + Eq + Hash + Clone + Send + Sync + 'static + Deref<Target = str> + From<String> +
+    Default + Serialize + DeserializeOwned
+{
     fn id(&self) -> &str;
-
-    /// Get the state type
-    fn state_type(&self) -> &StateType;
-
-    /// Get the parent state id, if any
-    fn parent(&self) -> Option<&str>;
-
-    /// Get child states (for compound and parallel states)
-    fn children(&self) -> &[S];
-
-    /// Get initial state id (for compound states)
-    fn initial(&self) -> Option<&str>;
-
-    /// Get data associated with this state
-    fn data(&self) -> Option<&Value>;
-
-    /// Get the history type, if this is a history state
-    fn history(&self) -> Option<HistoryType>;
-
-    /// Check if the state is a final state
-    fn is_final(&self) -> bool {
-        *self.state_type() == StateType::Final
-    }
-
-    /// Check if the state is atomic (has no children)
-    fn is_atomic(&self) -> bool;
-
-    /// Check if the state is a compound state
-    fn is_compound(&self) -> bool {
-        *self.state_type() == StateType::Compound
-    }
-
-    /// Check if the state is a parallel state
-    fn is_parallel(&self) -> bool {
-        *self.state_type() == StateType::Parallel
-    }
-
-    /// Check if the state is a history state
-    fn is_history(&self) -> bool {
-        *self.state_type() == StateType::History || *self.state_type() == StateType::DeepHistory
-    }
+    fn parent_id(&self) -> Option<&str>;
+    fn children(&self) -> Vec<&str>;
+    fn initial_id(&self) -> Option<&str>;
+    fn state_type(&self) -> StateType;
+    fn entry_actions(&self) -> &[Action<Context, Event>];
+    fn exit_actions(&self) -> &[Action<Context, Event>];
+    fn is_final(&self) -> bool;
+    fn is_compound(&self) -> bool;
+    fn is_parallel(&self) -> bool;
+    fn is_history(&self) -> bool;
 }
 
 /// Represents a type of state
@@ -268,10 +229,6 @@ where
         self.history
     }
 
-    pub fn children(&self) -> &HashMap<String, State<S>> {
-        &self.children
-    }
-
     /// Checks if the state is an atomic state (no children)
     pub fn is_atomic(&self) -> bool {
         self.children.is_empty() && self.state_type != StateType::Compound && self.state_type != StateType::Parallel
@@ -280,17 +237,17 @@ where
 
 impl<S> StateTrait for State<S>
 where
-    S: StateTrait,
+    S: StateTrait + Clone + Send + Sync + 'static + Default + Eq + Hash + Display + From<String>,
 {
     fn id(&self) -> &str {
         &self.id
     }
 
-    fn state_type(&self) -> &StateType {
-        &self.state_type
+    fn state_type(&self) -> StateType {
+        self.state_type
     }
 
-    fn parent(&self) -> Option<&str> {
+    fn parent_id(&self) -> Option<&str> {
         self.parent
             .as_ref()
             .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
@@ -300,7 +257,7 @@ where
         self.children.keys().map(|k| k.as_str()).collect()
     }
 
-    fn initial(&self) -> Option<&str> {
+    fn initial_id(&self) -> Option<&str> {
         self.initial
             .as_ref()
             .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
@@ -314,10 +271,26 @@ where
         self.history.clone()
     }
 
+    fn is_final(&self) -> bool {
+        *self.state_type() == StateType::Final
+    }
+
     fn is_atomic(&self) -> bool {
         self.children.is_empty()
             && self.state_type != StateType::Compound
             && self.state_type != StateType::Parallel
+    }
+
+    fn is_compound(&self) -> bool {
+        *self.state_type() == StateType::Compound
+    }
+
+    fn is_parallel(&self) -> bool {
+        *self.state_type() == StateType::Parallel
+    }
+
+    fn is_history(&self) -> bool {
+        *self.state_type() == StateType::History || *self.state_type() == StateType::DeepHistory
     }
 }
 

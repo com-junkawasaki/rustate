@@ -25,34 +25,6 @@ where
     pub condition: Arc<dyn Fn(&C, &E) -> bool + Send + Sync>,
 }
 
-impl<C, E> Clone for Guard<C, E>
-where
-    C: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    fn clone(&self) -> Self {
-        // Note: We can't actually clone the predicate function,
-        // so this creates a guard with the same name but no predicate
-        Self {
-            name: self.name.clone(),
-            condition: Arc::new(move |ctx, evt| (self.condition)(ctx, evt)),
-        }
-    }
-}
-
-impl<C, E> fmt::Debug for Guard<C, E>
-where
-    C: Clone + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Guard")
-            .field("name", &self.name)
-            .field("condition", &"<Fn>")
-            .finish()
-    }
-}
-
 impl<C, E> Guard<C, E>
 where
     C: Clone + Send + Sync + 'static,

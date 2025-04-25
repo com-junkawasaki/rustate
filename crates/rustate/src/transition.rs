@@ -3,7 +3,6 @@ use crate::{
     context::Context,
     error::Result,
     event::{Event, EventTrait, IntoEvent},
-    guard::{Guard, IntoGuard},
     state::{State, StateTrait},
 };
 use async_recursion::async_recursion;
@@ -14,6 +13,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
+use crate::guard::{Guard, IntoGuard};
+use crate::transition::TransitionType;
 
 /// Represents a transition between states
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
