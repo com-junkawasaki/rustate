@@ -1,8 +1,7 @@
 use crate::action::Action;
 use crate::{Context, Event, EventTrait};
-use async_trait::async_trait;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -52,21 +51,13 @@ pub enum HistoryType {
 #[serde(rename_all = "camelCase")]
 #[serde(bound(
     serialize = "S: Serialize",
-    deserialize = "S: DeserializeOwned" // Explicit bound for S
+    deserialize = "S: DeserializeOwned + StateTrait"
 ))]
 pub struct State<S, C = Context, E = Event>
 where
-    S: StateTrait, // S is the identifier type
-    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned, // Add C bounds, ensure Default is present
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Eq
-        + Clone
-        + Debug // Add Debug bound
-        + Serialize
-        + DeserializeOwned, // Add E bounds
+    S: StateTrait + Serialize + Clone + Debug + Display + Hash + Eq + Send + Sync + 'static,
+    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
     /// Unique identifier for the state
     pub id: S,
@@ -112,7 +103,17 @@ where
 
 impl<S, C, E> State<S, C, E>
 where
-    S: StateTrait,
+    S: StateTrait
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Hash
+        + Eq
+        + Send
+        + Sync
+        + 'static,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
@@ -347,10 +348,24 @@ where
 
 /// A collection of states
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "S: Serialize", deserialize = "S: DeserializeOwned"))]
+#[serde(bound(
+    serialize = "S: Serialize",
+    deserialize = "S: StateTrait + Eq + Hash + DeserializeOwned + From<String>"
+))]
 pub struct StateCollection<S, C = Context, E = Event>
 where
-    S: StateTrait,
+    S: StateTrait
+        + Eq
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + From<String>,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
@@ -367,7 +382,18 @@ where
 
 impl<S, C, E> StateCollection<S, C, E>
 where
-    S: StateTrait,
+    S: StateTrait
+        + Eq
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + From<String>,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {

@@ -1,6 +1,6 @@
 #![allow(dead_code)] // Allow dead code for now during refactoring
 
-use crate::error::{Result, StateError, Error as CrateError};
+use crate::error::{Error as CrateError, Result, StateError};
 use crate::event::EventTrait;
 use crate::state::StateTrait;
 use crate::Context;
@@ -68,9 +68,19 @@ pub enum ActorStatus {
 // --- Actor Logic Trait ---
 #[async_trait]
 pub trait ActorLogic<S, E, I, Q, R>: Send + Sync {
-    async fn handle_event(&self, state: &mut S, context: &Context, event: &E) -> Result<(), CrateError>;
+    async fn handle_event(
+        &self,
+        state: &mut S,
+        context: &Context,
+        event: &E,
+    ) -> Result<(), CrateError>;
     async fn handle_query(&self, state: &S, context: &Context, query: Q) -> Result<R, CrateError>;
-    async fn decide(&self, state: &S, context: &Context, snapshot: &Option<Snapshot<Context>>) -> Result<Vec<E>, CrateError>;
+    async fn decide(
+        &self,
+        state: &S,
+        context: &Context,
+        snapshot: &Option<Snapshot<Context>>,
+    ) -> Result<Vec<E>, CrateError>;
     // Placeholder methods to match Machine impl ActorLogic usage
     fn get_initial_snapshot(&self, input: Option<I>) -> S; // Assuming S is the snapshot type here
     async fn transition(&self, snapshot: S, event: E) -> Result<S, StateError>; // Assuming S is the snapshot type
@@ -111,7 +121,8 @@ where
 
 // Enum for commands sent to the actor channel
 #[derive(fmt::Debug)]
-pub enum ActorCommand<E, Q, Resp> // Removed E: EventTrait bound here, add where needed
+pub enum ActorCommand<E, Q, Resp>
+// Removed E: EventTrait bound here, add where needed
 where
     // E: EventTrait + Send + 'static,
     Q: Send + 'static,
@@ -128,14 +139,13 @@ pub trait QueryableEvent: EventTrait {
     type Response: Send + fmt::Debug;
 }
 
-
 // --- ActorRef Implementation STRUCT (The handle) ---
 pub struct ActorRefImpl<E, Q, Resp>
 where
-    // Removed bounds here, enforce on methods/functions using it
-    // E: EventTrait + Send + Sync + fmt::Debug + 'static,
-    // Q: Send + Sync + fmt::Debug + 'static,
-    // Resp: Send + Sync + fmt::Debug + 'static,
+// Removed bounds here, enforce on methods/functions using it
+// E: EventTrait + Send + Sync + fmt::Debug + 'static,
+// Q: Send + Sync + fmt::Debug + 'static,
+// Resp: Send + Sync + fmt::Debug + 'static,
 {
     pub id: Uuid,
     pub sender: mpsc::Sender<ActorCommand<E, Q, Resp>>,
@@ -143,9 +153,7 @@ where
     _response_marker: PhantomData<Resp>,
 }
 
-
-impl<E, Q, Resp> Clone for ActorRefImpl<E, Q, Resp>
-{
+impl<E, Q, Resp> Clone for ActorRefImpl<E, Q, Resp> {
     fn clone(&self) -> Self {
         Self {
             id: self.id,
@@ -156,15 +164,13 @@ impl<E, Q, Resp> Clone for ActorRefImpl<E, Q, Resp>
     }
 }
 
-impl<E, Q, Resp> fmt::Debug for ActorRefImpl<E, Q, Resp>
-{
+impl<E, Q, Resp> fmt::Debug for ActorRefImpl<E, Q, Resp> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorRefImpl")
             .field("id", &self.id)
             .finish()
     }
 }
-
 
 // --- ActorRefImpl Send/Query Methods ---
 impl<E, Q, Resp> ActorRefImpl<E, Q, Resp>
@@ -187,8 +193,9 @@ where
             .send(ActorCommand::Query(query, tx))
             .await
             .map_err(|e| StateError::SendError(format!("Failed to send query: {}", e)))?;
-        rx.await
-            .map_err(|e| StateError::ReceiveError(format!("Failed to receive query response: {}", e)))
+        rx.await.map_err(|e| {
+            StateError::ReceiveError(format!("Failed to receive query response: {}", e))
+        })
     }
 
     pub async fn stop(&self) -> Result<(), StateError> {
@@ -198,7 +205,6 @@ where
             .map_err(|e| StateError::SendError(format!("Failed to send stop command: {}", e)))
     }
 }
-
 
 // --- Actor Implementation (The actual actor instance) ---
 pub struct ActorImpl<L, S, E, I, Q, R>
@@ -216,7 +222,6 @@ where
     context: Arc<tokio::sync::Mutex<Context>>,
     _marker: PhantomData<(I, Q, R)>,
 }
-
 
 // Implementation for ActorImpl using the defined ActorTrait
 #[async_trait]
@@ -248,7 +253,11 @@ where
 
     async fn handle_query(&self, query: Q) -> Result<R, StateError> {
         let context_guard = self.context.lock().await;
-        match self.logic.handle_query(&self.state, &context_guard, query).await {
+        match self
+            .logic
+            .handle_query(&self.state, &context_guard, query)
+            .await
+        {
             Ok(response) => Ok(response),
             Err(e) => {
                 error!(actor_id = %self.id, error = ?e, "Error handling query");
@@ -269,7 +278,6 @@ where
     }
 }
 
-
 // Run the actor main loop
 pub async fn run_actor<
     TEvent: Send + Sync + fmt::Debug + 'static, // Removed EventTrait bound, add if needed by ActorCommand usage
@@ -289,10 +297,11 @@ pub async fn run_actor<
                 debug!(actor_id = %actor_ref_id, event = ?event, "Received event");
                 actor.handle_event(event).await;
             }
-            ActorCommand::Query(query, responder ) => {
+            ActorCommand::Query(query, responder) => {
                 debug!(actor_id = %actor_ref_id, query = ?query, "Received query");
                 let response_result = actor.handle_query(query).await;
-                if let Err(_) = responder.send(response_result) { // Send Resp directly
+                if let Err(_) = responder.send(response_result) {
+                    // Send Resp directly
                     error!(actor_id = %actor_ref_id, "Failed to send query response: receiver dropped");
                 }
             }
@@ -307,7 +316,6 @@ pub async fn run_actor<
     info!(actor_id = %actor_ref_id, "Actor stopped");
 }
 
-
 // Removed _spawn_actor function
 
 // --- create_actor function ---
@@ -320,7 +328,7 @@ pub fn create_actor<L, S, E, I, Q, R>(
 ) -> (
     // Removed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync>, // Don't return the boxed actor itself
     ActorRefImpl<E, Q, Result<R, StateError>>, // Return the handle to interact
-    JoinHandle<()>, // The task handle
+    JoinHandle<()>,                            // The task handle
 )
 where
     L: ActorLogic<S, E, I, Q, R> + Send + Sync + 'static,
@@ -349,13 +357,13 @@ where
         _marker: PhantomData,
     };
 
-    let actor_boxed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync> = Box::new(actor_instance);
+    let actor_boxed: Box<dyn ActorTrait<E, Q, Result<R, StateError>> + Send + Sync> =
+        Box::new(actor_instance);
 
     let handle = tokio::spawn(run_actor(actor_boxed, receiver, id));
 
     (actor_ref, handle) // Return the ref and the handle
 }
-
 
 // Removed spawn function
 
@@ -363,10 +371,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{ActorImpl, ActorRefImpl, ActorTrait, ActorLogic, create_actor, run_actor, ActorCommand}; // Import necessary items
+    use super::{
+        create_actor, run_actor, ActorCommand, ActorImpl, ActorLogic, ActorRefImpl, ActorTrait,
+    }; // Import necessary items
+    use crate::actor::Snapshot;
     use crate::error::{Error as CrateError, StateError};
-    use crate::state::{State, StateTrait, StateType}; // Import StateTrait
     use crate::event::EventTrait;
+    use crate::state::{State, StateTrait, StateType}; // Import StateTrait
     use crate::{Context, Event as CrateEvent, QueryableEvent}; // Import EventTrait
     use serde::{Deserialize, Serialize};
     use std::fmt::{self, Debug, Display};
@@ -375,58 +386,75 @@ mod tests {
     use tokio::sync::{mpsc, oneshot};
     use tokio::task::JoinHandle;
     use tokio::time::Duration;
-    use uuid::Uuid;
-    use crate::actor::Snapshot; // Use crate::actor::Snapshot
-
+    use uuid::Uuid; // Use crate::actor::Snapshot
 
     // --- Test Fixtures ---
     #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct TestState {
-       count: i32,
-       name: String,
+        count: i32,
+        name: String,
     }
 
     impl StateTrait for TestState {
-       type Context = Context;
-       type Event = TestEvent;
-       fn name(&self) -> &str { "TestState" }
-       fn state_type(&self) -> StateType { StateType::Atomic }
-       // Mock required methods if StateTrait requires more
-       fn parent(&self) -> Option<Self> { None }
-       fn initial(&self) -> Option<Self> { None }
-       fn history(&self) -> Option<crate::state::HistoryType> { None }
+        type Context = Context;
+        type Event = TestEvent;
+        fn name(&self) -> &str {
+            "TestState"
+        }
+        fn state_type(&self) -> StateType {
+            StateType::Atomic
+        }
+        // Mock required methods if StateTrait requires more
+        fn parent(&self) -> Option<Self> {
+            None
+        }
+        fn initial(&self) -> Option<Self> {
+            None
+        }
+        fn history(&self) -> Option<crate::state::HistoryType> {
+            None
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub enum TestEvent {
-       Increment,
-       Decrement,
-       SetName(String),
+        Increment,
+        Decrement,
+        SetName(String),
     }
 
     #[typetag::serde]
     impl EventTrait for TestEvent {
-       fn event_type(&self) -> &str {
-           match self {
-               TestEvent::Increment => "Increment",
-               TestEvent::Decrement => "Decrement",
-               TestEvent::SetName(_) => "SetName",
-           }
-       }
-       fn payload(&self) -> Option<&serde_json::Value> { None }
-       fn name(&self) -> &str {
-           match self {
-               TestEvent::Increment => "TestIncrementEvent",
-               TestEvent::Decrement => "TestDecrementEvent",
-               TestEvent::SetName(_) => "TestSetNameEvent",
-           }
-       }
-       fn topic(&self) -> &str { "test" }
-       fn key(&self) -> Option<String> { None }
+        fn event_type(&self) -> &str {
+            match self {
+                TestEvent::Increment => "Increment",
+                TestEvent::Decrement => "Decrement",
+                TestEvent::SetName(_) => "SetName",
+            }
+        }
+        fn payload(&self) -> Option<&serde_json::Value> {
+            None
+        }
+        fn name(&self) -> &str {
+            match self {
+                TestEvent::Increment => "TestIncrementEvent",
+                TestEvent::Decrement => "TestDecrementEvent",
+                TestEvent::SetName(_) => "TestSetNameEvent",
+            }
+        }
+        fn topic(&self) -> &str {
+            "test"
+        }
+        fn key(&self) -> Option<String> {
+            None
+        }
     }
 
     #[derive(Debug, Clone, PartialEq)]
-    enum TestQuery { GetCount, GetName }
+    enum TestQuery {
+        GetCount,
+        GetName,
+    }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     struct TestResponse(String);
@@ -442,7 +470,12 @@ mod tests {
 
     #[async_trait]
     impl ActorLogic<TestState, TestEvent, (), TestQuery, TestResponse> for TestActorLogic {
-        async fn handle_event(&self, state: &mut TestState, _context: &Context, event: &TestEvent) -> Result<(), CrateError> {
+        async fn handle_event(
+            &self,
+            state: &mut TestState,
+            _context: &Context,
+            event: &TestEvent,
+        ) -> Result<(), CrateError> {
             match event {
                 TestEvent::Increment => state.count += 1,
                 TestEvent::Decrement => state.count -= 1,
@@ -451,34 +484,53 @@ mod tests {
             Ok(())
         }
 
-        async fn handle_query(&self, state: &TestState, _context: &Context, query: TestQuery) -> Result<TestResponse, CrateError> {
+        async fn handle_query(
+            &self,
+            state: &TestState,
+            _context: &Context,
+            query: TestQuery,
+        ) -> Result<TestResponse, CrateError> {
             match query {
                 TestQuery::GetCount => Ok(TestResponse(format!("Count: {}", state.count))),
                 TestQuery::GetName => Ok(TestResponse(format!("Name: {}", state.name))),
             }
         }
 
-        async fn decide(&self, _state: &TestState, _context: &Context, _snapshot: &Option<Snapshot<Context>>) -> Result<Vec<TestEvent>, CrateError> {
+        async fn decide(
+            &self,
+            _state: &TestState,
+            _context: &Context,
+            _snapshot: &Option<Snapshot<Context>>,
+        ) -> Result<Vec<TestEvent>, CrateError> {
             Ok(vec![])
         }
 
-       fn get_initial_snapshot(&self, _input: Option<()>) -> TestState {
+        fn get_initial_snapshot(&self, _input: Option<()>) -> TestState {
             // This method doesn't seem right for ActorLogic, state is passed in handle_event/query
             // Returning a default state, but the logic should likely not own the state creation.
-            TestState { count: 0, name: "DefaultInitial".to_string() }
-       }
+            TestState {
+                count: 0,
+                name: "DefaultInitial".to_string(),
+            }
+        }
 
-       async fn transition(&self, snapshot: TestState, _event: TestEvent) -> Result<TestState, StateError> {
-           // Placeholder transition logic
-           Ok(snapshot)
-       }
+        async fn transition(
+            &self,
+            snapshot: TestState,
+            _event: TestEvent,
+        ) -> Result<TestState, StateError> {
+            // Placeholder transition logic
+            Ok(snapshot)
+        }
     }
-
 
     // --- Tests --- Use create_actor now
     #[tokio::test]
     async fn test_actor_creation_and_initial_state() {
-        let initial_state = TestState { count: 0, name: "Initial".to_string() };
+        let initial_state = TestState {
+            count: 0,
+            name: "Initial".to_string(),
+        };
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
@@ -494,19 +546,24 @@ mod tests {
         assert_eq!(inner_res.unwrap(), TestResponse("Count: 0".to_string()));
 
         let response_name_res = actor_ref.query(TestQuery::GetName).await;
-         assert!(response_name_res.is_ok());
-         let inner_name_res = response_name_res.unwrap();
-         assert!(inner_name_res.is_ok());
-        assert_eq!(inner_name_res.unwrap(), TestResponse("Name: Initial".to_string()));
+        assert!(response_name_res.is_ok());
+        let inner_name_res = response_name_res.unwrap();
+        assert!(inner_name_res.is_ok());
+        assert_eq!(
+            inner_name_res.unwrap(),
+            TestResponse("Name: Initial".to_string())
+        );
 
         drop(actor_ref);
         let _ = tokio::time::timeout(Duration::from_secs(1), handle).await;
     }
 
-
     #[tokio::test]
     async fn test_actor_event_handling() {
-        let initial_state = TestState { count: 5, name: "Event Tester".to_string() };
+        let initial_state = TestState {
+            count: 5,
+            name: "Event Tester".to_string(),
+        };
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
@@ -515,7 +572,10 @@ mod tests {
         );
 
         actor_ref.send_event(TestEvent::Increment).await.unwrap();
-        actor_ref.send_event(TestEvent::SetName("Updated Name".to_string())).await.unwrap();
+        actor_ref
+            .send_event(TestEvent::SetName("Updated Name".to_string()))
+            .await
+            .unwrap();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -529,16 +589,21 @@ mod tests {
         assert!(response_name_res.is_ok());
         let inner_name_res = response_name_res.unwrap();
         assert!(inner_name_res.is_ok());
-        assert_eq!(inner_name_res.unwrap(), TestResponse("Name: Updated Name".to_string()));
+        assert_eq!(
+            inner_name_res.unwrap(),
+            TestResponse("Name: Updated Name".to_string())
+        );
 
         drop(actor_ref);
         let _ = tokio::time::timeout(Duration::from_secs(1), handle).await;
     }
 
-
     #[tokio::test]
     async fn test_actor_query() {
-       let initial_state = TestState { count: 10, name: "Query".to_string() };
+        let initial_state = TestState {
+            count: 10,
+            name: "Query".to_string(),
+        };
         let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
@@ -557,11 +622,13 @@ mod tests {
         let _ = tokio::time::timeout(Duration::from_secs(1), handle).await;
     }
 
-
     #[tokio::test]
     async fn test_actor_stop() {
-        let initial_state = TestState { count: 0, name: "Stop Me".to_string() };
-         let (actor_ref, handle) = create_actor(
+        let initial_state = TestState {
+            count: 0,
+            name: "Stop Me".to_string(),
+        };
+        let (actor_ref, handle) = create_actor(
             TestActorLogic,
             initial_state.clone(),
             None,
@@ -572,7 +639,10 @@ mod tests {
         assert!(stop_result.is_ok());
 
         let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
-        assert!(result.is_ok(), "Actor task did not complete within timeout after stop");
+        assert!(
+            result.is_ok(),
+            "Actor task did not complete within timeout after stop"
+        );
         assert!(result.unwrap().is_ok(), "Actor task panicked");
     }
 }

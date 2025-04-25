@@ -777,7 +777,7 @@ where
 }
 
 #[async_trait]
-impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E, O> for Machine<C, E, S, O>
+impl<C, E, S, O, I, Q, R> ActorLogic<S, E, I, Q, R> for Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
     E: EventTrait
@@ -790,63 +790,49 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent
-        + Default,
+        + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
+    I: Send + Sync + 'static + Default,
+    Q: Send + Sync + 'static,
+    R: Send + Sync + 'static,
 {
-    fn get_initial_snapshot(&self, _input: Option<O>) -> MachineSnapshot<C, S, O> {
-        let initial_state_id = self.initial.clone();
-        let mut initial_states = HashSet::new();
-        initial_states.insert(initial_state_id.clone());
-
-        let initial_context = self.context.clone();
-
-        MachineSnapshot {
-            inner: ActorSnapshot {
-                context: initial_context,
-                value: serde_json::to_value(&initial_state_id).unwrap_or(Value::Null),
-                output: None,
-                status: ActorStatus::Active,
-            },
-            current_states: initial_states,
-            history_states: self.history.clone(),
-            _phantom_s: PhantomData,
-        }
+    fn get_initial_snapshot(&self, _input: Option<I>) -> S {
+        self.initial.clone()
     }
 
-    async fn transition(
+    async fn handle_event(
         &self,
-        snapshot: MachineSnapshot<C, S, O>,
-        event: E,
-    ) -> Result<MachineSnapshot<C, S, O>, StateError> {
-        let mut current_snapshot = snapshot;
+        state: &mut S,
+        _context: &Context,
+        _event: &E,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn handle_query(&self, _state: &S, _context: &Context, _query: Q) -> Result<R, Error> {
+        Err(Error::NotImplemented(
+            "Query handling not implemented for Machine as ActorLogic".to_string(),
+        ))
+    }
+
+    async fn decide(
+        &self,
+        _state: &S,
+        _context: &Context,
+        _snapshot: &Option<crate::actor::Snapshot<Context>>,
+    ) -> Result<Vec<E>, Error> {
+        Ok(vec![])
+    }
+
+    async fn transition(&self, _snapshot: S, event: E) -> Result<S, StateError> {
         let mut temp_machine = self.clone();
-        temp_machine.current_states = current_snapshot.current_states.clone();
-        temp_machine.context = current_snapshot.inner.context.clone();
-        temp_machine.history = current_snapshot.history_states.clone();
-
-        let processed = temp_machine.send(event.clone()).await?;
-
-        if processed {
-            current_snapshot.current_states = temp_machine.current_states;
-            current_snapshot.inner.context = temp_machine.context;
-            current_snapshot.history_states = temp_machine.history;
-            current_snapshot.inner.value =
-                serde_json::to_value(&current_snapshot.current_states).unwrap_or(Value::Null);
-
-            if current_snapshot
-                .current_states
-                .iter()
-                .any(|s| self.states.get(s).map_or(false, |st| st.is_final()))
-            {
-                current_snapshot.inner.status = ActorStatus::Done;
-                current_snapshot.inner.output = None;
-            } else {
-                current_snapshot.inner.status = ActorStatus::Active;
-            }
-        }
-
-        Ok(current_snapshot)
+        let _ = temp_machine.send(event.clone()).await;
+        Ok(temp_machine
+            .current_states
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| self.initial.clone()))
     }
 }

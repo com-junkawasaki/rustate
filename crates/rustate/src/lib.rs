@@ -123,3 +123,6 @@ pub use actor::{ActorLogic, ActorRefTrait, ActorStatus, Snapshot};
 
 // Re-export serde_json if it's commonly used with Context or Snapshots
 pub use serde_json;
+
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::collections::HashMap;
