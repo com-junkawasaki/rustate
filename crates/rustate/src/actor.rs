@@ -3,7 +3,7 @@ use crate::error::StateError;
 use crate::event::EventTrait;
 use crate::state::StateTrait;
 use crate::ActorOptions;
-use crate::{Context, Event, Machine, MachineBuilder, State, StateTrait};
+use crate::{Context, Event, Machine, MachineBuilder, State};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

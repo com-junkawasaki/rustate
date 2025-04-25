@@ -1,7 +1,7 @@
 use crate::{
     decision::{Decision, DecisionContext},
-    error::{AgentError, Result},
     episode::Episode,
+    error::{AgentError, Result},
     feedback::Feedback,
     goal::Goal,
     insight::Insight,
@@ -10,19 +10,13 @@ use crate::{
     storage::Storage,
 };
 use rustate::{
-    EventTrait, IntoEvent,
-    SharedMachineRef,
     machine::{Machine, MachineBuilder},
-    state::{StateTrait},
-    Context,
+    state::StateTrait,
+    Context, EventTrait, IntoEvent, SharedMachineRef,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
 
 /// エージェントの構成設定
@@ -106,7 +100,8 @@ where
     P: Policy<S, E> + Send + Sync + 'static,
 {
     /// 新しいエージェントを作成します (Original constructor - adjusted)
-    pub fn new( // Now synchronous, matching original signature found in file
+    pub fn new(
+        // Now synchronous, matching original signature found in file
         id: impl Into<String>,
         machine_builder: MachineBuilder<S, E>,
         policy: P,
@@ -156,7 +151,7 @@ where
         // We shouldn't create a dummy machine if using shared ref
         // Let shared_context handling depend on config/machine_ref API
         let final_shared_context = if final_config.use_shared_context {
-             // TODO: Get context from machine_ref if possible
+            // TODO: Get context from machine_ref if possible
             Some(Arc::new(Mutex::new(Context::default()))) // Placeholder
         } else {
             None
@@ -244,15 +239,15 @@ where
             self.storage.save_episode(&episode).await?;
 
             if self.config.auto_generate_insights {
-                 match self.generate_insights(&episode).await {
-                     Ok(insights) => {
-                         for insight in insights {
-                             self.storage.save_insight(&insight).await?; // Use corrected signature
-                         }
-                     }
-                      Err(_e) => {} // log::error!("Failed to generate insights: {}", e),
-                 }
-             }
+                match self.generate_insights(&episode).await {
+                    Ok(insights) => {
+                        for insight in insights {
+                            self.storage.save_insight(&insight).await?; // Use corrected signature
+                        }
+                    }
+                    Err(_e) => {} // log::error!("Failed to generate insights: {}", e),
+                }
+            }
             // Removed self.goal_state assignment
             Ok(Some(episode))
         } else {
@@ -295,13 +290,13 @@ where
 
         let new_state = self.process_event(decision.event).await?;
 
-         if self.config.auto_record_observations {
-             if let Some(episode) = &self.current_episode {
-                 // Construct observation with prev_state, event, next_state
-                 let observation = Observation::new(current_state, event_for_obs, new_state.clone());
-                 self.storage.save_observation(&observation).await?; // Use corrected signature
-             }
-         }
+        if self.config.auto_record_observations {
+            if let Some(episode) = &self.current_episode {
+                // Construct observation with prev_state, event, next_state
+                let observation = Observation::new(current_state, event_for_obs, new_state.clone());
+                self.storage.save_observation(&observation).await?; // Use corrected signature
+            }
+        }
 
         Ok(new_state)
     }
@@ -313,7 +308,11 @@ where
         loop {
             let episode = match &self.current_episode {
                 Some(ep) => ep,
-                None => return Err(AgentError::Other("Episode ended unexpectedly or was not active".to_string())),
+                None => {
+                    return Err(AgentError::Other(
+                        "Episode ended unexpectedly or was not active".to_string(),
+                    ))
+                }
             };
 
             let current_state = self.current_state()?;
@@ -341,10 +340,12 @@ where
                 }
             }
             // Re-check if episode is still active after step
-             if self.current_episode.is_none() {
-                 // This might happen if step internally completed the episode on error/goal
-                 return Err(AgentError::Other("Episode ended during step execution".to_string()));
-             }
+            if self.current_episode.is_none() {
+                // This might happen if step internally completed the episode on error/goal
+                return Err(AgentError::Other(
+                    "Episode ended during step execution".to_string(),
+                ));
+            }
         }
     }
 
@@ -357,10 +358,13 @@ where
                 .await
                 .map_err(|e| AgentError::IntegrationError(e.to_string()))
                 // Temporary: assume send doesn't return state, get it after
-                 .and_then(|_| self.current_state())
-
-        } else if let Some(_) = self.machine { // Check existence without borrowing mutably
-            Err(AgentError::NotSupported("process_event on owned machine requires &mut self or interior mutability".to_string()))
+                .and_then(|_| self.current_state())
+        } else if let Some(_) = self.machine {
+            // Check existence without borrowing mutably
+            Err(AgentError::NotSupported(
+                "process_event on owned machine requires &mut self or interior mutability"
+                    .to_string(),
+            ))
         } else {
             Err(AgentError::NotInitialized)
         }

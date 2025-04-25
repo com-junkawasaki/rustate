@@ -1,4 +1,4 @@
-use crate::{Context, Error, Event, EventTrait, IntoAction, Result};
+use crate::{Context, Error, Event, EventTrait, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -6,6 +6,8 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
 use uuid::Uuid;
+use crate::action::{Action, ActionExecutor, ActionType};
+use crate::transition::Transition;
 
 /// Trait defining requirements for a state identifier
 pub trait StateTrait:
@@ -53,10 +55,11 @@ pub enum HistoryType {
     serialize = "S: Serialize",
     deserialize = "S: DeserializeOwned" // Explicit bound for S
 ))]
-pub struct State<S>
-// Removed default S = String here, specify in Machine/Builder
+pub struct State<S, C = Context, E = Event>
 where
     S: StateTrait, // S is the identifier type
+    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned, // Add C bounds
+    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned, // Add E bounds
 {
     /// Unique identifier for the state
     pub id: S,
@@ -68,7 +71,7 @@ where
     /// Child states (for compound and parallel states)
     // Use S directly as key if possible, otherwise String conversion needed.
     // String is simpler for now due to HashMap constraints.
-    pub children: HashMap<String, State<S>>,
+    pub children: HashMap<String, State<S, C, E>>,
     /// Initial state (for compound states)
     pub initial: Option<S>,
     /// Data associated with this state
@@ -85,18 +88,26 @@ where
     pub history: Option<HistoryType>,
     /// Entry actions
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub entry: Vec<IntoAction<S>>,
+    pub entry: Vec<Action<C, E>>,
     /// Exit actions
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exit: Vec<IntoAction<S>>,
+    pub exit: Vec<Action<C, E>>,
     /// Transitions originating from this state
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub on: HashMap<String, Vec<Transition<S>>>, // Event string -> Transitions
+    pub on: HashMap<String, Vec<Transition<S, C, E>>>,
+
+    // Add PhantomData for C and E
+    #[serde(skip)]
+    _phantom_c: std::marker::PhantomData<C>,
+    #[serde(skip)]
+    _phantom_e: std::marker::PhantomData<E>,
 }
 
-impl<S> State<S>
+impl<S, C, E> State<S, C, E>
 where
     S: StateTrait,
+    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
 {
     /// Create a new normal state
     pub fn new(id: S) -> Self {
@@ -113,6 +124,8 @@ where
             entry: Vec::new(),
             exit: Vec::new(),
             on: HashMap::new(),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
@@ -132,6 +145,8 @@ where
             entry: Vec::new(),
             exit: Vec::new(),
             on: HashMap::new(),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
@@ -150,6 +165,8 @@ where
             entry: Vec::new(),
             exit: Vec::new(),
             on: HashMap::new(),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
@@ -168,6 +185,8 @@ where
             entry: Vec::new(),
             exit: Vec::new(),
             on: HashMap::new(),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
@@ -186,11 +205,13 @@ where
             entry: Vec::new(),
             exit: Vec::new(),
             on: HashMap::new(),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
     /// Add a child state to this state
-    pub fn add_child(&mut self, mut child_state: State<S>) -> &mut Self {
+    pub fn add_child(&mut self, mut child_state: State<S, C, E>) -> &mut Self {
         child_state.parent = Some(self.id.clone()); // Set parent link
                                                     // Use Display trait from StateTrait for the key
         self.children
@@ -199,13 +220,13 @@ where
     }
 
     /// Add an entry action
-    pub fn add_entry(&mut self, action: impl Into<IntoAction<S>>) -> &mut Self {
+    pub fn add_entry(&mut self, action: impl Into<Action<C, E>>) -> &mut Self {
         self.entry.push(action.into());
         self
     }
 
     /// Add an exit action
-    pub fn add_exit(&mut self, action: impl Into<IntoAction<S>>) -> &mut Self {
+    pub fn add_exit(&mut self, action: impl Into<Action<C, E>>) -> &mut Self {
         self.exit.push(action.into());
         self
     }
@@ -214,7 +235,7 @@ where
     pub fn add_transition(
         &mut self,
         event: impl Into<String>,
-        transition: impl Into<Transition<S>>,
+        transition: impl Into<Transition<S, C, E>>,
     ) -> &mut Self {
         self.on
             .entry(event.into())
@@ -259,7 +280,7 @@ where
         self.parent.as_ref()
     }
 
-    pub fn children(&self) -> &HashMap<String, State<S>> {
+    pub fn children(&self) -> &HashMap<String, State<S, C, E>> {
         &self.children
     }
 
@@ -279,15 +300,15 @@ where
         self.history.clone() // Clone enum
     }
 
-    pub fn entry_actions(&self) -> &Vec<IntoAction<S>> {
+    pub fn entry_actions(&self) -> &Vec<Action<C, E>> {
         &self.entry
     }
 
-    pub fn exit_actions(&self) -> &Vec<IntoAction<S>> {
+    pub fn exit_actions(&self) -> &Vec<Action<C, E>> {
         &self.exit
     }
 
-    pub fn transitions(&self) -> &HashMap<String, Vec<Transition<S>>> {
+    pub fn transitions(&self) -> &HashMap<String, Vec<Transition<S, C, E>>> {
         &self.on
     }
 
@@ -320,38 +341,50 @@ where
 /// A collection of states
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "S: Serialize", deserialize = "S: DeserializeOwned"))]
-pub struct StateCollection<S>
+pub struct StateCollection<S, C = Context, E = Event>
 where
     S: StateTrait,
+    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
 {
     // Use String as key for simplicity, derived from S::Display
-    states: HashMap<String, State<S>>,
+    states: HashMap<String, State<S, C, E>>,
+
+    // Add PhantomData for C and E
+    #[serde(skip)]
+    _phantom_c: std::marker::PhantomData<C>,
+    #[serde(skip)]
+    _phantom_e: std::marker::PhantomData<E>,
 }
 
-impl<S> StateCollection<S>
+impl<S, C, E> StateCollection<S, C, E>
 where
     S: StateTrait,
+    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
 {
     /// Create a new empty state collection
     pub fn new() -> Self {
         Self {
             states: HashMap::new(),
+            _phantom_c: std::marker::PhantomData,
+            _phantom_e: std::marker::PhantomData,
         }
     }
 
     /// Add a state to the collection
-    pub fn add(&mut self, state: State<S>) -> &mut Self {
+    pub fn add(&mut self, state: State<S, C, E>) -> &mut Self {
         self.states.insert(state.id.to_string(), state);
         self
     }
 
     /// Get a state by id
-    pub fn get(&self, id: &S) -> Option<&State<S>> {
+    pub fn get(&self, id: &S) -> Option<&State<S, C, E>> {
         self.states.get(&id.to_string())
     }
 
     /// Get a mutable reference to a state by id
-    pub fn get_mut(&mut self, id: &S) -> Option<&mut State<S>> {
+    pub fn get_mut(&mut self, id: &S) -> Option<&mut State<S, C, E>> {
         self.states.get_mut(&id.to_string())
     }
 
@@ -361,20 +394,23 @@ where
     }
 
     /// Get all states
-    pub fn all(&self) -> impl Iterator<Item = &State<S>> {
+    pub fn all(&self) -> impl Iterator<Item = &State<S, C, E>> {
         self.states.values()
     }
-}
 
-/// Transition struct likely needs S: StateTrait bound as well
-/// Needs review based on its definition file.
+    pub fn is_empty(&self) -> bool {
+        self.states.is_empty()
+    }
+}
 
 /// Ensure Transition struct definition uses S: StateTrait consistently
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(bound(serialize = "S: Serialize", deserialize = "S: DeserializeOwned"))]
-pub struct Transition<S>
+pub struct Transition<S, C = Context, E = Event>
 where
     S: StateTrait,
+    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
 {
     pub target: S,
     // ... other fields like actions, guards ...
@@ -384,9 +420,11 @@ where
     pub actions: Vec<IntoAction<S>>,
 }
 
-impl<S> Transition<S>
+impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait,
+    C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
 {
     pub fn new(target: S) -> Self {
         Self {

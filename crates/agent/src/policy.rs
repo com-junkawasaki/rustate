@@ -333,10 +333,10 @@ mod tests {
         let decision = policy
             .decide(DecisionContext::new(
                 current_state,
-                None, // goal_state is Option<S>
+                None,         // goal_state is Option<S>
                 observations, // Pass Vec directly
-                feedbacks, // Pass Vec directly
-                insights, // Pass Vec directly
+                feedbacks,    // Pass Vec directly
+                insights,     // Pass Vec directly
             ))
             .await
             .unwrap();
@@ -380,9 +380,9 @@ mod tests {
         let context = DecisionContext::new(
             current_state,
             Some(goal_state), // Pass Option<S>
-            observations, // Pass Vec directly
-            feedbacks, // Pass Vec directly
-            insights, // Pass Vec directly
+            observations,     // Pass Vec directly
+            feedbacks,        // Pass Vec directly
+            insights,         // Pass Vec directly
         );
 
         let decision_result = policy.decide(context).await;

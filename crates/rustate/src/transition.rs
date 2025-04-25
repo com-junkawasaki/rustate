@@ -165,7 +165,7 @@ impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + fmt::Debug,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
@@ -184,7 +184,7 @@ impl<S, C, E> PartialEq for Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
@@ -199,7 +199,7 @@ impl<S, C, E> Eq for Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
 {
 }
 
@@ -252,26 +252,21 @@ where
         }
     }
 
-    /// Comment out async guard due to lifetime issues
-    /*
-    pub fn new_async<F>(async_fn: F) -> Self
+    /// Creates a new asynchronous guard.
+    pub fn new_async<F, Fut>(async_fn: F) -> Self
     where
-        F: for<'a> Fn(&'a C, &'a E) -> futures::future::BoxFuture<'a, bool> + Send + Sync + 'static + Clone,
+        F: Fn(&C, &E) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = bool> + Send + 'static,
     {
-         let async_fn_arc = Arc::new(async_fn);
-         let condition = Arc::new(move |ctx: &C, evt: &E| {
-             let async_fn_clone = async_fn_arc.clone();
-             let ctx_clone = ctx.clone();
-             let evt_clone = evt.clone();
-             Box::pin(async move { async_fn_clone(&ctx_clone, &evt_clone).await }) as futures::future::BoxFuture<'static, bool>
-         });
+        let condition = Arc::new(move |ctx: &C, evt: &E| {
+            Box::pin(async_fn(ctx, evt)) as futures::future::BoxFuture<'static, bool>
+        });
         Self {
             condition,
             _phantom_c: std::marker::PhantomData,
             _phantom_e: std::marker::PhantomData,
         }
     }
-    */
 
     /// Evaluates the guard condition.
     pub async fn evaluate(&self, context: &C, event: &E) -> bool {
@@ -279,7 +274,6 @@ where
     }
 }
 
-// Trait for types convertible to Guard
 pub trait IntoGuard<C, E>
 where
     C: Clone + Send + Sync + Default + 'static,
@@ -288,32 +282,31 @@ where
     fn into_guard(self) -> Guard<C, E>;
 }
 
-// Implement for sync functions
-impl<C, E> IntoGuard<C, E> for fn(&C, &E) -> bool
+// Implement IntoGuard for synchronous closures
+impl<C, E, F> IntoGuard<C, E> for F
 where
+    F: Fn(&C, &E) -> bool + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     fn into_guard(self) -> Guard<C, E> {
-        Guard::new(self)
+        Guard::new(move |ctx, evt| self(ctx, evt))
     }
 }
 
-// Comment out IntoGuard impl for async functions
-/*
-impl<F, C, E> IntoGuard<C, E> for F
+// Implement IntoGuard for asynchronous closures
+impl<F, Fut, C, E> IntoGuard<C, E> for F
 where
-    F: for<'a> Fn(&'a C, &'a E) -> futures::future::BoxFuture<'a, bool> + Send + Sync + 'static + Clone,
+    F: Fn(&C, &E) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = bool> + Send + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     fn into_guard(self) -> Guard<C, E> {
-        Guard::new_async(self)
+        Guard::new_async(move |ctx, evt| self(ctx, evt))
     }
 }
-*/
 
-// Implement for Guard itself (identity)
 impl<C, E> IntoGuard<C, E> for Guard<C, E>
 where
     C: Clone + Send + Sync + Default + 'static,

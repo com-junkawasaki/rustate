@@ -1,4 +1,4 @@
-use crate::error::ActionError;
+use crate::Error::ActionError;
 use crate::{Context, Event, EventTrait, Result};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
@@ -94,7 +94,7 @@ where
     }
 
     /// Execute the action
-    pub async fn execute(&self, context: &mut C, event: &E) -> Result<(), ActionError> {
+    pub async fn execute(&self, context: &mut C, event: &E) -> Result<(), Error> {
         (self.execute_fn)(context, event).await
     }
 }
@@ -175,7 +175,7 @@ where
 impl<F, Fut, C, E> IntoAction<C, E> for F
 where
     F: Fn(&mut C, &E) -> Fut + Send + Sync + 'static + Clone,
-    Fut: futures::Future<Output = Result<(), ActionError>> + Send + 'static,
+    Fut: futures::Future<Output = Result<(), Error>> + Send + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
