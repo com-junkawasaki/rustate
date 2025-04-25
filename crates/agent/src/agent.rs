@@ -9,20 +9,20 @@ use crate::{
     storage::Storage,
 };
 use rustate::integration::{SharedContext, SharedMachineRef};
+use rustate::state::State;
+use rustate::transition::Transition;
+use rustate::MachineBuilder;
 use rustate::{Context, EventTrait, Machine, StateTrait};
 use rustate::{State as RuState, Transition};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde_json::Value;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use uuid::Uuid;
-use rustate::state::State;
-use rustate::transition::Transition;
-use rustate::MachineBuilder;
-use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -831,11 +831,24 @@ mod tests {
         // エージェントの作成
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent =
-            Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, Some(shared_context.clone())).await.unwrap();
+        let mut agent = Agent::new(
+            Uuid::new_v4(),
+            TestState::Idle,
+            policy,
+            storage,
+            MachineBuilder::new("test_machine"),
+            None,
+            Some(shared_context.clone()),
+        )
+        .await
+        .unwrap();
 
         // 共有コンテキストに値を設定
-        shared_context.lock().await.set("test_key", "test_value").unwrap();
+        shared_context
+            .lock()
+            .await
+            .set("test_key", "test_value")
+            .unwrap();
 
         // 目標状態設定
         let goal_state = TestState::Completed;
@@ -860,7 +873,17 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
+        let agent = Agent::new(
+            Uuid::new_v4(),
+            TestState::Idle,
+            policy,
+            storage,
+            MachineBuilder::new("test_machine"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(agent.config.name, "汎用エージェント");
         assert_eq!(agent.config.auto_record_observations, true);
@@ -871,7 +894,17 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
+        let mut agent = Agent::new(
+            Uuid::new_v4(),
+            TestState::Idle,
+            policy,
+            storage,
+            MachineBuilder::new("test_machine"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         // エピソードを開始
         agent
@@ -889,7 +922,17 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
+        let mut agent = Agent::new(
+            Uuid::new_v4(),
+            TestState::Idle,
+            policy,
+            storage,
+            MachineBuilder::new("test_machine"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         // エピソードを開始
         agent
@@ -910,7 +953,17 @@ mod tests {
         let machine = create_test_machine();
         let storage = MemoryStorage::new();
         let policy = TestPolicy::new();
-        let mut agent = Agent::new(Uuid::new_v4(), TestState::Idle, policy, storage, MachineBuilder::new("test_machine"), None, None).await.unwrap();
+        let mut agent = Agent::new(
+            Uuid::new_v4(),
+            TestState::Idle,
+            policy,
+            storage,
+            MachineBuilder::new("test_machine"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         // エピソードを開始
         agent

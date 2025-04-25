@@ -422,12 +422,12 @@ where
         let mut current = self.states.get(state_id);
         while let Some(state) = current {
             if let Some(parent_id) = state.parent() {
-                 if parent_id != state.id() {
+                if parent_id != state.id() {
                     current = self.states.get(parent_id);
                     depth += 1;
-                 } else {
-                     break;
-                 }
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -440,12 +440,12 @@ where
         let mut current_id = state_id;
         while let Some(state) = self.states.get(current_id) {
             if let Some(parent_id) = state.parent() {
-                 if parent_id != current_id {
+                if parent_id != current_id {
                     ancestors.push(parent_id.to_string());
                     current_id = parent_id;
-                 } else {
-                     break;
-                 }
+                } else {
+                    break;
+                }
             } else {
                 break;
             }

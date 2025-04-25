@@ -1,5 +1,5 @@
-use thiserror::Error;
 use std::fmt;
+use thiserror::Error;
 
 /// Errors that can occur in the RuState library
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -63,10 +63,7 @@ pub enum StateError {
     ActorReceiveError(String),
     /// Transition not found from state '{state}' for event '{event}'
     #[error("Transition not found from state '{state}' for event '{event}'")]
-    TransitionNotFound {
-        state: String,
-        event: String,
-    },
+    TransitionNotFound { state: String, event: String },
     /// Invalid initial state
     #[error("Invalid initial state: {0}")]
     InvalidInitialState(String),

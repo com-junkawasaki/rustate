@@ -265,7 +265,11 @@ where
     }
 
     fn children(&self) -> &[String] {
-        &self.children.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        &self
+            .children
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
     }
 
     fn initial(&self) -> Option<&str> {

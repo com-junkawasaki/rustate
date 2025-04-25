@@ -161,11 +161,11 @@ where
     E: EventTrait + Send + Sync + 'static,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.source == other.source &&
-        self.event == other.event &&
-        self.target == other.target &&
-        self.actions.len() == other.actions.len() &&
-        self.guard.is_some() == other.guard.is_some()
+        self.source == other.source
+            && self.event == other.event
+            && self.target == other.target
+            && self.actions.len() == other.actions.len()
+            && self.guard.is_some() == other.guard.is_some()
     }
 }
 
@@ -174,7 +174,8 @@ where
     S: StateTrait + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
-{}
+{
+}
 
 /// Represents the type of transition
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

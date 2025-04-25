@@ -290,11 +290,13 @@ pub fn machine_state_to_proto(machine: &RuMachine) -> Result<proto::MachineState
 ///
 /// # 戻り値
 /// * イベント文字列とペイロード (Option<serde_json::Value>)
-pub fn event_from_proto(proto_event: &proto::EventDefinition) -> Result<(String, Option<serde_json::Value>)> {
+pub fn event_from_proto(
+    proto_event: &proto::EventDefinition,
+) -> Result<(String, Option<serde_json::Value>)> {
     let event_type = proto_event.event_type.clone();
     let payload = if !proto_event.payload.is_empty() {
-        let value: serde_json::Value = serde_json::from_str(&proto_event.payload)
-            .map_err(GrpcError::Serialization)?;
+        let value: serde_json::Value =
+            serde_json::from_str(&proto_event.payload).map_err(GrpcError::Serialization)?;
         Some(value)
     } else {
         None

@@ -1,5 +1,5 @@
-use crate::error::StateError;
 use crate::error::Result;
+use crate::error::StateError;
 use crate::event::EventTrait;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -70,8 +70,8 @@ pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
 /// - TSnapshot: The type of snapshot the actor emits.
 pub trait ActorRef<TEvent: EventTrait, TSnapshot>: Send + Sync + fmt::Debug
 where
-    TEvent: EventTrait + Send + fmt::Debug,       // Added Send + Debug bound
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug, // Added Debug bound
+    TEvent: EventTrait + Send + fmt::Debug, // Added Send + Debug bound
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
 {
     /// Sends an event to the actor asynchronously.
     fn send(&self, event: TEvent) -> Result<(), StateError>;
@@ -94,7 +94,10 @@ where
 #[derive(fmt::Debug)] // Use fmt::Debug derive
 pub enum ActorCommand<E: EventTrait, Q, R> {
     Event(E),
-    Query { query: Q, responder: oneshot::Sender<R> },
+    Query {
+        query: Q,
+        responder: oneshot::Sender<R>,
+    },
     Stop,
 }
 
@@ -114,7 +117,9 @@ pub trait Actor<TEvent: EventTrait, TSnapshot> {
     where
         TEvent: QueryableEvent, // Only if the event type supports queries
     {
-        Err(StateError::UnsupportedOperation("Query not supported".to_string()))
+        Err(StateError::UnsupportedOperation(
+            "Query not supported".to_string(),
+        ))
     }
 }
 
@@ -127,8 +132,8 @@ pub trait QueryableEvent: EventTrait {
 /// Represents a reference to an actor, allowing messages to be sent.
 pub trait ActorRef<TEvent, TSnapshot>: Send + Sync + fmt::Debug
 where
-    TEvent: EventTrait + Send + fmt::Debug,       // Added Send + Debug bound
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug, // Added Debug bound
+    TEvent: EventTrait + Send + fmt::Debug, // Added Send + Debug bound
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
 {
     /// Sends an event to the actor asynchronously.
     fn send(&self, event: TEvent) -> Result<(), StateError>;
@@ -151,10 +156,10 @@ where
 #[derive(fmt::Debug)] // Use fmt::Debug derive
 pub struct ActorRefImpl<TEvent, TSnapshot, Q = (), R = ()>
 where
-    TEvent: EventTrait + Send + fmt::Debug + 'static,       // Added Send + Debug bound
+    TEvent: EventTrait + Send + fmt::Debug + 'static, // Added Send + Debug bound
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug, // Added Debug bound
-    Q: Send + fmt::Debug + 'static, // Bound for Query type
-    R: Send + fmt::Debug + 'static, // Bound for Response type
+    Q: Send + fmt::Debug + 'static,                   // Bound for Query type
+    R: Send + fmt::Debug + 'static,                   // Bound for Response type
 {
     sender: mpsc::Sender<ActorCommand<TEvent, Q, R>>, // Use ActorCommand with generics
     _snapshot_marker: std::marker::PhantomData<TSnapshot>,
@@ -217,11 +222,11 @@ where
 
 // Actor lifecycle management function
 pub async fn run_actor<
-A: Actor<TEvent, TSnapshot> + Send + 'static,
-TEvent: EventTrait + Send + fmt::Debug + 'static,
-TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-Q: Send + fmt::Debug + 'static, // Add Q/R generics if Actor/ActorCommand use them
-R: Send + fmt::Debug + 'static,
+    A: Actor<TEvent, TSnapshot> + Send + 'static,
+    TEvent: EventTrait + Send + fmt::Debug + 'static,
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    Q: Send + fmt::Debug + 'static, // Add Q/R generics if Actor/ActorCommand use them
+    R: Send + fmt::Debug + 'static,
 >(
     mut actor: A,
     mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, R>>,
@@ -248,17 +253,17 @@ R: Send + fmt::Debug + 'static,
 
 // Helper to spawn an actor and return its reference
 pub fn spawn_actor<
-A: Actor<TEvent, TSnapshot> + Send + 'static,
-TEvent: EventTrait + Send + fmt::Debug + 'static,
-TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-Q: Send + fmt::Debug + 'static,
-R: Send + fmt::Debug + 'static,
+    A: Actor<TEvent, TSnapshot> + Send + 'static,
+    TEvent: EventTrait + Send + fmt::Debug + 'static,
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
+    Q: Send + fmt::Debug + 'static,
+    R: Send + fmt::Debug + 'static,
 >(
     actor: A,
     buffer_size: usize,
 ) -> Box<dyn ActorRef<TEvent, TSnapshot>>
 where
-    TEvent: QueryableEvent<Query=Q, Response=R>, // Add bound if query is used
+    TEvent: QueryableEvent<Query = Q, Response = R>, // Add bound if query is used
 {
     let (sender, receiver) = mpsc::channel::<ActorCommand<TEvent, Q, R>>(buffer_size);
     let actor_ref_impl = ActorRefImpl {
@@ -421,10 +426,16 @@ mod tests {
     use std::sync::Mutex;
 
     #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-    struct TestEvent { event_type: String }
+    struct TestEvent {
+        event_type: String,
+    }
     impl EventTrait for TestEvent {
-        fn event_type(&self) -> &str { &self.event_type }
-        fn payload(&self) -> Option<&serde_json::Value> { None }
+        fn event_type(&self) -> &str {
+            &self.event_type
+        }
+        fn payload(&self) -> Option<&serde_json::Value> {
+            None
+        }
     }
     // Dummy QueryableEvent impl if needed for spawn_actor bounds
     impl QueryableEvent for TestEvent {
@@ -432,9 +443,10 @@ mod tests {
         type Response = Result<(), StateError>; // Example response
     }
 
-
     #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-    struct TestSnapshot { value: i32 }
+    struct TestSnapshot {
+        value: i32,
+    }
 
     // Test Actor using Arc<Mutex> for state sharing needed by actor_ref() -> &dyn ActorRef
     struct TestActor {
@@ -478,7 +490,9 @@ mod tests {
         *actor_ref_storage.lock().unwrap() = Some(actor_ref.clone_ref());
 
         // Send an event
-        let event = TestEvent { event_type: "INCREMENT".to_string() };
+        let event = TestEvent {
+            event_type: "INCREMENT".to_string(),
+        };
         let send_result = actor_ref.send(event);
         assert!(send_result.is_ok(), "Send failed: {:?}", send_result.err());
 
@@ -491,7 +505,9 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // Try sending after stop
-        let event_after_stop = TestEvent { event_type: "INCREMENT_AGAIN".to_string() };
+        let event_after_stop = TestEvent {
+            event_type: "INCREMENT_AGAIN".to_string(),
+        };
         let send_after_stop_result = actor_ref.send(event_after_stop);
         assert!(send_after_stop_result.is_err());
         match send_after_stop_result.err().unwrap() {
