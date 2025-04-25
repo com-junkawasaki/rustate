@@ -56,7 +56,7 @@ impl Parse for Transition {
 #[derive(Clone)]
 struct StateDefinition {
     state_name: Ident,
-    transitions: Punctuated<Transition, Token![,]>
+    transitions: Punctuated<Transition, Token![,]>,
 }
 
 impl Parse for StateDefinition {

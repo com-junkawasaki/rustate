@@ -65,7 +65,7 @@ impl Actor for CounterActor {
             }
             CounterEvent::Print => {
                 println!("Current count: {}", state.count); // Perform side-effect
-                // State doesn't change, return the current state
+                                                            // State doesn't change, return the current state
                 Ok(state)
             }
         }

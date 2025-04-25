@@ -1,138 +1,114 @@
-//! # RuState Integration
 //!
-//! このモジュールはRuStateステートマシンをクレート間で型安全に統合するためのパターンを提供します。
+//! # RuState Integration Patterns
 //!
-//! ## 主な統合パターン
+//! This module provides patterns and utilities for integrating multiple RuState
+//! state machines, potentially across different crates or modules, in a type-safe manner.
 //!
-//! 1. **イベント転送パターン**: 複数のステートマシン間でイベントを転送し、疎結合な連携を実現します。
-//!    ステートマシンの参照を共有し、一方のマシンのアクションから他方のマシンにイベントを送信できます。
+//! ## Core Integration Patterns
 //!
-//! 2. **コンテキスト共有パターン**: 複数のステートマシン間で共有コンテキストを使用してデータを連携します。
-//!    これにより異なるクレートにまたがるステートマシンが同じデータにアクセスし、状態を同期できます。
+//! 1.  **Event Forwarding (`event_forwarding`)**: Enables loosely coupled communication
+//!     by allowing one state machine to send events to another via a shared reference
+//!     ([`SharedMachineRef`]). This is useful when machines need to react to each other's
+//!     milestones without sharing internal state.
 //!
-//! 3. **階層的統合パターン**: 親子関係を持つステートマシン間の連携を実現します。トレイトを使用して
-//!    親ステートマシンが子ステートマシンと疎結合に連携できるようにします。
+//! 2.  **Context Sharing (`context_sharing`)**: Allows multiple state machines to access
+//!     and potentially modify a shared data structure ([`SharedContext`]). This facilitates
+//!     tighter coordination where machines operate on common data.
 //!
-//! ## 使用例
+//! 3.  **Hierarchical Composition (`hierarchical`)**: Manages parent-child relationships
+//!     between state machines. The parent can spawn, monitor, and interact with children
+//!     through a defined trait ([`ChildMachine`]), promoting encapsulation.
 //!
-//! ### イベント転送パターン
+//! ## Usage
+//!
+//! Enable this module and its features by adding the `integration` feature
+//! flag to your `rustate` dependency in `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! rustate = { version = "0.x.y", features = ["integration"] }
+//! ```
+//!
+//! ### Example: Event Forwarding
 //!
 //! ```rust
-//! use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
+//! # #[cfg(feature = "integration")]
+//! # { 
+//! use rustate::prelude::*;
 //! use rustate::integration::SharedMachineRef;
-//!
-//! // 子ステートマシンを作成
-//! let child_machine = MachineBuilder::new("child")
-//!     .state(State::new("idle"))
-//!     .state(State::new("active"))
-//!     .initial("idle")
-//!     .transition(Transition::new("idle", "ACTIVATE", "active"))
-//!     .build()
-//!     .unwrap();
-//!
-//! // 共有参照を作成
-//! let shared_child = SharedMachineRef::new(child_machine);
-//! let shared_child_clone = shared_child.clone();
-//!
-//! // 親ステートマシンのイベントに応じて子マシンにイベントを転送
-//! let forward_action = Action::new(
-//!     "forwardToChild",
-//!     ActionType::Transition,
-//!     move |_ctx, evt| {
-//!         if evt.event_type == "PARENT_EVENT" {
-//!             let _ = shared_child_clone.send_event("ACTIVATE");
-//!         }
-//!     }
-//! );
-//!
-//! // 親ステートマシンを作成
-//! let parent_machine = MachineBuilder::new("parent")
-//!     .state(State::new("ready"))
-//!     .initial("ready")
-//!     .on_entry("ready", forward_action)
-//!     .build()
-//!     .unwrap();
+//! use std::sync::Arc;
+//! use tokio::sync::RwLock;
+//! 
+//! // Define state, event, context (can be simple String/()) or custom types
+//! 
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Child machine that activates
+//!     let child_machine = MachineBuilder::<String, String, ()>::new("idle".to_string())
+//!         .state("idle".to_string(), |s| s.on("ACTIVATE".to_string(), |t| t.target("active".to_string())))
+//!         .state("active".to_string(), |_| {})
+//!         .build()?;
+//! 
+//!     // Create a shareable reference to the child
+//!     let shared_child = SharedMachineRef::new(child_machine);
+//!     let child_ref_for_action = shared_child.clone();
+//! 
+//!     // Parent machine with an action to forward an event
+//!     let mut parent_machine = MachineBuilder::<String, String, ()>::new("ready".to_string())
+//!         .state("ready".to_string(), |s| s
+//!             .on_entry(|action| action
+//!                 .name("forwardActivate")
+//!                 .call(move |_ctx: Arc<RwLock<()>>, _evt: &String| {
+//!                     let child_ref = child_ref_for_action.clone(); // Clone Arc for async block
+//!                     async move {
+//!                         println!("Parent: Telling child to activate...");
+//!                         if let Err(e) = child_ref.send("ACTIVATE".to_string()).await {
+//!                             eprintln!("Parent: Failed to send activate to child: {}", e);
+//!                             return Err(e); // Propagate error if needed
+//!                         }
+//!                         Ok(())
+//!                     }
+//!                 })
+//!             )
+//!         )
+//!         .build()?;
+//! 
+//!     println!("Child state before: {:?}", shared_child.get_snapshot().await?.value);
+//!     // Entering the parent's "ready" state triggers the on_entry action
+//!     parent_machine.start().await?; // Ensure machine starts and executes entry actions
+//! 
+//!     tokio::time::sleep(std::time::Duration::from_millis(10)).await; // Allow time for event processing
+//! 
+//!     println!("Child state after: {:?}", shared_child.get_snapshot().await?.value);
+//!     assert_eq!(shared_child.get_snapshot().await?.value, serde_json::json!("active"));
+//! 
+//!     Ok(())
+//! }
+//! # }
 //! ```
 //!
-//! ### コンテキスト共有パターン
-//!
-//! ```rust
-//! use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
-//! use rustate::integration::SharedContext;
-//!
-//! // 共有コンテキストを作成
-//! let shared_context = SharedContext::new();
-//! let context_for_a = shared_context.clone();
-//! let context_for_b = shared_context.clone();
-//!
-//! // データを書き込むアクション
-//! let write_action = Action::new(
-//!     "writeData",
-//!     ActionType::Transition,
-//!     move |_ctx, _evt| {
-//!         let _ = context_for_a.set("status", "active");
-//!     }
-//! );
-//!
-//! // データを読み込むアクション
-//! let read_action = Action::new(
-//!     "readData",
-//!     ActionType::Transition,
-//!     move |ctx, _evt| {
-//!         if let Ok(Some(status)) = context_for_b.get::<String>("status") {
-//!             let _ = ctx.set("localStatus", status);
-//!         }
-//!     }
-//! );
-//! ```
-//!
-//! ### 階層的統合パターン
-//!
-//! ```rust
-//! use std::sync::{Arc, Mutex};
-//! use rustate::{Machine, MachineBuilder, State, Transition};
-//! use rustate::integration::{ChildMachine, DefaultChildMachine};
-//! use rustate::integration::hierarchical::coordination;
-//!
-//! // 子ステートマシンを作成
-//! let child_machine = MachineBuilder::new("child")
-//!     .state(State::new("initial"))
-//!     .state(State::new("running"))
-//!     .state(State::new_final("complete"))
-//!     .initial("initial")
-//!     .transition(Transition::new("initial", "START", "running"))
-//!     .transition(Transition::new("running", "COMPLETE", "complete"))
-//!     .build()
-//!     .unwrap();
-//!
-//! // 子マシンをトレイト実装で包む
-//! let child = DefaultChildMachine::new(child_machine, "complete");
-//! let child = Arc::new(Mutex::new(child));
-//!
-//! // 子マシンを監視するアクション
-//! let monitor_action = coordination::create_child_monitor_action(
-//!     "monitorChild",
-//!     child.clone()
-//! );
-//!
-//! // 子マシンにイベントを転送するアクション
-//! let forward_action = coordination::create_event_forwarder_action(
-//!     "forwardToChild",
-//!     child,
-//!     "PARENT_START",
-//!     "START"
-//! );
-//! ```
+//! See the specific submodules (`context_sharing`, `event_forwarding`, `hierarchical`)
+//! for more detailed examples and API documentation.
 
+// Declare submodules
 pub mod context_sharing;
 pub mod event_forwarding;
 pub mod hierarchical;
 
-/// エラー型
+/// Error types specific to integration patterns.
 pub mod error;
 pub use error::{Error, LockResultExt, Result};
 
+// Re-export key types for convenience
+
+/// A reference-counted, thread-safe handle for accessing shared context data.
+/// See [`context_sharing::SharedContext`].
 pub use context_sharing::SharedContext;
-/// 再エクスポートして便利なインターフェースを提供
+
+/// A reference-counted, thread-safe handle for sending events to another machine.
+/// See [`event_forwarding::SharedMachineRef`].
 pub use event_forwarding::SharedMachineRef;
+
+/// A trait defining the interface for a child state machine in hierarchical compositions.
+/// See [`hierarchical::ChildMachine`].
 pub use hierarchical::ChildMachine;

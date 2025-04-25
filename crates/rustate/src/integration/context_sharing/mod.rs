@@ -1,274 +1,364 @@
-//! # コンテキスト共有パターン
 //!
-//! 複数のステートマシン間で共有コンテキストを使用してデータを共有するパターンの実装です。
-//! このパターンでは複数のクレートにまたがるステートマシンが同じコンテキストデータに
-//! アクセスして読み書きすることができます。
+//! # Context Sharing Pattern
 //!
-//! ## 概要
+//! Implements a pattern for sharing data between multiple state machines using
+//! a shared context container.
 //!
-//! コンテキスト共有パターンは、複数のステートマシンが同じデータを共有するための柔軟な方法を提供します。
-//! このパターンを使用すると、以下のようなメリットがあります：
+//! This pattern allows state machines, potentially spanning across crate boundaries,
+//! to access and modify the same context data safely.
 //!
-//! - 複数のステートマシン間でのデータ同期が容易になる
-//! - クレート境界をまたいだデータ共有が型安全に行える
-//! - イベント転送よりもデータ中心のアプローチでステートマシンを連携させられる
+//! ## Overview
 //!
-//! ## 主要コンポーネント
+//! The Context Sharing pattern provides a flexible way for multiple state machines
+//! to share common data. Key benefits include:
 //!
-//! - `SharedContext`: 複数のステートマシン間で共有できるコンテキストコンテナ
+//! - Simplified data synchronization between machines.
+//! - Type-safe data sharing across crate boundaries.
+//! - A data-centric approach to coordination, contrasting with event forwarding.
 //!
-//! ## 使用例
+//! ## Key Components
+//!
+//! - [`SharedContext`]: A thread-safe container (`Arc<RwLock<...>>`) holding shared data
+//!   as a `serde_json::Value` (typically representing a JSON object).
+//!
+//! ## Usage Example
 //!
 //! ```rust
-//! use rustate::{Machine, MachineBuilder, State, Transition, Action, ActionType};
+//! # #[cfg(feature = "integration")]
+//! # {
+//! use rustate::prelude::*;
 //! use rustate::integration::SharedContext;
-//!
-//! // 共有コンテキストを作成
+//! use std::sync::Arc;
+//! use tokio::sync::RwLock;
+//! 
+//! // 1. Create the shared context
 //! let shared_context = SharedContext::new();
-//! let context_for_a = shared_context.clone();
-//! let context_for_b = shared_context.clone();
-//!
-//! // マシンA: データを書き込むアクション
-//! let write_action = Action::new(
-//!     "writeData",
-//!     ActionType::Transition,
-//!     move |_ctx, _evt| {
-//!         let _ = context_for_a.set("status", "active");
-//!         let _ = context_for_a.set("timestamp", 12345);
-//!     }
-//! );
-//!
-//! // マシンA: 状態マシンを作成
-//! let machine_a = MachineBuilder::new("machineA")
-//!     .state(State::new("idle"))
-//!     .state(State::new("running"))
-//!     .initial("idle")
-//!     .transition(Transition::new("idle", "START", "running"))
-//!     .on_entry("running", write_action)
-//!     .build()
-//!     .unwrap();
-//!
-//! // マシンB: データを読み込むアクション
-//! let read_action = Action::new(
-//!     "readData",
-//!     ActionType::Transition,
-//!     move |ctx, _evt| {
-//!         if let Ok(Some(status)) = context_for_b.get::<String>("status") {
-//!             let _ = ctx.set("localStatus", status);
-//!         }
-//!         if let Ok(Some(timestamp)) = context_for_b.get::<i64>("timestamp") {
-//!             let _ = ctx.set("localTimestamp", timestamp);
+//! 
+//! // 2. Clone the context handle for each machine/action that needs access
+//! let context_for_writer = shared_context.clone();
+//! let context_for_reader = shared_context.clone();
+//! 
+//! // 3. Define actions that interact with the shared context
+//! let write_action = Action::from_fn(
+//!     move |_ctx: Arc<RwLock<()>>, _evt: &String| { // Machine context type is (), Event is String
+//!         let ctx_writer = context_for_writer.clone();
+//!         async move {
+//!             println!("Writer: Setting shared status to 'active'");
+//!             ctx_writer.set("status", "active")?;
+//!             ctx_writer.set("timestamp", 12345)?; // Can store different types
+//!             Ok(())
 //!         }
 //!     }
 //! );
-//!
-//! // マシンB: 状態マシンを作成
-//! let machine_b = MachineBuilder::new("machineB")
-//!     .state(State::new("waiting"))
-//!     .state(State::new("processing"))
-//!     .initial("waiting")
-//!     .transition(Transition::new("waiting", "PROCESS", "processing"))
-//!     .on_entry("processing", read_action)
-//!     .build()
-//!     .unwrap();
-//!
-//! // マシンAを実行 (データを書き込む)
-//! machine_a.send("START").unwrap();
-//!
-//! // マシンBを実行 (データを読み込む)
-//! machine_b.send("PROCESS").unwrap();
+//! 
+//! let read_action = Action::from_fn(
+//!     move |local_ctx: Arc<RwLock<Context>>, _evt: &String| { // Machine context type is rustate::Context
+//!         let ctx_reader = context_for_reader.clone();
+//!         async move {
+//!             println!("Reader: Reading shared status...");
+//!             if let Some(status) = ctx_reader.get::<String>("status")? {
+//!                 println!("Reader: Found status '{}', setting in local context.", status);
+//!                 // Write to the reading machine's *local* context
+//!                 local_ctx.write().await.set("local_status_copy", status)?;
+//!             } else {
+//!                 println!("Reader: Shared status not found.");
+//!             }
+//!             Ok(())
+//!         }
+//!     }
+//! );
+//! 
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // 4. Create machines using the actions
+//!     let mut machine_writer = MachineBuilder::<String, String, ()>::new("idle".to_string())
+//!         .state("idle".to_string(), |s| s.on("WRITE".to_string(), |t| t.target("done".to_string()).actions([write_action])))
+//!         .state("done".to_string(), |_| {})
+//!         .build()?;
+//!     
+//!     // Machine B uses the default `rustate::Context` as its local context
+//!     let mut machine_reader = MachineBuilder::<String, String, Context>::new("waiting".to_string())
+//!         .state("waiting".to_string(), |s| s.on("READ".to_string(), |t| t.target("finished".to_string()).actions([read_action])))
+//!         .state("finished".to_string(), |_| {})
+//!         .build()?;
+//! 
+//!     // 5. Run the machines
+//!     println!("Shared context before: {:?}", shared_context.dump().await?);
+//!     machine_writer.send("WRITE".to_string()).await?;
+//!     println!("Shared context after write: {:?}", shared_context.dump().await?);
+//!     machine_reader.send("READ".to_string()).await?;
+//!     println!("Reader local context after read: {:?}", machine_reader.context().await);
+//! 
+//!     assert_eq!(shared_context.get::<String>("status").await?, Some("active".to_string()));
+//!     assert_eq!(machine_reader.context().await.get::<String>("local_status_copy")?, Some(Ok("active".to_string())));
+//! 
+//!     Ok(())
+//! }
+//! # }
 //! ```
+//! ## Implementation Details
 //!
-//! ## 実装の詳細
+//! This pattern utilizes an `Arc<RwLock<serde_json::Value>>` to safely share JSON-structured data.
+//! The `RwLock` ensures data consistency during concurrent access: multiple readers are allowed
+//! simultaneously, but writers require exclusive access.
 //!
-//! このパターンでは、`Arc<RwLock<serde_json::Value>>` を使用してJSON形式のデータを安全に共有します。
-//! これにより、複数のステートマシンが同時にコンテキストデータにアクセスしても、データの整合性が
-//! 保たれるようになっています。読み込み操作は並行して行えますが、書き込み操作は排他的に実行されます。
+//! `SharedContext` stores key-value pairs within a JSON object (`serde_json::Value::Object`).
+//! This allows flexible storage of various data types while enabling type-safe access
+//! through Serde serialization/deserialization (`get`/`set` methods).
 //!
-//! `SharedContext` はキーと値のペアをJSONオブジェクトとして保存します。
-//! この方法により、様々な型のデータを柔軟に格納でき、Serdeを通じた型安全なアクセスが可能になります。
+//! ## Limitations
 //!
-//! ## 制限事項
-//!
-//! - 大量のデータや高頻度のアクセスが発生する場合、パフォーマンスに影響する可能性があります
-//! - 複雑なデータ構造の場合、JSONシリアライズのオーバーヘッドが発生します
-//! - 書き込み操作が頻繁に行われる場合、読み込みのブロックが発生する可能性があります
+//! - **Performance**: Frequent access or large data volumes might incur overhead due to locking and JSON serialization/deserialization.
+//! - **Write Contention**: High write frequency can block readers.
+//! - **Data Structure**: Relies on a key-value structure within a JSON object.
 
-use crate::integration::error::{LockResultExt, Result};
+use crate::integration::error::{Error as IntegrationError, LockResultExt, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
+use tracing::{trace, warn}; // Added tracing
 
-/// 共有コンテキスト
+/// A thread-safe, shareable context container.
 ///
-/// このラッパーは複数のクレートにまたがるステートマシン間で
-/// コンテキストデータを安全に共有するために使用されます。
-#[derive(Clone, Default)]
+/// This struct wraps context data (stored internally as a `serde_json::Value`, typically an Object)
+/// within an `Arc<RwLock<...>>`, allowing multiple state machines or threads
+/// to safely read and write to the same underlying data store.
+#[derive(Clone, Default, Debug)] // Added Debug
 pub struct SharedContext {
-    /// 共有データ
+    /// The underlying shared data, protected by a Read-Write lock.
     data: Arc<RwLock<serde_json::Value>>,
 }
 
 impl SharedContext {
-    /// 新しい共有コンテキストを作成
+    /// Creates a new, empty `SharedContext` initialized with an empty JSON object (`{}`).
     pub fn new() -> Self {
         Self {
             data: Arc::new(RwLock::new(serde_json::json!({}))),
         }
     }
 
-    /// 共有コンテキストから値を取得
+    /// Retrieves and deserializes a value from the shared context.
+    ///
+    /// Acquires a read lock on the data.
+    ///
+    /// # Arguments
+    /// * `key` - The key of the value to retrieve.
+    ///
+    /// # Returns
+    /// * `Ok(Some(T))` if the key exists and deserialization into type `T` is successful.
+    /// * `Ok(None)` if the key does not exist or the underlying data is not a JSON object.
+    /// * `Err(IntegrationError::Serialization)` if deserialization fails.
+    /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
-        let data = self.data.read().lock_err()?;
-        match &*data {
-            serde_json::Value::Object(map) => {
-                if let Some(val) = map.get(key) {
-                    Ok(serde_json::from_value(val.clone())?)
-                } else {
-                    Ok(None)
+        trace!(key = key, "Attempting to get value from shared context");
+        let data_guard = self.data.read().lock_err()?;
+        match &*data_guard {
+            serde_json::Value::Object(map) => match map.get(key) {
+                Some(value) => {
+                    // Clone the value to attempt deserialization
+                    match serde_json::from_value(value.clone()) {
+                        Ok(deserialized) => Ok(Some(deserialized)),
+                        Err(e) => {
+                            warn!(key = key, error = %e, "Deserialization failed for shared context value");
+                            Err(IntegrationError::from(e)) // Convert serde error
+                        }
+                    }
                 }
-            }
-            _ => Ok(None),
+                None => Ok(None), // Key not found in the map
+            },
+            _ => Ok(None), // Data is not a JSON object, cannot contain the key
         }
     }
 
-    /// 共有コンテキストに値を設定
+    /// Serializes and sets a value in the shared context.
+    ///
+    /// Acquires a write lock on the data.
+    /// If the underlying data is not currently a JSON object, it will be replaced
+    /// with a new JSON object containing only the provided key-value pair.
+    ///
+    /// # Arguments
+    /// * `key` - The key to associate with the value.
+    /// * `value` - The value to set (must implement `serde::Serialize`).
+    ///
+    /// # Returns
+    /// * `Ok(())` if setting the value is successful.
+    /// * `Err(IntegrationError::Serialization)` if serialization fails.
+    /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
     pub fn set<T: Serialize>(&self, key: &str, value: T) -> Result<()> {
-        let mut data = self.data.write().lock_err()?;
-        match &mut *data {
+        trace!(key = key, "Attempting to set value in shared context");
+        let mut data_guard = self.data.write().lock_err()?;
+        let json_value = serde_json::to_value(value)?; // Handle serialization error
+
+        match &mut *data_guard {
             serde_json::Value::Object(map) => {
-                map.insert(key.to_string(), serde_json::to_value(value)?);
-                Ok(())
+                map.insert(key.to_string(), json_value);
             }
+            // Handle cases where the RwLock contains Null, Bool, etc.
+            // Replace it with an object containing the new key-value.
             _ => {
-                *data = serde_json::json!({ key: value });
-                Ok(())
+                warn!("Shared context was not an object, replacing with new object containing key: {}", key);
+                *data_guard = serde_json::json!({ key: json_value });
             }
         }
+        Ok(())
     }
 
-    /// キーが存在するか確認
+    /// Checks if a key exists within the shared context (assuming it holds a JSON object).
+    ///
+    /// Acquires a read lock.
+    ///
+    /// # Returns
+    /// * `Ok(true)` if the key exists.
+    /// * `Ok(false)` if the key does not exist or the context is not a JSON object.
+    /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
     pub fn contains_key(&self, key: &str) -> Result<bool> {
-        let data = self.data.read().lock_err()?;
-        match &*data {
+        trace!(key = key, "Checking if key exists in shared context");
+        let data_guard = self.data.read().lock_err()?;
+        match &*data_guard {
             serde_json::Value::Object(map) => Ok(map.contains_key(key)),
             _ => Ok(false),
         }
     }
 
-    /// 共有コンテキストからキーを削除
+    /// Removes a key and its associated value from the shared context.
+    ///
+    /// Acquires a write lock.
+    ///
+    /// # Returns
+    /// * `Ok(Some(serde_json::Value))` if the key existed and was removed.
+    /// * `Ok(None)` if the key did not exist or the context was not a JSON object.
+    /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
     pub fn remove(&self, key: &str) -> Result<Option<serde_json::Value>> {
-        let mut data = self.data.write().lock_err()?;
-        match &mut *data {
+        trace!(key = key, "Attempting to remove key from shared context");
+        let mut data_guard = self.data.write().lock_err()?;
+        match &mut *data_guard {
             serde_json::Value::Object(map) => Ok(map.remove(key)),
             _ => Ok(None),
         }
+    }
+    
+    /// Returns a clone of the underlying `serde_json::Value`.
+    /// Useful for inspecting the entire shared state.
+    /// Acquires a read lock.
+    ///
+    /// # Returns
+    /// * `Ok(serde_json::Value)` containing the cloned data.
+    /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
+    pub async fn dump(&self) -> Result<serde_json::Value> {
+        let data_guard = self.data.read().lock_err()?;
+        Ok(data_guard.clone())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Action, ActionType, Machine, MachineBuilder, State, Transition};
+    use crate::prelude::*; // Use prelude for tests
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
-    #[test]
-    fn test_context_sharing() {
-        // 共有コンテキストを作成
-        let shared_context = SharedContext::new();
-        println!("Debug: Created shared context");
+    // Helper function to create simple machines for testing context sharing
+    fn create_machines(
+        shared_context: SharedContext,
+    ) -> (Machine<String, String, ()>, Machine<String, String, Context>) {
+        let ctx_writer = shared_context.clone();
+        let ctx_reader = shared_context;
 
-        // 共有コンテキストに直接値を設定（テスト用）
-        let _ = shared_context.set("status", "active");
-        let _ = shared_context.set("counter", 1);
-        println!("Debug: Set values directly to shared context");
-
-        // 2つのステートマシンを作成（両方とも同じ共有コンテキストを使用）
-        let (_machine_a, mut machine_b) = create_machines(shared_context.clone());
-        println!("Debug: Created machines A and B");
-
-        // 共有コンテキストの値を確認
-        let status_before = shared_context.get::<String>("status");
-        println!("Debug: Status from shared context: {:?}", status_before);
-
-        // テスト用に直接マシンBのコンテキストに値を設定
-        println!("Debug: Directly setting values in machine B context");
-        let _ = machine_b.context.set("localStatus", "active");
-        let _ = machine_b.context.set("localCounter", 1);
-
-        // 共有コンテキストの値を確認
-        let status = shared_context.get::<String>("status");
-        println!("Debug: Final status: {:?}", status);
-        assert_eq!(status.unwrap(), Some("active".to_string()));
-
-        let counter = shared_context.get::<i32>("counter");
-        println!("Debug: Final counter: {:?}", counter);
-        assert_eq!(counter.unwrap(), Some(1));
-
-        // マシンBのコンテキストからローカルに保存された値を確認
-        println!("Debug: Machine B context: {:?}", machine_b.context);
-        let local_status = machine_b.context.get::<String>("localStatus");
-        println!("Debug: Local status in machine B: {:?}", local_status);
-        assert_eq!(local_status, Some("active".to_string()));
-
-        let local_counter = machine_b.context.get::<i32>("localCounter");
-        println!("Debug: Local counter in machine B: {:?}", local_counter);
-        assert_eq!(local_counter, Some(1));
-    }
-
-    fn create_machines(shared_context: SharedContext) -> (Machine, Machine) {
-        // クローンを作成して別々のクロージャに渡す
-        let context_for_a = shared_context.clone();
-        let context_for_b = shared_context;
-
-        // マシンA: 状態を更新する
-        let state_a = State::new("stateA");
-        let update_action =
-            Action::new("updateStatus", ActionType::Transition, move |_ctx, _evt| {
-                println!("Debug: Executing update action");
-                let result = context_for_a.set("status", "active");
-                println!("Debug: Set status result: {:?}", result);
-
-                let counter_result = context_for_a.get::<i32>("counter");
-                println!("Debug: Get counter result: {:?}", counter_result);
-
-                let counter = counter_result.unwrap().unwrap_or(0);
-                let inc_result = context_for_a.set("counter", counter + 1);
-                println!("Debug: Increment counter result: {:?}", inc_result);
-            });
-
-        // UPDATE_STATE 遷移を作成
-        let mut update_transition = Transition::internal_transition("stateA", "UPDATE_STATE");
-        update_transition.with_action(update_action);
-
-        let machine_a = MachineBuilder::new("machineA")
-            .state(state_a)
-            .initial("stateA")
-            .transition(update_transition)
-            .build()
-            .unwrap();
-
-        // マシンB: 状態を読み取る
-        let state_b = State::new("stateB");
-        let read_action = Action::new("readStatus", ActionType::Transition, move |ctx, _evt| {
-            if let Ok(Some(status)) = context_for_b.get::<String>("status") {
-                let _ = ctx.set("localStatus", status);
+        // Machine A writes to shared context
+        let write_action = Action::from_fn(
+            move |_ctx: Arc<RwLock<()>>, _evt: &String| {
+                let writer = ctx_writer.clone();
+                async move {
+                    writer.set("status", "active_from_a")?;
+                    writer.set("counter", 10)?; // Add another value
+                    Ok(())
+                }
             }
-
-            if let Ok(Some(counter)) = context_for_b.get::<i32>("counter") {
-                let _ = ctx.set("localCounter", counter);
-            }
-        });
-
-        // READ_STATE 遷移を作成
-        let mut read_transition = Transition::internal_transition("stateB", "READ_STATE");
-        read_transition.with_action(read_action);
-
-        let machine_b = MachineBuilder::new("machineB")
-            .state(state_b)
-            .initial("stateB")
-            .transition(read_transition)
+        );
+        let machine_a = MachineBuilder::<String, String, ()>::new("idle".to_string())
+            .state("idle".to_string(), |s| s.on("WRITE".to_string(), |t| t.target("done".to_string()).actions([write_action])))
+            .state("done".to_string(), |_| {})
             .build()
-            .unwrap();
+            .expect("Failed to build machine A");
+
+        // Machine B reads from shared context and writes to its *local* context
+        let read_action = Action::from_fn(
+            move |local_ctx: Arc<RwLock<Context>>, _evt: &String| {
+                let reader = ctx_reader.clone();
+                async move {
+                    if let Some(status) = reader.get::<String>("status")? {
+                        local_ctx.write().await.set("local_copy", status)?;
+                    }
+                    if let Some(counter) = reader.get::<i32>("counter")? {
+                         local_ctx.write().await.set("local_count", counter)?;
+                    }
+                    Ok(())
+                }
+            }
+        );
+        let machine_b = MachineBuilder::<String, String, Context>::new("waiting".to_string())
+            .state("waiting".to_string(), |s| s.on("READ".to_string(), |t| t.target("finished".to_string()).actions([read_action])))
+            .state("finished".to_string(), |_| {})
+            .build()
+            .expect("Failed to build machine B");
 
         (machine_a, machine_b)
+    }
+
+    #[tokio::test]
+    async fn test_context_sharing_flow() -> Result<()> {
+        println!("--- Starting test_context_sharing_flow ---");
+        // 1. Create shared context
+        let shared_context = SharedContext::new();
+        assert!(shared_context.dump().await?.as_object().unwrap().is_empty());
+        println!("Initial shared context: {:?}", shared_context.dump().await?);
+
+        // 2. Create machines sharing the context
+        let (mut machine_a, mut machine_b) = create_machines(shared_context.clone());
+        println!("Created machines A and B");
+
+        // 3. Trigger Machine A to write
+        println!("Sending WRITE to Machine A...");
+        machine_a.send("WRITE".to_string()).await?;
+        println!("Machine A state: {:?}", machine_a.current_state());
+        assert_eq!(machine_a.current_state().value, serde_json::json!("done"));
+
+        // Check shared context after A writes
+        println!("Shared context after A wrote: {:?}", shared_context.dump().await?);
+        assert_eq!(shared_context.get::<String>("status").await?, Some("active_from_a".to_string()));
+        assert_eq!(shared_context.get::<i32>("counter").await?, Some(10));
+
+        // 4. Trigger Machine B to read
+        println!("Sending READ to Machine B...");
+        assert_eq!(machine_b.current_state().value, serde_json::json!("waiting"));
+        machine_b.send("READ".to_string()).await?;
+        println!("Machine B state: {:?}", machine_b.current_state());
+        assert_eq!(machine_b.current_state().value, serde_json::json!("finished"));
+
+        // Check Machine B's *local* context after reading
+        let b_local_ctx = machine_b.context().await;
+        println!("Machine B local context after read: {:?}", b_local_ctx);
+        assert_eq!(b_local_ctx.get::<String>("local_copy")?, Some(Ok("active_from_a".to_string())));
+        assert_eq!(b_local_ctx.get::<i32>("local_count")?, Some(Ok(10)));
+
+        println!("--- Finished test_context_sharing_flow ---");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_contains_remove() -> Result<()> {
+        let ctx = SharedContext::new();
+
+        assert!(!ctx.contains_key("test").await?);
+        ctx.set("test", 123).await?;
+        assert!(ctx.contains_key("test").await?);
+
+        let removed = ctx.remove("test").await?;
+        assert_eq!(removed, Some(serde_json::json!(123)));
+        assert!(!ctx.contains_key("test").await?);
+
+        let removed_again = ctx.remove("test").await?;
+        assert!(removed_again.is_none());
+
+        Ok(())
     }
 }

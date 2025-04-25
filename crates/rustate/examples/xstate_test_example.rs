@@ -1,11 +1,11 @@
 use rustate::{
-    Action, Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, State, Transition,
-    transition::TransitionType,
+    transition::TransitionType, Action, Context, Event, EventTrait, IntoEvent, Machine,
+    MachineBuilder, State, Transition,
 };
-use std::fmt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use std::fmt;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[cfg(feature = "codegen")]
 use rustate::{CodegenExt, JsonExportOptions};
@@ -71,7 +71,8 @@ async fn main() -> rustate::Result<()> {
     println!("現在のディレクトリ: {}", current_dir.display());
 
     // オンラインショッピングのステートマシンを作成
-    let mut machine: Machine<Context, ShoppingEvent, String, ()> = create_shopping_machine().await?;
+    let mut machine: Machine<Context, ShoppingEvent, String, ()> =
+        create_shopping_machine().await?;
     println!("ステートマシンを作成しました: {}", machine.name);
     println!("現在の状態: {:?}", machine.current_states);
 
@@ -167,9 +168,7 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     let add_to_cart_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _evt| {
         Box::pin(async move {
             let item_count_result = ctx_arc.read().await.get::<i32>("itemCount");
-            let item_count = item_count_result
-                .and_then(|res| res.ok())
-                .unwrap_or(0);
+            let item_count = item_count_result.and_then(|res| res.ok()).unwrap_or(0);
 
             let new_count = item_count + 1;
             println!("ACTION: Item added to cart. Total items: {}", new_count);
@@ -236,26 +235,23 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     );
 
     // マシンの構築
-    let machine = MachineBuilder::new(
-        "shoppingCart".to_string(),
-        idle.clone()
-    )
-    .state(State::new(idle.clone()))
-    .state(State::new(browsing.clone()))
-    .state(State::new(cart.clone()))
-    .state(State::new(checkout.clone()))
-    .state(State::new(payment.clone()))
-    .state(State::new(confirmed.clone()))
-    .transition(start_browsing)
-    .transition(add_item)
-    .transition(continue_shopping)
-    .transition(proceed_checkout)
-    .transition(pay)
-    .transition(confirm)
-    .transition(new_order)
-    .context(context)
-    .build()
-    .await?;
+    let machine = MachineBuilder::new("shoppingCart".to_string(), idle.clone())
+        .state(State::new(idle.clone()))
+        .state(State::new(browsing.clone()))
+        .state(State::new(cart.clone()))
+        .state(State::new(checkout.clone()))
+        .state(State::new(payment.clone()))
+        .state(State::new(confirmed.clone()))
+        .transition(start_browsing)
+        .transition(add_item)
+        .transition(continue_shopping)
+        .transition(proceed_checkout)
+        .transition(pay)
+        .transition(confirm)
+        .transition(new_order)
+        .context(context)
+        .build()
+        .await?;
 
     Ok(machine)
 }

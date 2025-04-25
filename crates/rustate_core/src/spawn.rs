@@ -79,7 +79,10 @@ where
                     eprintln!("Actor {} error processing event: {}", id, err);
                     // Optionally, handle specific errors like stopping the actor.
                     if matches!(err, ActorError::Stopped) {
-                        eprintln!("Actor {} stopping due to explicit stop request or critical error.", id);
+                        eprintln!(
+                            "Actor {} stopping due to explicit stop request or critical error.",
+                            id
+                        );
                         break; // Exit the loop
                     }
                     // Decide whether to continue or stop on other errors.

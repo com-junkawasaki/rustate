@@ -1,12 +1,12 @@
 use rustate::{
-    Action, Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, State, StateTrait, Transition,
-    transition::TransitionType,
+    transition::TransitionType, Action, Context, Event, EventTrait, IntoEvent, Machine,
+    MachineBuilder, State, StateTrait, Transition,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::Arc;
 use tokio; // Need tokio runtime for async main
-use tokio::sync::RwLock; // Import RwLock
-use std::sync::Arc; // Import Arc for shared ownership
+use tokio::sync::RwLock; // Import RwLock // Import Arc for shared ownership
 
 // Define a custom Event type
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -169,27 +169,33 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     // paused.parent = Some("player".to_string()); // Remove manual parent setting
 
     // Create actions first
-    let log_power_on = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Power ON - Player ready")
-    });
-    let log_power_off = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Power OFF")
-    });
-    let log_playing = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Playing track")
-    });
-    let log_stopped = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Stopped")
-    });
-    let log_paused = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Paused")
-    });
-    let log_double_speed = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Playing at double speed")
-    });
-    let log_normal_speed = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-        println!("Playing at normal speed")
-    });
+    let log_power_on = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Power ON - Player ready")
+        },
+    );
+    let log_power_off = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Power OFF") },
+    );
+    let log_playing = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Playing track") },
+    );
+    let log_stopped = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Stopped") },
+    );
+    let log_paused = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Paused") },
+    );
+    let log_double_speed = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Playing at double speed")
+        },
+    );
+    let log_normal_speed = Action::from_fn(
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Playing at normal speed")
+        },
+    );
     let next_track_action = next_track_action();
     let prev_track_action = prev_track_action();
 
@@ -197,15 +203,15 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     let power_toggle = Transition::new(
         "powerOff".to_string(),
         Some("player".to_string()), // Target
-        Some(MusicEvent::Power),   // Event (wrapped in Some)
-        None,                      // guard
+        Some(MusicEvent::Power),    // Event (wrapped in Some)
+        None,                       // guard
         vec![log_power_on.clone()], // actions (pass directly)
         TransitionType::External,
     );
     let power_off_transition = Transition::new(
         "player".to_string(),
         Some("powerOff".to_string()), // Target
-        Some(MusicEvent::Power),    // Event (wrapped in Some)
+        Some(MusicEvent::Power),      // Event (wrapped in Some)
         None,
         vec![log_power_off.clone()], // actions
         TransitionType::External,
@@ -214,47 +220,47 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     let play = Transition::new(
         "stopped".to_string(),
         Some("playing".to_string()), // Target
-        Some(MusicEvent::Play),     // Event
+        Some(MusicEvent::Play),      // Event
         None,
-        vec![log_playing.clone()],   // actions
+        vec![log_playing.clone()], // actions
         TransitionType::External,
     );
     let stop = Transition::new(
         "playing".to_string(),
         Some("stopped".to_string()), // Target
-        Some(MusicEvent::Stop),     // Event
+        Some(MusicEvent::Stop),      // Event
         None,
-        vec![log_stopped.clone()],   // actions
+        vec![log_stopped.clone()], // actions
         TransitionType::External,
     );
     let pause = Transition::new(
         "playing".to_string(),
         Some("paused".to_string()), // Target
-        Some(MusicEvent::Pause),   // Event
+        Some(MusicEvent::Pause),    // Event
         None,
-        vec![log_paused.clone()],   // actions
+        vec![log_paused.clone()], // actions
         TransitionType::External,
     );
     let resume = Transition::new(
         "paused".to_string(),
         Some("playing".to_string()), // Target
-        Some(MusicEvent::Play),     // Event
+        Some(MusicEvent::Play),      // Event
         None,
-        vec![log_playing.clone()],   // actions (reuse log_playing)
+        vec![log_playing.clone()], // actions (reuse log_playing)
         TransitionType::External,
     );
 
     let speed_up = Transition::new(
         "normal".to_string(),
         Some("doubleSpeed".to_string()), // Target
-        Some(MusicEvent::SpeedUp),      // Event
+        Some(MusicEvent::SpeedUp),       // Event
         None,
         vec![log_double_speed.clone()], // actions
         TransitionType::External,
     );
     let speed_normal = Transition::new(
         "doubleSpeed".to_string(),
-        Some("normal".to_string()),     // Target
+        Some("normal".to_string()),    // Target
         Some(MusicEvent::SpeedNormal), // Event
         None,
         vec![log_normal_speed.clone()], // actions
@@ -263,8 +269,8 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
 
     // Internal transitions
     let next_track_trans = Transition::new(
-        "playing".to_string(), // Source state for internal transition
-        None::<PlayerState>,   // No target for internal (with type annotation)
+        "playing".to_string(),  // Source state for internal transition
+        None::<PlayerState>,    // No target for internal (with type annotation)
         Some(MusicEvent::Next), // Event
         None,
         vec![next_track_action.clone()], // Actions passed directly
@@ -272,7 +278,7 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     );
     let prev_track_trans = Transition::new(
         "playing".to_string(),
-        None::<PlayerState>,   // No target (with type annotation)
+        None::<PlayerState>,    // No target (with type annotation)
         Some(MusicEvent::Prev), // Event
         None,
         vec![prev_track_action.clone()], // Actions passed directly
@@ -293,9 +299,9 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     playing.add_child(double_speed.clone());
     player.add_child(playing); // Add the 'playing' compound state as a child of 'player'
 
-
     // MachineBuilder::new needs the initial state ID and O type parameter
-    let machine = MachineBuilder::<Context, MusicEvent, PlayerState, ()>::new( // Added O = ()
+    let machine = MachineBuilder::<Context, MusicEvent, PlayerState, ()>::new(
+        // Added O = ()
         "musicPlayer",
         "powerOff".to_string(), // Provide initial state ID here
     )

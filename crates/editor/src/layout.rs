@@ -1,10 +1,10 @@
 use rustate::machine::Machine;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use wasm_bindgen::prelude::*;
-use web_sys::{Element, Node};
+use web_sys::Element;
 
 // ステートマシンのレイアウトを自動生成するためのユーティリティ
 #[allow(dead_code)]
@@ -166,7 +166,8 @@ impl Layout {
         self.container = Some(container.clone());
         container.set_inner_html(""); // Clear previous content
 
-        let window = web_sys::window().ok_or_else(|| JsValue::from_str("no global window exists"))?;
+        let window =
+            web_sys::window().ok_or_else(|| JsValue::from_str("no global window exists"))?;
         let document = window
             .document()
             .ok_or_else(|| JsValue::from_str("should have a document on window"))?;
@@ -185,7 +186,10 @@ impl Layout {
                     format!("width: {}%; border: 1px solid blue;", region.size)
                 }
                 RegionType::Content => {
-                    format!("flex-grow: 1; width: {}%; border: 1px solid green;", region.size)
+                    format!(
+                        "flex-grow: 1; width: {}%; border: 1px solid green;",
+                        region.size
+                    )
                 }
                 RegionType::Toolbar => format!("height: {}px; border: 1px solid red;", region.size), // Assuming size is pixels for toolbar
             };

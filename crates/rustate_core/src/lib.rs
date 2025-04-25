@@ -44,7 +44,7 @@ pub use system::ActorSystem;
 mod tests {
     // Re-import necessary items for tests
     use super::*;
-    use simple_counter::{CounterActor, CounterEvent, CounterState};
+    use simple_counter::{CounterActor, CounterEvent};
     use tokio::time::{sleep, Duration};
 
     // --- Test for original counter actor using ActorSystem ---
@@ -203,5 +203,4 @@ mod tests {
         }
     }
     */
-
 } // End of tests module

@@ -11,15 +11,15 @@ use crate::{
     transition::{Transition, TransitionType},
     Machine, // Use crate::Machine
 };
+use rustate_macros::console_log;
 use serde::{Deserialize, Serialize};
 use serde_json; // Import the crate itself
 use serde_json::Value; // Add this import
 use std::cell::RefCell;
-use wasm_bindgen::prelude::*;
-use web_sys::console;
-use tokio::sync::RwLock;
 use std::sync::Arc;
-use rustate_macros::console_log; // Correct import from external crate
+use tokio::sync::RwLock;
+use wasm_bindgen::prelude::*;
+use web_sys::console; // Correct import from external crate
 
 // Global state machines (consider a better way to manage them)
 thread_local! {
@@ -158,13 +158,13 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
     .on_entry(
         &"yellow".to_string(),
         |ctx: &Context, _event: &TrafficLightEvent| {
-             console_log!("TRAFFIC LIGHT: Turned Yellow (Context: {:?})", ctx);
+            console_log!("TRAFFIC LIGHT: Turned Yellow (Context: {:?})", ctx);
         },
     )
     .on_entry(
         &"red".to_string(),
         |ctx: &Context, _event: &TrafficLightEvent| {
-             console_log!("TRAFFIC LIGHT: Turned Red (Context: {:?})", ctx);
+            console_log!("TRAFFIC LIGHT: Turned Red (Context: {:?})", ctx);
         },
     )
     .build()
@@ -183,7 +183,8 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
     let paused = State::<_, _, _>::new("paused".to_string());
     let is_track_valid_guard = Guard::new(
         "isTrackValid",
-        |ctx: &Context, _evt: &MusicPlayerEvent| -> bool { // Correct signature
+        |ctx: &Context, _evt: &MusicPlayerEvent| -> bool {
+            // Correct signature
             let track_result: Option<Result<usize, _>> = ctx.get("track"); // Adjust type
             track_result.map(|r| r.unwrap_or(0)).unwrap_or(0) > 0 // Adjust unwrapping
         },
@@ -230,7 +231,8 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
         Some("playing".to_string()),
         Some(MusicPlayerEvent::NextTrack),
         None,
-        vec![Action::from_fn( // Transition actions still use Arc<RwLock<>>
+        vec![Action::from_fn(
+            // Transition actions still use Arc<RwLock<>>
             move |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
                 let mut ctx_write = ctx_arc.write().await;
                 let current_track_result: Option<Result<usize, _>> = ctx_write.get("track");
@@ -238,7 +240,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
                 let next_track = current_track + 1;
                 ctx_write.set("track", next_track).ok();
                 console_log!("MUSIC PLAYER: Switched to next track {}", next_track);
-            }
+            },
         )],
         TransitionType::Internal,
     ))
@@ -247,15 +249,20 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
         Some("playing".to_string()),
         Some(MusicPlayerEvent::PrevTrack),
         Some(is_track_valid_guard.clone()),
-        vec![Action::from_fn( // Transition actions still use Arc<RwLock<>>
+        vec![Action::from_fn(
+            // Transition actions still use Arc<RwLock<>>
             move |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
                 let mut ctx_write = ctx_arc.write().await;
                 let current_track_result: Option<Result<usize, _>> = ctx_write.get("track");
                 let current_track = current_track_result.map(|r| r.unwrap_or(0)).unwrap_or(0);
-                let prev_track = if current_track > 0 { current_track - 1 } else { 0 };
+                let prev_track = if current_track > 0 {
+                    current_track - 1
+                } else {
+                    0
+                };
                 ctx_write.set("track", prev_track).ok();
                 console_log!("MUSIC PLAYER: Switched to previous track {}", prev_track);
-            }
+            },
         )],
         TransitionType::Internal,
     ))

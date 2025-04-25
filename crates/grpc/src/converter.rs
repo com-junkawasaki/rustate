@@ -10,6 +10,9 @@ use rustate::state::{State as RuState, StateType as RuStateType};
 use rustate::transition::Transition as RuTransition;
 use rustate::ActionType as RuActionType;
 use rustate::{Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
+use serde_json::{from_value, json, to_value, Value};
+use prost_types::Any;
+use std::collections::HashMap;
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
 ///
@@ -335,6 +338,13 @@ mod tests {
     use serde_json::Value;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use crate::grpc::EventType;
+    use prost_types::Value as ProstValue;
+    use rustate::{
+        Context, Event, GuardType, State, StateType, TransitionType,
+    };
+    use tokio::sync::RwLock;
+    use serde_json::json;
 
     // Helper function to create a simple state for testing
     fn create_test_state(id: &str) -> RuState {
@@ -820,11 +830,9 @@ mod tests {
                 original_t.target.clone().unwrap_or_default()
             );
             assert_eq!(
-                converted_t.guard.len(),
-                original_t.guard.len(),
-                "Guard count mismatch for transition {} -> {}",
-                original_t.source,
-                original_t.target.clone().unwrap_or_default()
+                converted_t.guard.is_some(),
+                original_t.guard.is_some(),
+                "Guard presence mismatch"
             );
             // Further check action/guard names/ids if they are reliably converted
             if !original_t.actions.is_empty() {
@@ -850,5 +858,66 @@ mod tests {
         // assert_eq!(converted_machine.context, original_machine.context);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_transition_conversion() {
+        // ... setup ...
+
+        // Create a guard (example)
+        let guard_fn = |ctx: &Context, _evt: &Event| -> bool {
+            ctx.get::<i32>("count").map_or(false, |&c| c > 10)
+        };
+        let original_guard = Guard::new("count_guard", GuardType::Function, guard_fn);
+
+        // Create an action (example)
+        let action_fn = |ctx: Arc<RwLock<Context>>, _evt: &Event| {
+            Box::pin(async move {
+                let mut ctx_lock = ctx.write().await;
+                let count = ctx_lock.get::<i32>("count").map_or(0, |&c| c + 1);
+                ctx_lock.set("count", count).map_err(|e| StateError::ActionFailed(e.to_string()))
+            })
+        };
+        let original_action = Action::from_fn(action_fn);
+
+        let original_t = Transition {
+            source: "StateA".to_string(),
+            target: Some("StateB".to_string()),
+            event: Some(Event::new("EVENT_X")),
+            guard: Some(original_guard), // Include guard
+            actions: vec![original_action], // Include action
+            id: Default::default(),       // Assuming Uuid default
+            transition_type: TransitionType::External,
+            _phantom_s: Default::default(),
+            _phantom_c: Default::default(),
+            _phantom_e: Default::default(),
+        };
+
+        // Convert to proto
+        let proto_t = match transition_to_proto(&original_t) {
+            Ok(p) => p,
+            Err(e) => panic!("Conversion to proto failed: {}", e),
+        };
+
+        // Convert back to rustate
+        let converted_t = match transition_from_proto(&proto_t) {
+            Ok(r) => r,
+            Err(e) => panic!("Conversion from proto failed: {}", e),
+        };
+
+        // Basic assertions
+        assert_eq!(converted_t.source, original_t.source);
+        assert_eq!(converted_t.target, original_t.target);
+        assert_eq!(converted_t.event, original_t.event);
+        assert_eq!(converted_t.transition_type, original_t.transition_type);
+
+        // Assert guard presence (logic cannot be compared directly)
+        assert!(converted_t.guard.is_some(), "Guard should exist after conversion");
+        assert!(original_t.guard.is_some(), "Original guard should exist");
+        // Cannot compare guard logic, check presence only
+        // assert_eq!(converted_t.guard.is_some(), original_t.guard.is_some()); // Use is_some()
+
+        // Assert action count (logic cannot be compared directly)
+        assert_eq!(converted_t.actions.len(), original_t.actions.len());
     }
 }

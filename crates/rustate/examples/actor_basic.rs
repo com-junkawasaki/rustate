@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
     // };
 
     // Placeholder: We need the correct way to get an actor reference.
-    // let actor_ref: ActorRefImpl<ToggleEvent, _, _, _, _> = /* machine.spawn(actor_options).await? */; 
+    // let actor_ref: ActorRefImpl<ToggleEvent, _, _, _, _> = /* machine.spawn(actor_options).await? */;
     // For now, we can't proceed with actor interaction without the correct spawning.
 
     println!("\nExample finished (actor part skipped due to API changes).");
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
             initial_snapshot.context()
         );
         // Assertions need to work with HashSet<String>
-        assert!(initial_snapshot.current_states.contains(&off_id)); 
+        assert!(initial_snapshot.current_states.contains(&off_id));
         // assert_eq!(*initial_snapshot.status(), ActorStatus::Active); // Status check might differ
     } else {
         println!("Failed to get initial snapshot");

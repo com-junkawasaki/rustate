@@ -10,9 +10,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use uuid::Uuid;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 /// Represents a transition between states
 #[derive(Clone, Serialize, Deserialize)]

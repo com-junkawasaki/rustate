@@ -324,10 +324,15 @@ where
         let mut exit_futures = Vec::new();
         let context_clone_for_exit = self.context.clone(); // Clone Arc for exit states
         for id in &exit_states {
-            exit_futures.push(self.exit_state(id, event, context_clone_for_exit.clone()).boxed());
+            exit_futures.push(
+                self.exit_state(id, event, context_clone_for_exit.clone())
+                    .boxed(),
+            );
         }
         let exit_results = futures::future::join_all(exit_futures).await;
-        for result in exit_results { result?; }
+        for result in exit_results {
+            result?;
+        }
 
         // 3.5 Update history for exited states *after* exiting
         for id in &exit_states {
@@ -384,10 +389,15 @@ where
         let mut enter_futures = Vec::new();
         let context_clone_for_entry = self.context.clone(); // Clone Arc for entry states
         for id in &enter_states {
-            enter_futures.push(self.enter_state(id, event, context_clone_for_entry.clone()).boxed());
+            enter_futures.push(
+                self.enter_state(id, event, context_clone_for_entry.clone())
+                    .boxed(),
+            );
         }
         let enter_results = futures::future::join_all(enter_futures).await;
-        for result in enter_results { result?; }
+        for result in enter_results {
+            result?;
+        }
 
         // 7. Update current_states
         // Remove exited states (important: use the final exit_states set)
@@ -421,7 +431,8 @@ where
 
         // Execute entry actions
         // Pass event if available
-        self.execute_entry_actions(state_id, event, context.clone()).await?;
+        self.execute_entry_actions(state_id, event, context.clone())
+            .await?;
 
         // If state is compound, enter initial child state(s)
         if let Some(state) = self.states.get(state_id) {
@@ -430,18 +441,23 @@ where
                     // Need to convert initial_child_id (&String) to &S
                     // Assuming S: From<String>
                     let initial_child_s = S::from(initial_child_id.clone());
-                    self.enter_state(&initial_child_s, event, context.clone()).await?;
-                } else if let Some(history_child_id) = self.history.get(state_id.to_string().as_str()) {
-                     // If history state exists, enter it
-                     self.enter_state(history_child_id, event, context.clone()).await?; // Pass event
-                 }
-                 // Handle parallel states if necessary (enter all children)
+                    self.enter_state(&initial_child_s, event, context.clone())
+                        .await?;
+                } else if let Some(history_child_id) =
+                    self.history.get(state_id.to_string().as_str())
+                {
+                    // If history state exists, enter it
+                    self.enter_state(history_child_id, event, context.clone())
+                        .await?; // Pass event
+                }
+                // Handle parallel states if necessary (enter all children)
             } else if state.state_type == StateType::Parallel {
-                 for child_id_str in &state.children {
-                     let child_id_s = S::from(child_id_str.clone());
-                     self.enter_state(&child_id_s, event, context.clone()).await?;
-                 }
-             }
+                for child_id_str in &state.children {
+                    let child_id_s = S::from(child_id_str.clone());
+                    self.enter_state(&child_id_s, event, context.clone())
+                        .await?;
+                }
+            }
         }
         Ok(())
     }
@@ -514,11 +530,11 @@ where
                 // Handle case where event is None (e.g., during initialization)
                 // Maybe log a warning, or filter actions, or modify Action::execute
                 // For simplicity now, let's assume actions called during init don't need the event
-                 for action in actions {
+                for action in actions {
                     // How should Action::execute handle None event?
                     // Let's assume it needs an event reference, so we skip if None for now.
                     // A better solution might be needed.
-                 }
+                }
             }
         }
         Ok(())
@@ -699,7 +715,17 @@ where
 pub struct MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Clone + Eq + Send + Sync + Hash + 'static,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + IntoEvent
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + Hash
+        + 'static,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -725,7 +751,17 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Clone + Eq + Send + Sync + Hash + 'static,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + IntoEvent
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + Hash
+        + 'static,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {

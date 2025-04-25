@@ -172,6 +172,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
     E: EventTrait
@@ -179,6 +180,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
 {
@@ -196,6 +198,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
     E: EventTrait
@@ -203,6 +206,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
 {
@@ -218,6 +222,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
     E: EventTrait
@@ -225,6 +230,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
 {
@@ -249,7 +255,7 @@ where
         + Send
         + Sync
         + Serialize
-        + for<'deserialize> Deserialize<'deserialize>
+        + for<'de> Deserialize<'de>
         + 'static,
     E: EventTrait
         + Clone
@@ -257,7 +263,7 @@ where
         + Send
         + Sync
         + Serialize
-        + for<'deserialize> Deserialize<'deserialize>
+        + for<'de> Deserialize<'de>
         + 'static,
 {
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()> {
