@@ -113,11 +113,11 @@ where
     {
         // Use Transition::new for internal transitions as well
         Transition::new(
-            source,       // source
-            None,         // target (None for internal)
-            Some(event),  // event
-            None,         // guard
-            vec![],       // actions
+            source,                   // source
+            None,                     // target (None for internal)
+            Some(event),              // event
+            None,                     // guard
+            vec![],                   // actions
             TransitionType::Internal, // transition_type
         )
     }

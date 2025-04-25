@@ -1,12 +1,13 @@
+use crate::actor::Snapshot;
 use crate::event::IntoEvent;
 use crate::{
     action::ActionType,
     actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
+    context::ContextTrait,
     error::StateError,
     state::{HistoryType, State, StateCollection, StateType},
     transition::TransitionType,
     Action, Context, Error, Event, EventTrait, IntoAction, Result, StateTrait, Transition,
-    context::ContextTrait,
 };
 use async_recursion::async_recursion;
 use async_trait::async_trait;
@@ -19,7 +20,6 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::str::FromStr;
-use crate::actor::Snapshot;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,15 +40,7 @@ where
         + Serialize
         + DeserializeOwned
         + IntoEvent,
-    S: StateTrait
-        + Display
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + From<String>,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
     /// Name of the machine
@@ -97,15 +89,7 @@ where
         + Serialize
         + DeserializeOwned
         + IntoEvent,
-    S: StateTrait
-        + Display
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + From<String>,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
     /// Create a new state machine instance from a builder
@@ -207,7 +191,10 @@ where
             if let Some(transitions) = self.transitions.get(&state_id) {
                 for t in transitions {
                     // Check event match first
-                    let event_matches = t.event.as_ref().map_or(false, |te| te.name() == event_ref.name());
+                    let event_matches = t
+                        .event
+                        .as_ref()
+                        .map_or(false, |te| te.name() == event_ref.name());
                     if event_matches {
                         // Check guard condition if event matches
                         if t.is_enabled(&self.context, event_ref).await {
@@ -227,7 +214,8 @@ where
             for current_state_id in &self.current_states {
                 if let Some(transitions) = self.transitions.get(current_state_id) {
                     for t in transitions {
-                        if t.event.is_none() { // Check for transitions with no event specified
+                        if t.event.is_none() {
+                            // Check for transitions with no event specified
                             if t.is_enabled(&self.context, event_ref).await {
                                 enabled_transition = Some((t, current_state_id));
                                 break;
@@ -255,7 +243,8 @@ where
         }
 
         if let Some((transition, source_state_id)) = enabled_transition {
-            self.execute_transition(&transition.clone(), source_state_id, event_ref).await?;
+            self.execute_transition(&transition.clone(), source_state_id, event_ref)
+                .await?;
             processed = true;
         } else {
             // Check for wildcard transitions if no specific transition was found
@@ -263,13 +252,17 @@ where
                 // Check if source is wildcard "*"
                 if t.source.to_string() == "*" {
                     // Check event match
-                    let event_matches = t.event.as_ref().map_or(false, |te| te.name() == event_ref.name());
+                    let event_matches = t
+                        .event
+                        .as_ref()
+                        .map_or(false, |te| te.name() == event_ref.name());
                     if event_matches {
-                         // Check guard
+                        // Check guard
                         if t.is_enabled(&self.context, event_ref).await {
                             // Execute wildcard transition (source state doesn't matter here)
                             // Need a representative source state ID for history, maybe initial?
-                            self.execute_transition(&t.clone(), &self.initial.clone(), event_ref).await?;
+                            self.execute_transition(&t.clone(), &self.initial.clone(), event_ref)
+                                .await?;
                             processed = true;
                             break; // Assume only one wildcard transition executes
                         }
@@ -279,7 +272,7 @@ where
 
             if !processed {
                 // No transition found for this event in the current states or via wildcard
-                 return Ok(false);
+                return Ok(false);
             }
         }
 
@@ -537,8 +530,10 @@ where
         let mut ancestors = Vec::new();
         let mut current_id = state_id.clone();
 
-        while let Some(state) = self.states.get(&current_id) { // Use public get method
-            if let Some(parent_id) = &state.parent { // Access parent field
+        while let Some(state) = self.states.get(&current_id) {
+            // Use public get method
+            if let Some(parent_id) = &state.parent {
+                // Access parent field
                 ancestors.push(parent_id.clone());
                 current_id = parent_id.clone();
             } else {
@@ -574,15 +569,7 @@ where
 pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Default
-        + Eq
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
@@ -608,15 +595,7 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Default
-        + Eq
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
@@ -785,10 +764,10 @@ where
             {
                 current_snapshot.inner.status = ActorStatus::Done;
                 if current_snapshot.inner.output.is_none() {
-                     current_snapshot.inner.output = Some(O::default());
+                    current_snapshot.inner.output = Some(O::default());
                 }
             } else {
-                 current_snapshot.inner.status = ActorStatus::Active;
+                current_snapshot.inner.status = ActorStatus::Active;
             }
         }
 

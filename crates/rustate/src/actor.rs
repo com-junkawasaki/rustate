@@ -510,8 +510,7 @@ mod tests {
             println!("TestActor handling query: {:?}", query);
             TestResponse(format!(
                 "Response to query '{}' from state '{}'",
-                query.0,
-                self.state.0
+                query.0, self.state.0
             ))
         }
 

@@ -1,5 +1,6 @@
 //! WASM bindings for the rustate library.
 #![cfg(feature = "wasm")]
+use crate::utils::set_panic_hook;
 use crate::{
     action::{Action, ActionType},
     context::Context,
@@ -9,12 +10,11 @@ use crate::{
     machine::MachineBuilder,
     state::{State, StateType},
     transition::{Transition, TransitionType},
-    Machine, // Use crate::Machine
     Event,   // Use crate::Event
+    Machine, // Use crate::Machine
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use crate::utils::set_panic_hook;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 
@@ -80,42 +80,60 @@ fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEvent, Str
         "green".to_string(),
         Some("yellow".to_string()),
         Some(TrafficLightEvent::Timer),
-        None, vec![], TransitionType::External
+        None,
+        vec![],
+        TransitionType::External,
     );
     let yellow_to_red = Transition::new(
         "yellow".to_string(),
         Some("red".to_string()),
         Some(TrafficLightEvent::Timer),
-        None, vec![], TransitionType::External
+        None,
+        vec![],
+        TransitionType::External,
     );
     let red_to_green = Transition::new(
         "red".to_string(),
         Some("green".to_string()),
         Some(TrafficLightEvent::Timer),
-        None, vec![], TransitionType::External
+        None,
+        vec![],
+        TransitionType::External,
     );
 
     // Actions...
-    let log_green = Action::new("logGreen", ActionType::Entry, |_ctx: &mut Context, _evt: &TrafficLightEvent| {
-        Box::pin(async move {
-            console::log_1(&"Entering GREEN state - Go!".into());
-        })
-    });
-     let log_yellow = Action::new("logYellow", ActionType::Entry, |_ctx: &mut Context, _evt: &TrafficLightEvent| {
-        Box::pin(async move {
-            console::log_1(&"Entering YELLOW state - Slow down!".into());
-        })
-    });
-     let log_red = Action::new("logRed", ActionType::Entry, |_ctx: &mut Context, _evt: &TrafficLightEvent| {
-        Box::pin(async move {
-            console::log_1(&"Entering RED state - Stop!".into());
-        })
-    });
+    let log_green = Action::new(
+        "logGreen",
+        ActionType::Entry,
+        |_ctx: &mut Context, _evt: &TrafficLightEvent| {
+            Box::pin(async move {
+                console::log_1(&"Entering GREEN state - Go!".into());
+            })
+        },
+    );
+    let log_yellow = Action::new(
+        "logYellow",
+        ActionType::Entry,
+        |_ctx: &mut Context, _evt: &TrafficLightEvent| {
+            Box::pin(async move {
+                console::log_1(&"Entering YELLOW state - Slow down!".into());
+            })
+        },
+    );
+    let log_red = Action::new(
+        "logRed",
+        ActionType::Entry,
+        |_ctx: &mut Context, _evt: &TrafficLightEvent| {
+            Box::pin(async move {
+                console::log_1(&"Entering RED state - Stop!".into());
+            })
+        },
+    );
 
     // Build
     MachineBuilder::<Context, TrafficLightEvent, String>::new(
         "trafficLight".to_string(),
-        "green".to_string()
+        "green".to_string(),
     )
     .state(green)
     .state(yellow)
@@ -136,7 +154,7 @@ fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEvent, Str
 // Function to create the music player machine (internal)
 fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, String>> {
     // ... (States, Transitions, Actions defined using MusicPlayerEvent) ...
-     let mut power_off = State::<String, Context, MusicPlayerEvent>::new("powerOff".to_string());
+    let mut power_off = State::<String, Context, MusicPlayerEvent>::new("powerOff".to_string());
     let mut player = State::<String, Context, MusicPlayerEvent>::new("player".to_string());
     let mut stopped = State::<String, Context, MusicPlayerEvent>::new("stopped".to_string());
     stopped.parent = Some("player".to_string());
@@ -144,81 +162,140 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     playing.parent = Some("player".to_string());
     let mut normal_speed = State::<String, Context, MusicPlayerEvent>::new("normal".to_string());
     normal_speed.parent = Some("playing".to_string());
-    let mut double_speed = State::<String, Context, MusicPlayerEvent>::new("doubleSpeed".to_string());
+    let mut double_speed =
+        State::<String, Context, MusicPlayerEvent>::new("doubleSpeed".to_string());
     double_speed.parent = Some("playing".to_string());
     let mut paused = State::<String, Context, MusicPlayerEvent>::new("paused".to_string());
     paused.parent = Some("player".to_string());
 
     // Transitions...
     let power_toggle = Transition::new(
-        "powerOff".to_string(), Some("player".to_string()), Some(MusicPlayerEvent::Power),
-        None, vec![], TransitionType::External
+        "powerOff".to_string(),
+        Some("player".to_string()),
+        Some(MusicPlayerEvent::Power),
+        None,
+        vec![],
+        TransitionType::External,
     );
     let power_off_transition = Transition::new(
-        "player".to_string(), Some("powerOff".to_string()), Some(MusicPlayerEvent::Power),
-        None, vec![], TransitionType::External
+        "player".to_string(),
+        Some("powerOff".to_string()),
+        Some(MusicPlayerEvent::Power),
+        None,
+        vec![],
+        TransitionType::External,
     );
     let play = Transition::new(
-        "stopped".to_string(), Some("playing".to_string()), Some(MusicPlayerEvent::Play),
-        None, vec![], TransitionType::External
+        "stopped".to_string(),
+        Some("playing".to_string()),
+        Some(MusicPlayerEvent::Play),
+        None,
+        vec![],
+        TransitionType::External,
     );
     let stop = Transition::new(
-        "playing".to_string(), Some("stopped".to_string()), Some(MusicPlayerEvent::Stop),
-        None, vec![], TransitionType::External
+        "playing".to_string(),
+        Some("stopped".to_string()),
+        Some(MusicPlayerEvent::Stop),
+        None,
+        vec![],
+        TransitionType::External,
     );
-     let pause = Transition::new(
-        "playing".to_string(), Some("paused".to_string()), Some(MusicPlayerEvent::Pause),
-        None, vec![], TransitionType::External
+    let pause = Transition::new(
+        "playing".to_string(),
+        Some("paused".to_string()),
+        Some(MusicPlayerEvent::Pause),
+        None,
+        vec![],
+        TransitionType::External,
     );
     let resume = Transition::new(
-        "paused".to_string(), Some("playing".to_string()), Some(MusicPlayerEvent::Play),
-        None, vec![], TransitionType::External
+        "paused".to_string(),
+        Some("playing".to_string()),
+        Some(MusicPlayerEvent::Play),
+        None,
+        vec![],
+        TransitionType::External,
     );
     let speed_up = Transition::new(
-        "normal".to_string(), Some("doubleSpeed".to_string()), Some(MusicPlayerEvent::SpeedUp),
-        None, vec![], TransitionType::External
+        "normal".to_string(),
+        Some("doubleSpeed".to_string()),
+        Some(MusicPlayerEvent::SpeedUp),
+        None,
+        vec![],
+        TransitionType::External,
     );
     let speed_normal = Transition::new(
-        "doubleSpeed".to_string(), Some("normal".to_string()), Some(MusicPlayerEvent::SpeedNormal),
-        None, vec![], TransitionType::External
+        "doubleSpeed".to_string(),
+        Some("normal".to_string()),
+        Some(MusicPlayerEvent::SpeedNormal),
+        None,
+        vec![],
+        TransitionType::External,
     );
 
     // Actions...
-    let power_on_action = Action::new("powerOn", ActionType::Entry, |_ctx: &mut Context, _evt: &MusicPlayerEvent| {
-        Box::pin(async move { console::log_1(&"Power ON - Player ready".into()) })
-    });
-    let power_off_action = Action::new("powerOff", ActionType::Exit, |_ctx: &mut Context, _evt: &MusicPlayerEvent| {
-         Box::pin(async move { console::log_1(&"Power OFF".into()) })
-    });
-     let play_action = Action::new("playMusic", ActionType::Entry, |_ctx: &mut Context, _evt: &MusicPlayerEvent| {
-         Box::pin(async move { console::log_1(&"Playing track".into()) })
-    });
-    let next_track_action = Action::new("nextTrack", ActionType::Transition, |ctx: &mut Context, _evt: &MusicPlayerEvent| {
-        Box::pin(async move {
-            let current_track = ctx.get::<usize>("track").unwrap_or(0);
-            let next_track = current_track + 1;
-            console::log_1(&format!("Changing to track {}", next_track).into());
-            let _ = ctx.set("track", next_track);
-        })
-    });
-    let prev_track_action = Action::new("prevTrack", ActionType::Transition, |ctx: &mut Context, _evt: &MusicPlayerEvent| {
-        Box::pin(async move {
-            let current_track = ctx.get::<usize>("track").unwrap_or(0);
-            let prev_track = if current_track > 0 { current_track - 1 } else { 0 };
-            console::log_1(&format!("Changing to track {}", prev_track).into());
-            let _ = ctx.set("track", prev_track);
-        })
-    });
+    let power_on_action = Action::new(
+        "powerOn",
+        ActionType::Entry,
+        |_ctx: &mut Context, _evt: &MusicPlayerEvent| {
+            Box::pin(async move { console::log_1(&"Power ON - Player ready".into()) })
+        },
+    );
+    let power_off_action = Action::new(
+        "powerOff",
+        ActionType::Exit,
+        |_ctx: &mut Context, _evt: &MusicPlayerEvent| {
+            Box::pin(async move { console::log_1(&"Power OFF".into()) })
+        },
+    );
+    let play_action = Action::new(
+        "playMusic",
+        ActionType::Entry,
+        |_ctx: &mut Context, _evt: &MusicPlayerEvent| {
+            Box::pin(async move { console::log_1(&"Playing track".into()) })
+        },
+    );
+    let next_track_action = Action::new(
+        "nextTrack",
+        ActionType::Transition,
+        |ctx: &mut Context, _evt: &MusicPlayerEvent| {
+            Box::pin(async move {
+                let current_track = ctx.get::<usize>("track").unwrap_or(0);
+                let next_track = current_track + 1;
+                console::log_1(&format!("Changing to track {}", next_track).into());
+                let _ = ctx.set("track", next_track);
+            })
+        },
+    );
+    let prev_track_action = Action::new(
+        "prevTrack",
+        ActionType::Transition,
+        |ctx: &mut Context, _evt: &MusicPlayerEvent| {
+            Box::pin(async move {
+                let current_track = ctx.get::<usize>("track").unwrap_or(0);
+                let prev_track = if current_track > 0 {
+                    current_track - 1
+                } else {
+                    0
+                };
+                console::log_1(&format!("Changing to track {}", prev_track).into());
+                let _ = ctx.set("track", prev_track);
+            })
+        },
+    );
 
     // Guard...
-    let is_track_valid_guard = Guard::new("isTrackValid", |ctx: &Context, _evt: &MusicPlayerEvent| {
-        ctx.get::<usize>("track").map_or(false, |track_num| track_num > 0)
-    });
+    let is_track_valid_guard =
+        Guard::new("isTrackValid", |ctx: &Context, _evt: &MusicPlayerEvent| {
+            ctx.get::<usize>("track")
+                .map_or(false, |track_num| track_num > 0)
+        });
 
     // Build
     MachineBuilder::<Context, MusicPlayerEvent, String>::new(
         "musicPlayer".to_string(),
-        "powerOff".to_string()
+        "powerOff".to_string(),
     )
     .state(power_off)
     .state(player)
@@ -237,12 +314,20 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     .transition(speed_normal)
     // Transition with guard and action
     .transition(Transition::new(
-        "stopped".to_string(), Some("playing".to_string()), Some(MusicPlayerEvent::NextTrack),
-        Some(is_track_valid_guard.clone()), vec![next_track_action.clone()], TransitionType::External
+        "stopped".to_string(),
+        Some("playing".to_string()),
+        Some(MusicPlayerEvent::NextTrack),
+        Some(is_track_valid_guard.clone()),
+        vec![next_track_action.clone()],
+        TransitionType::External,
     ))
     .transition(Transition::new(
-        "stopped".to_string(), Some("playing".to_string()), Some(MusicPlayerEvent::PrevTrack),
-        None, vec![prev_track_action.clone()], TransitionType::External
+        "stopped".to_string(),
+        Some("playing".to_string()),
+        Some(MusicPlayerEvent::PrevTrack),
+        None,
+        vec![prev_track_action.clone()],
+        TransitionType::External,
     ))
     .action(power_on_action)
     .action(power_off_action)
@@ -279,7 +364,7 @@ pub fn init_music_player() {
 pub async fn send_traffic_event(event_name: String) -> Result<JsValue, JsValue> {
     let event = match event_name.as_str() {
         "TIMER" => TrafficLightEvent::Timer,
-        _ => return Err(JsValue::from_str("Unknown traffic event"))
+        _ => return Err(JsValue::from_str("Unknown traffic event")),
     };
 
     TRAFFIC_MACHINE.with(|m| {
@@ -298,7 +383,7 @@ pub async fn send_traffic_event(event_name: String) -> Result<JsValue, JsValue> 
 
 #[wasm_bindgen]
 pub async fn send_music_event(event_name: String) -> Result<JsValue, JsValue> {
-     let event = match event_name.as_str() {
+    let event = match event_name.as_str() {
         "POWER" => MusicPlayerEvent::Power,
         "PLAY" => MusicPlayerEvent::Play,
         "STOP" => MusicPlayerEvent::Stop,
@@ -307,7 +392,7 @@ pub async fn send_music_event(event_name: String) -> Result<JsValue, JsValue> {
         "PREV_TRACK" => MusicPlayerEvent::PrevTrack,
         "SPEED_UP" => MusicPlayerEvent::SpeedUp,
         "SPEED_NORMAL" => MusicPlayerEvent::SpeedNormal,
-        _ => return Err(JsValue::from_str("Unknown music event"))
+        _ => return Err(JsValue::from_str("Unknown music event")),
     };
 
     MUSIC_MACHINE.with(|m| {
@@ -330,7 +415,12 @@ pub fn get_traffic_state() -> Result<String, JsValue> {
             // Assuming get_current_state_value returns S which is String
             // Ok(machine.get_current_state_value().to_string())
             // Temporarily return joined states if direct method not available
-            Ok(machine.current_states.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", "))
+            Ok(machine
+                .current_states
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(", "))
         } else {
             Err(JsValue::from_str("Traffic machine not initialized"))
         }
@@ -342,7 +432,12 @@ pub fn get_music_state() -> Result<String, JsValue> {
     MUSIC_MACHINE.with(|m| {
         if let Some(machine) = m.borrow().as_ref() {
             // Ok(machine.get_current_state_value().to_string())
-            Ok(machine.current_states.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", "))
+            Ok(machine
+                .current_states
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(", "))
         } else {
             Err(JsValue::from_str("Music machine not initialized"))
         }

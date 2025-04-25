@@ -1,3 +1,4 @@
+use crate::Error;
 use crate::Error::ActionError;
 use crate::{Context, Event, EventTrait, Result};
 use async_trait::async_trait;
@@ -7,7 +8,6 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use crate::Error;
 
 /// Type alias for the action executor function
 pub type ActionExecutor =

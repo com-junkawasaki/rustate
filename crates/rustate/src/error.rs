@@ -2,7 +2,7 @@ use std::fmt;
 use thiserror::Error;
 // StateId is likely String or a similar type based on StateTrait
 // Remove the direct import if StateId is not a distinct exported type
-// use crate::state::StateId; 
+// use crate::state::StateId;
 
 /// Errors that can occur in the RuState library
 #[derive(Error, Debug, Clone, PartialEq)]
