@@ -1,8 +1,8 @@
 use rustate::{
-    Action, Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, Transition,
+    Action, Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, State, Transition,
     transition::TransitionType,
 };
-use std::{any::Any, fmt};
+use std::fmt;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "codegen")]
@@ -155,9 +155,9 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
 
     // アクションの作成
     let add_to_cart_action = Action::from_fn(|mut ctx: &mut Context, _| async move {
-        let item_count = ctx.read().await.get::<i32>("itemCount").unwrap_or(0);
+        let item_count = ctx.get::<i32>("itemCount").unwrap_or(0);
         let new_count = item_count + 1;
-        let _ = ctx.write().await.set("itemCount", new_count);
+        let _ = ctx.set("itemCount", new_count);
         println!(
             "カートに商品を追加しました。現在の商品数: {}",
             new_count
@@ -167,7 +167,7 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     let process_payment_action =
         Action::from_fn(|mut ctx: &mut Context, _| async move {
             println!("決済処理中...");
-            let _ = ctx.write().await.set("paymentProcessed", true);
+            let _ = ctx.set("paymentProcessed", true);
             println!("決済処理が完了しました");
         });
 
@@ -240,15 +240,13 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     .state(State::new(checkout.clone()))
     .state(State::new(payment.clone()))
     .state(State::new(confirmed.clone()))
-    .transitions(vec![
-        start_browsing,
-        add_item,
-        continue_shopping,
-        proceed_checkout,
-        pay,
-        confirm,
-        new_order,
-    ])
+    .transition(start_browsing)
+    .transition(add_item)
+    .transition(continue_shopping)
+    .transition(proceed_checkout)
+    .transition(pay)
+    .transition(confirm)
+    .transition(new_order)
     .context(context)
     .build()
     .await?;
