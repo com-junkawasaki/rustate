@@ -1,5 +1,5 @@
-use crate::{Context, Error, Event, EventTrait, IntoAction, Result, StateTrait};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use crate::{Context, Error, Event, EventTrait, IntoAction, Result};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
@@ -9,21 +9,16 @@ use uuid::Uuid;
 
 /// Trait defining requirements for a state identifier
 pub trait StateTrait:
-    Display + Debug + Eq + Hash + Clone + Send + Sync + 'static + Deref<Target = str> + From<String> +
-    Default + Serialize + DeserializeOwned
+    Serialize + DeserializeOwned + Clone + Debug + Display + Hash + Eq + Send + Sync + 'static
 {
-    fn id(&self) -> &str;
-    fn parent_id(&self) -> Option<&str>;
-    fn children(&self) -> Vec<&str>;
-    fn initial_id(&self) -> Option<&str>;
-    fn state_type(&self) -> StateType;
-    fn entry_actions(&self) -> &[Action<Context, Event>];
-    fn exit_actions(&self) -> &[Action<Context, Event>];
-    fn is_final(&self) -> bool;
-    fn is_compound(&self) -> bool;
-    fn is_parallel(&self) -> bool;
-    fn is_history(&self) -> bool;
+    // Methods related to hierarchy and type are now part of State<S>
 }
+
+// Implement StateTrait for String, a common use case for state IDs
+impl StateTrait for String {}
+
+// Implement StateTrait for simple static strings if needed
+// impl StateTrait for &'static str {} // Requires DeserializeOwned, tricky for &'static str
 
 /// Represents a type of state
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -54,9 +49,14 @@ pub enum HistoryType {
 /// Represents a state in a state machine
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct State<S = String>
+#[serde(bound(
+    serialize = "S: Serialize",
+    deserialize = "S: DeserializeOwned" // Explicit bound for S
+))]
+pub struct State<S>
+// Removed default S = String here, specify in Machine/Builder
 where
-    S: StateTrait,
+    S: StateTrait, // S is the identifier type
 {
     /// Unique identifier for the state
     pub id: S,
@@ -66,18 +66,32 @@ where
     /// Optional parent state id
     pub parent: Option<S>,
     /// Child states (for compound and parallel states)
+    // Use S directly as key if possible, otherwise String conversion needed.
+    // String is simpler for now due to HashMap constraints.
     pub children: HashMap<String, State<S>>,
     /// Initial state (for compound states)
     pub initial: Option<S>,
     /// Data associated with this state
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     /// Internal unique identifier
     #[serde(default = "Uuid::new_v4")]
     pub(crate) uuid: Uuid,
     /// Optional meta information for the state
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
     /// History type for History states
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history: Option<HistoryType>,
+    /// Entry actions
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entry: Vec<IntoAction<S>>,
+    /// Exit actions
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exit: Vec<IntoAction<S>>,
+    /// Transitions originating from this state
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub on: HashMap<String, Vec<Transition<S>>>, // Event string -> Transitions
 }
 
 impl<S> State<S>
@@ -96,21 +110,28 @@ where
             uuid: Uuid::new_v4(),
             meta: None,
             history: None,
+            entry: Vec::new(),
+            exit: Vec::new(),
+            on: HashMap::new(),
         }
     }
 
     /// Create a new compound state
-    pub fn new_compound(id: impl Into<String>, initial: impl Into<String>) -> Self {
+    // Changed to take S directly for id and initial
+    pub fn new_compound(id: S, initial: S) -> Self {
         Self {
-            id: S::from(id.into()),
+            id,
             state_type: StateType::Compound,
             parent: None,
             children: HashMap::new(),
-            initial: Some(S::from(initial.into())),
+            initial: Some(initial),
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
             history: None,
+            entry: Vec::new(),
+            exit: Vec::new(),
+            on: HashMap::new(),
         }
     }
 
@@ -126,6 +147,9 @@ where
             uuid: Uuid::new_v4(),
             meta: None,
             history: None,
+            entry: Vec::new(),
+            exit: Vec::new(),
+            on: HashMap::new(),
         }
     }
 
@@ -141,11 +165,14 @@ where
             uuid: Uuid::new_v4(),
             meta: None,
             history: None,
+            entry: Vec::new(),
+            exit: Vec::new(),
+            on: HashMap::new(),
         }
     }
 
     /// Create a new history state
-    pub fn new_history(id: S) -> Self {
+    pub fn new_history(id: S, history_type: HistoryType) -> Self {
         Self {
             id,
             state_type: StateType::History,
@@ -155,41 +182,50 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
-            history: None,
-        }
-    }
-
-    /// Create a new deep history state
-    pub fn new_deep_history(id: S) -> Self {
-        Self {
-            id,
-            state_type: StateType::DeepHistory,
-            parent: None,
-            children: HashMap::new(),
-            initial: None,
-            data: None,
-            uuid: Uuid::new_v4(),
-            meta: None,
-            history: None,
+            history: Some(history_type),
+            entry: Vec::new(),
+            exit: Vec::new(),
+            on: HashMap::new(),
         }
     }
 
     /// Add a child state to this state
-    pub fn add_child(&mut self, child_state: State<S>) -> &mut Self {
-        let child_id_str = child_state.id.to_string();
-        self.children.insert(child_id_str, child_state);
+    pub fn add_child(&mut self, mut child_state: State<S>) -> &mut Self {
+        child_state.parent = Some(self.id.clone()); // Set parent link
+                                                    // Use Display trait from StateTrait for the key
+        self.children
+            .insert(child_state.id.to_string(), child_state);
+        self
+    }
+
+    /// Add an entry action
+    pub fn add_entry(&mut self, action: impl Into<IntoAction<S>>) -> &mut Self {
+        self.entry.push(action.into());
+        self
+    }
+
+    /// Add an exit action
+    pub fn add_exit(&mut self, action: impl Into<IntoAction<S>>) -> &mut Self {
+        self.exit.push(action.into());
+        self
+    }
+
+    /// Add a transition for a specific event
+    pub fn add_transition(
+        &mut self,
+        event: impl Into<String>,
+        transition: impl Into<Transition<S>>,
+    ) -> &mut Self {
+        self.on
+            .entry(event.into())
+            .or_default()
+            .push(transition.into());
         self
     }
 
     /// Set the data associated with this state
-    pub fn with_data(&mut self, data: Value) -> &mut Self {
+    pub fn with_data(mut self, data: Value) -> Self {
         self.data = Some(data);
-        self
-    }
-
-    /// Set the state type
-    pub fn with_type(mut self, state_type: StateType) -> Self {
-        self.state_type = state_type;
         self
     }
 
@@ -211,96 +247,91 @@ where
         self
     }
 
-    /// Set the history type
-    pub fn with_history(mut self, history_type: HistoryType) -> Self {
-        self.history = Some(history_type);
-        self
+    pub fn id(&self) -> &S {
+        &self.id
+    }
+
+    pub fn state_type(&self) -> StateType {
+        self.state_type.clone() // Clone enum
     }
 
     pub fn parent(&self) -> Option<&S> {
         self.parent.as_ref()
     }
 
+    pub fn children(&self) -> &HashMap<String, State<S>> {
+        &self.children
+    }
+
     pub fn initial(&self) -> Option<&S> {
         self.initial.as_ref()
     }
 
+    pub fn data(&self) -> Option<&Value> {
+        self.data.as_ref()
+    }
+
+    pub fn meta(&self) -> Option<&Value> {
+        self.meta.as_ref()
+    }
+
     pub fn history(&self) -> Option<HistoryType> {
-        self.history
+        self.history.clone() // Clone enum
+    }
+
+    pub fn entry_actions(&self) -> &Vec<IntoAction<S>> {
+        &self.entry
+    }
+
+    pub fn exit_actions(&self) -> &Vec<IntoAction<S>> {
+        &self.exit
+    }
+
+    pub fn transitions(&self) -> &HashMap<String, Vec<Transition<S>>> {
+        &self.on
+    }
+
+    /// Checks if the state is a final state
+    pub fn is_final(&self) -> bool {
+        self.state_type == StateType::Final
     }
 
     /// Checks if the state is an atomic state (no children)
     pub fn is_atomic(&self) -> bool {
-        self.children.is_empty() && self.state_type != StateType::Compound && self.state_type != StateType::Parallel
-    }
-}
-
-impl<S> StateTrait for State<S>
-where
-    S: StateTrait + Clone + Send + Sync + 'static + Default + Eq + Hash + Display + From<String>,
-{
-    fn id(&self) -> &str {
-        &self.id
+        self.state_type == StateType::Normal && self.children.is_empty()
     }
 
-    fn state_type(&self) -> StateType {
-        self.state_type
+    /// Checks if the state is a compound state
+    pub fn is_compound(&self) -> bool {
+        self.state_type == StateType::Compound
     }
 
-    fn parent_id(&self) -> Option<&str> {
-        self.parent
-            .as_ref()
-            .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
+    /// Checks if the state is a parallel state
+    pub fn is_parallel(&self) -> bool {
+        self.state_type == StateType::Parallel
     }
 
-    fn children(&self) -> Vec<&str> {
-        self.children.keys().map(|k| k.as_str()).collect()
-    }
-
-    fn initial_id(&self) -> Option<&str> {
-        self.initial
-            .as_ref()
-            .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
-    }
-
-    fn data(&self) -> Option<&Value> {
-        self.data.as_ref()
-    }
-
-    fn history(&self) -> Option<HistoryType> {
-        self.history.clone()
-    }
-
-    fn is_final(&self) -> bool {
-        *self.state_type() == StateType::Final
-    }
-
-    fn is_atomic(&self) -> bool {
-        self.children.is_empty()
-            && self.state_type != StateType::Compound
-            && self.state_type != StateType::Parallel
-    }
-
-    fn is_compound(&self) -> bool {
-        *self.state_type() == StateType::Compound
-    }
-
-    fn is_parallel(&self) -> bool {
-        *self.state_type() == StateType::Parallel
-    }
-
-    fn is_history(&self) -> bool {
-        *self.state_type() == StateType::History || *self.state_type() == StateType::DeepHistory
+    /// Checks if the state is a history state
+    pub fn is_history(&self) -> bool {
+        matches!(self.state_type, StateType::History | StateType::DeepHistory)
     }
 }
 
 /// A collection of states
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct StateCollection {
-    states: HashMap<String, State<String>>,
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "S: Serialize", deserialize = "S: DeserializeOwned"))]
+pub struct StateCollection<S>
+where
+    S: StateTrait,
+{
+    // Use String as key for simplicity, derived from S::Display
+    states: HashMap<String, State<S>>,
 }
 
-impl StateCollection {
+impl<S> StateCollection<S>
+where
+    S: StateTrait,
+{
     /// Create a new empty state collection
     pub fn new() -> Self {
         Self {
@@ -309,28 +340,69 @@ impl StateCollection {
     }
 
     /// Add a state to the collection
-    pub fn add(&mut self, state: State<String>) -> &mut Self {
+    pub fn add(&mut self, state: State<S>) -> &mut Self {
         self.states.insert(state.id.to_string(), state);
         self
     }
 
     /// Get a state by id
-    pub fn get(&self, id: &str) -> Option<&State<String>> {
-        self.states.get(id)
+    pub fn get(&self, id: &S) -> Option<&State<S>> {
+        self.states.get(&id.to_string())
     }
 
     /// Get a mutable reference to a state by id
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut State<String>> {
-        self.states.get_mut(id)
+    pub fn get_mut(&mut self, id: &S) -> Option<&mut State<S>> {
+        self.states.get_mut(&id.to_string())
     }
 
     /// Check if a state exists
-    pub fn contains(&self, id: &str) -> bool {
-        self.states.contains_key(id)
+    pub fn contains(&self, id: &S) -> bool {
+        self.states.contains_key(&id.to_string())
     }
 
     /// Get all states
-    pub fn all(&self) -> impl Iterator<Item = &State<String>> {
+    pub fn all(&self) -> impl Iterator<Item = &State<S>> {
         self.states.values()
+    }
+}
+
+/// Transition struct likely needs S: StateTrait bound as well
+/// Needs review based on its definition file.
+
+/// Ensure Transition struct definition uses S: StateTrait consistently
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(serialize = "S: Serialize", deserialize = "S: DeserializeOwned"))]
+pub struct Transition<S>
+where
+    S: StateTrait,
+{
+    pub target: S,
+    // ... other fields like actions, guards ...
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<String>, // Placeholder for guard condition reference
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<IntoAction<S>>,
+}
+
+impl<S> Transition<S>
+where
+    S: StateTrait,
+{
+    pub fn new(target: S) -> Self {
+        Self {
+            target,
+            guard: None,
+            actions: Vec::new(),
+        }
+    }
+
+    pub fn with_guard(mut self, guard_ref: impl Into<String>) -> Self {
+        self.guard = Some(guard_ref.into());
+        self
+    }
+
+    pub fn add_action(mut self, action: impl Into<IntoAction<S>>) -> Self {
+        self.actions.push(action.into());
+        self
     }
 }

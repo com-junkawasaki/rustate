@@ -78,21 +78,7 @@ mod tests {
         let container = create_mock_element();
 
         // エディタの初期化オプション
-        let options = EditorOptions {
-            theme: "light".to_string(),
-            show_toolbar: true,
-            read_only: false,
-            auto_save: true,
-        };
-
-        // エディタの初期化
-        let editor = Editor::new(options);
-
-        // 属性の確認
-        assert_eq!(editor.options.theme, "light");
-        assert!(editor.options.show_toolbar);
-        assert!(!editor.options.read_only);
-        assert!(editor.options.auto_save);
+        let editor = Editor::new();
 
         // 初期状態の確認
         assert!(editor.layout.is_none());
@@ -102,13 +88,7 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_editor_with_layout() {
         // エディタインスタンスを作成
-        let options = EditorOptions {
-            theme: "dark".to_string(),
-            show_toolbar: true,
-            read_only: false,
-            auto_save: true,
-        };
-        let mut editor = Editor::new(options);
+        let mut editor = Editor::new();
 
         // レイアウトを設定
         let layout = layout::Layout::new("test-layout");
@@ -122,8 +102,7 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_add_component() {
         // エディタインスタンスを作成
-        let options = EditorOptions::default();
-        let mut editor = Editor::new(options);
+        let mut editor = Editor::new();
 
         // コンポーネントを作成
         let component_id = "test-component";
@@ -145,8 +124,7 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_remove_component() {
         // エディタインスタンスを作成
-        let options = EditorOptions::default();
-        let mut editor = Editor::new(options);
+        let mut editor = Editor::new();
 
         // コンポーネントを追加
         let component_id = "test-component";
@@ -169,8 +147,7 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_editor_render() {
         // エディタインスタンスを作成
-        let options = EditorOptions::default();
-        let mut editor = Editor::new(options);
+        let mut editor = Editor::new();
 
         // コンポーネントを追加
         let component_id = "test-component";
@@ -188,7 +165,7 @@ mod tests {
 
         // エディタをレンダリング（エラーが発生しないことを確認）
         let result = std::panic::catch_unwind(|| {
-            editor.render(&container);
+            editor.render();
         });
 
         assert!(!result.is_err(), "Editor rendering panicked");
@@ -197,8 +174,7 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_editor_event_handlers() {
         // エディタインスタンスを作成
-        let options = EditorOptions::default();
-        let mut editor = Editor::new(options);
+        let mut editor = Editor::new();
 
         // モックイベントハンドラのカウンタ
         let counter = std::rc::Rc::new(std::cell::RefCell::new(0));

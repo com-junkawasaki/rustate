@@ -1,3 +1,4 @@
+use crate::guard::{Guard, IntoGuard};
 use crate::{
     action::{Action, ActionType, IntoAction},
     context::Context,
@@ -8,39 +9,50 @@ use crate::{
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use thiserror::Error;
-use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use crate::guard::{Guard, IntoGuard};
-use crate::transition::TransitionType;
 
 /// Represents a transition between states
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "S: Serialize, E: Serialize",
+    deserialize = "S: DeserializeOwned, E: DeserializeOwned"
+))]
 pub struct Transition<S = String, C = Context, E = Event>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned,
 {
     /// Source state id
     pub source: S,
-    /// Target state id
+    /// Target state id (Optional for internal transitions)
     pub target: Option<S>,
-    /// Event type that triggers this transition
+    /// Event type that triggers this transition (Optional for eventless transitions)
     pub event: Option<E>,
-    /// Optional guard condition
+    /// Optional guard condition (Logic, not serialized)
+    #[serde(skip)]
     pub guard: Option<Guard<C, E>>,
-    /// Actions to execute during the transition
+    /// Actions to execute during the transition (Logic, not serialized)
+    #[serde(skip)]
     pub actions: Vec<Action<C, E>>,
     /// Internal id for this transition
     #[serde(default = "uuid::Uuid::new_v4")]
     pub(crate) id: Uuid,
+    /// Type of transition (External or Internal)
     pub transition_type: TransitionType,
-    _phantom_s: std::marker::PhantomData<S>,
-    _phantom_c: std::marker::PhantomData<C>,
-    _phantom_e: std::marker::PhantomData<E>,
+    // PhantomData should always be skipped
+    #[serde(skip)]
+    _phantom_s: PhantomData<S>,
+    #[serde(skip)]
+    _phantom_c: PhantomData<C>,
+    #[serde(skip)]
+    _phantom_e: PhantomData<E>,
 }
 
 impl<S, C, E> Transition<S, C, E>
@@ -66,9 +78,9 @@ where
             guard,
             actions,
             transition_type,
-            _phantom_s: std::marker::PhantomData,
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_s: PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 
@@ -82,9 +94,9 @@ where
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
             transition_type: TransitionType::External,
-            _phantom_s: std::marker::PhantomData,
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_s: PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 
@@ -101,9 +113,9 @@ where
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
             transition_type: TransitionType::Internal,
-            _phantom_s: std::marker::PhantomData,
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_s: PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 

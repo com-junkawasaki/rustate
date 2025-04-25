@@ -1,17 +1,15 @@
 use crate::error::Result;
 use crate::error::StateError;
 use crate::event::EventTrait;
+use crate::state::StateTrait;
+use crate::ActorOptions;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use uuid::Uuid;
-use crate::state::StateTrait;
-use std::marker::PhantomData;
-use crate::{
-    ActorOptions,
-};
 
 // --- Snapshot ---
 
@@ -33,7 +31,12 @@ pub struct Snapshot<TContext, TOutput = ()> {
 }
 
 impl<TContext, TOutput> Snapshot<TContext, TOutput> {
-    pub fn new(value: serde_json::Value, context: TContext, output: Option<TOutput>, status: ActorStatus) -> Self {
+    pub fn new(
+        value: serde_json::Value,
+        context: TContext,
+        output: Option<TOutput>,
+        status: ActorStatus,
+    ) -> Self {
         Self {
             value,
             context,
@@ -139,7 +142,7 @@ where
     TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
     Q: Send + fmt::Debug + Sync + 'static,
     R: Send + Sync + fmt::Debug + 'static, // Added Sync bound
-    // TEvent: QueryableEvent<Query = Q, Response = R>, // Removed QueryableEvent bound for now
+                                           // TEvent: QueryableEvent<Query = Q, Response = R>, // Removed QueryableEvent bound for now
 {
     id: String,
     sender: mpsc::Sender<ActorCommand<TEvent, Q, R>>,
@@ -175,9 +178,9 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorRefImpl")
-         .field("id", &self.id)
-         .field("snapshot", &self.snapshot) // Consider not printing the whole snapshot
-         .finish()
+            .field("id", &self.id)
+            .field("snapshot", &self.snapshot) // Consider not printing the whole snapshot
+            .finish()
     }
 }
 
@@ -305,8 +308,8 @@ where
 ///
 /// Returns an `ActorRef` to interact with the spawned actor.
 pub fn create_actor<L, S, E, I, Q, R>(
-    logic: L, 
-    options: ActorOptions<I>
+    logic: L,
+    options: ActorOptions<I>,
 ) -> ActorRefImpl<E, S, Q, R>
 where
     L: ActorLogic<S, E> + Send + Sync + 'static,
@@ -350,7 +353,10 @@ where
                 }
                 ActorCommand::Query(query, responder) => {
                     // TODO: Implement query handling if ActorLogic supports it
-                    eprintln!("Actor [{}] query received, but query handling not fully implemented.", cloned_ref.id());
+                    eprintln!(
+                        "Actor [{}] query received, but query handling not fully implemented.",
+                        cloned_ref.id()
+                    );
                     // let _ = responder.send(Err(StateError::NotImplemented("Query handling".into())));
                 }
                 ActorCommand::Stop => {
@@ -366,10 +372,7 @@ where
     actor_ref
 }
 
-pub fn spawn<L, S, E, I, Q, R>(
-    logic: L, 
-    options: ActorOptions<I>
-) -> Box<dyn ActorRef<E, S>>
+pub fn spawn<L, S, E, I, Q, R>(logic: L, options: ActorOptions<I>) -> Box<dyn ActorRef<E, S>>
 where
     L: ActorLogic<S, E> + Send + Sync + 'static,
     S: Clone + Send + Sync + 'static + fmt::Debug,

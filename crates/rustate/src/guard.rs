@@ -1,4 +1,4 @@
-use crate::{Context, Event, EventTrait, State, StateTrait, Action, IntoAction, Result, Error};
+use crate::{Action, Context, Error, Event, EventTrait, IntoAction, Result, State, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
