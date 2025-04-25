@@ -11,30 +11,34 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::marker::PhantomData;
+use std::str::FromStr;
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Machine<C = Context, E = Event, O = ()>
+pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
     pub name: String,
     /// Collection of states
-    pub states: HashMap<String, State>,
+    pub states: HashMap<String, State<S>>,
     /// Collection of transitions
-    pub transitions: Vec<Transition>,
+    pub transitions: Vec<Transition<S>>,
     /// Initial state id
     pub initial: String,
     /// Entry actions for states
     #[serde(skip)]
-    pub(crate) entry_actions: HashMap<String, Vec<Action>>,
+    pub(crate) entry_actions: HashMap<String, Vec<Action<C, E>>>,
     /// Exit actions for states
     #[serde(skip)]
-    pub(crate) exit_actions: HashMap<String, Vec<Action>>,
+    pub(crate) exit_actions: HashMap<String, Vec<Action<C, E>>>,
     /// History states mapping (state id -> last active child)
     pub(crate) history: HashMap<String, String>,
     /// The type markers
@@ -43,22 +47,26 @@ where
     #[serde(skip)]
     _phantom_e: PhantomData<E>,
     #[serde(skip)]
+    _phantom_s: PhantomData<S>,
+    #[serde(skip)]
     _phantom_o: PhantomData<O>,
 }
 
-impl<C, E, O> Machine<C, E, O>
+impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine instance from a builder
-    pub async fn new<BuilderC, BuilderE, BuilderO>(
-        builder: MachineBuilder<BuilderC, BuilderE, BuilderO>,
+    pub async fn new<BuilderC, BuilderE, BuilderS, BuilderO>(
+        builder: MachineBuilder<BuilderC, BuilderE, BuilderS, BuilderO>,
     ) -> Result<Self>
     where
         BuilderC: Clone + Send + Sync + Default + 'static,
         BuilderE: EventObject + Send + Sync + 'static,
+        BuilderS: StateType + Send + Sync + 'static,
         BuilderO: Clone + Send + Sync + 'static,
     {
         let MachineBuilder {
@@ -71,6 +79,7 @@ where
             context,
             _phantom_c: _,
             _phantom_e: _,
+            _phantom_s: _,
             _phantom_o: _,
         } = builder;
 
@@ -92,6 +101,7 @@ where
             history: HashMap::new(),
             _phantom_c: PhantomData,
             _phantom_e: PhantomData,
+            _phantom_s: PhantomData,
             _phantom_o: PhantomData,
         };
 
@@ -141,7 +151,7 @@ where
             .filter(|t| t.source == state_id || t.source == "*")
             .collect();
 
-        let mut enabled_transition: Option<Transition> = None;
+        let mut enabled_transition: Option<Transition<S>> = None;
         for t in &potential_transitions {
             if t.is_enabled(&self.context, event).await {
                 if enabled_transition.is_none() || t.source != "*" {
@@ -168,7 +178,11 @@ where
     }
 
     /// Execute a transition
-    async fn execute_transition(&mut self, transition: &Transition, event: &Event) -> Result<()> {
+    async fn execute_transition(
+        &mut self,
+        transition: &Transition<S>,
+        event: &Event,
+    ) -> Result<()> {
         let source_id = if transition.source == "*" {
             // For wildcard transitions, use the current state
             if let Some(current_state) = self.current_states.iter().next() {
@@ -402,13 +416,14 @@ where
 
 // Implement ActorLogic for Machine
 #[async_trait::async_trait]
-impl<C, E, O> ActorLogic<MachineSnapshot<C, O>, E> for Machine<C, E, O>
+impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E> for Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
-    fn get_initial_snapshot(&self, input: Option<()>) -> MachineSnapshot<C, O> {
+    fn get_initial_snapshot(&self, input: Option<()>) -> MachineSnapshot<C, S, O> {
         let initial_context = C::default(); // Or from machine definition/input
         let initial_value = serde_json::Value::String(self.initial.clone());
 
@@ -424,44 +439,47 @@ where
 
     async fn transition(
         &self,
-        snapshot: MachineSnapshot<C, O>,
+        snapshot: MachineSnapshot<C, S, O>,
         event: E,
-    ) -> Result<MachineSnapshot<C, O>> {
+    ) -> Result<MachineSnapshot<C, S, O>> {
         self.step(snapshot, event).await
     }
 }
 
 /// Builder for constructing state machines
-pub struct MachineBuilder<C = Context, E = Event, O = ()>
+pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Name of the machine
     pub name: String,
     /// Collection of states
-    pub states: HashMap<String, State>,
+    pub states: HashMap<String, State<S>>,
     /// Collection of transitions
-    pub transitions: Vec<Transition>,
+    pub transitions: Vec<Transition<S>>,
     /// Initial state id
     pub initial: String,
     /// Context for the machine
     pub context: Option<C>,
     /// Entry actions for states
-    pub(crate) entry_actions: HashMap<String, Vec<Action>>,
+    pub(crate) entry_actions: HashMap<String, Vec<Action<C, E>>>,
     /// Exit actions for states
-    pub(crate) exit_actions: HashMap<String, Vec<Action>>,
+    pub(crate) exit_actions: HashMap<String, Vec<Action<C, E>>>,
     /// Type markers
     _phantom_c: PhantomData<C>,
     _phantom_e: PhantomData<E>,
+    _phantom_s: PhantomData<S>,
     _phantom_o: PhantomData<O>,
 }
 
-impl<C, E, O> MachineBuilder<C, E, O>
+impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     /// Create a new state machine builder
@@ -476,6 +494,7 @@ where
             exit_actions: HashMap::new(),
             _phantom_c: PhantomData,
             _phantom_e: PhantomData,
+            _phantom_s: PhantomData,
             _phantom_o: PhantomData,
         }
     }
@@ -487,7 +506,7 @@ where
     }
 
     /// Add a state to the machine
-    pub fn state(mut self, state: State) -> Self {
+    pub fn state(mut self, state: State<S>) -> Self {
         if self.states.is_empty() && self.initial.is_empty() {
             self.initial = state.id.clone();
         }
@@ -496,13 +515,13 @@ where
     }
 
     /// Add a transition to the machine
-    pub fn transition(mut self, transition: Transition) -> Self {
+    pub fn transition(mut self, transition: Transition<S>) -> Self {
         self.transitions.push(transition);
         self
     }
 
     /// Add an entry action to a state
-    pub fn on_entry<A: IntoAction>(mut self, state_id: impl Into<String>, action: A) -> Self {
+    pub fn on_entry<A: IntoAction<C, E>>(mut self, state_id: impl Into<String>, action: A) -> Self {
         let state_id = state_id.into();
         let action = action.into_action(ActionType::Entry);
         self.entry_actions.entry(state_id).or_default().push(action);
@@ -510,7 +529,7 @@ where
     }
 
     /// Add an exit action to a state
-    pub fn on_exit<A: IntoAction>(mut self, state_id: impl Into<String>, action: A) -> Self {
+    pub fn on_exit<A: IntoAction<C, E>>(mut self, state_id: impl Into<String>, action: A) -> Self {
         let state_id = state_id.into();
         let action = action.into_action(ActionType::Exit);
         self.exit_actions.entry(state_id).or_default().push(action);
@@ -524,15 +543,16 @@ where
     }
 
     /// Build the state machine
-    pub async fn build(self) -> Result<Machine<C, E, O>> {
+    pub async fn build(self) -> Result<Machine<C, E, S, O>> {
         Machine::new(self).await
     }
 }
 
-impl<C, E, O> Clone for MachineBuilder<C, E, O>
+impl<C, E, S, O> Clone for MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     fn clone(&self) -> Self {
@@ -546,6 +566,7 @@ where
             exit_actions: self.exit_actions.clone(),
             _phantom_c: PhantomData,
             _phantom_e: PhantomData,
+            _phantom_s: PhantomData,
             _phantom_o: PhantomData,
         }
     }
@@ -554,11 +575,21 @@ where
 // --- MachineSnapshot ---
 // (Definition remains the same as previous step)
 #[derive(Clone, Debug, PartialEq)]
-pub struct MachineSnapshot<C, O = ()> {
+pub struct MachineSnapshot<C, S, O = ()>
+where
+    S: StateType + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
+{
     inner: ActorSnapshot<C, O>,
 }
 
-impl<C, O> MachineSnapshot<C, O> {
+impl<C, S, O> MachineSnapshot<C, S, O>
+where
+    S: StateType + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static,
+    O: Clone + Send + Sync + 'static,
+{
     pub fn value(&self) -> &serde_json::Value {
         &self.inner.value
     }
@@ -598,17 +629,18 @@ impl<C, O> MachineSnapshot<C, O> {
 }
 
 // --- Core Non-Mutating Transition Logic ---
-impl<C, E, O> Machine<C, E, O>
+impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static,
     E: EventObject + Send + Sync + 'static,
+    S: StateType + Send + Sync + 'static,
     O: Clone + Send + Sync + 'static,
 {
     async fn step(
         &self,
-        current_snapshot: MachineSnapshot<C, O>,
+        current_snapshot: MachineSnapshot<C, S, O>,
         event: E,
-    ) -> Result<MachineSnapshot<C, O>> {
+    ) -> Result<MachineSnapshot<C, S, O>> {
         if *current_snapshot.status() != ActorStatus::Active {
             return Ok(current_snapshot); // Do not transition if not active
         }
@@ -699,7 +731,7 @@ where
         active_states: &HashSet<String>,
         context: &C,
         event: &E,
-    ) -> Result<Option<(Transition, String)>> {
+    ) -> Result<Option<(Transition<S>, String)>> {
         let mut candidates = Vec::new();
 
         for state_id in active_states {
@@ -742,7 +774,7 @@ where
     fn calculate_transition_sets(
         &self,
         source_id: &str,
-        transition: &Transition,
+        transition: &Transition<S>,
     ) -> (HashSet<String>, HashSet<String>, Option<String>) {
         if transition.target.is_none() {
             // Internal transition

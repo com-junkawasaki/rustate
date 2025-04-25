@@ -1,12 +1,10 @@
-use crate::error::RuStateError;
-use crate::event::EventObject;
+use crate::error::StateError;
+use crate::event::EventTrait;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::fmt;
-use std::sync::{Arc, Mutex}; // Use Arc<Mutex> for shared state
-use tokio::sync::{mpsc, oneshot}; // Use tokio channels
-use tokio::task::JoinHandle; // To store the task handle
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 // --- Snapshot ---
@@ -46,7 +44,7 @@ pub enum ActorStatus {
 /// - TEvent: The type of event the actor logic accepts.
 /// - TInput: The type of input data provided when the actor starts.
 #[async_trait] // Make the trait async
-pub trait ActorLogic<TSnapshot, TEvent: EventObject, TInput = ()>: Send + Sync {
+pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
     // Added Send + Sync bounds as async traits often require them
 
     /// Computes the initial snapshot (state) of the actor logic.
@@ -54,11 +52,8 @@ pub trait ActorLogic<TSnapshot, TEvent: EventObject, TInput = ()>: Send + Sync {
     fn get_initial_snapshot(&self, input: Option<TInput>) -> TSnapshot;
 
     /// Computes the next snapshot based on the current snapshot and a received event.
-    async fn transition(
-        &self,
-        snapshot: TSnapshot,
-        event: TEvent,
-    ) -> Result<TSnapshot, RuStateError>; // Mark transition as async
+    async fn transition(&self, snapshot: TSnapshot, event: TEvent)
+        -> Result<TSnapshot, StateError>; // Mark transition as async
 
     // Potential future additions:
     // fn get_persisted_snapshot(&self, snapshot: TSnapshot) -> ...; // For serialization/restoration
@@ -72,9 +67,9 @@ pub trait ActorLogic<TSnapshot, TEvent: EventObject, TInput = ()>: Send + Sync {
 /// Generic Parameters:
 /// - TEvent: The type of event the actor accepts.
 /// - TSnapshot: The type of snapshot the actor emits.
-pub trait ActorRef<TEvent: EventObject, TSnapshot>: Send + Sync + fmt::Debug {
+pub trait ActorRef<TEvent: EventTrait, TSnapshot>: Send + Sync + fmt::Debug {
     /// Sends an event to the actor.
-    fn send(&self, event: TEvent) -> Result<(), RuStateError>;
+    fn send(&self, event: TEvent) -> Result<(), StateError>;
 
     /// Returns the unique identifier of this actor instance.
     fn id(&self) -> &str;
@@ -109,7 +104,7 @@ pub struct ActorOptions<TInput> {
 
 // --- Concrete Actor Reference Implementation ---
 #[derive(Debug)]
-pub struct ActorRefImpl<TEvent: EventObject, TSnapshot> {
+pub struct ActorRefImpl<TEvent: EventTrait, TSnapshot> {
     id: String,
     // Channel sender to send events *to* the actor task
     event_sender: mpsc::Sender<TEvent>,
@@ -120,7 +115,7 @@ pub struct ActorRefImpl<TEvent: EventObject, TSnapshot> {
 }
 
 // Implement Clone manually if needed (usually Arc::clone is sufficient for refs)
-impl<TEvent: EventObject, TSnapshot> Clone for ActorRefImpl<TEvent, TSnapshot> {
+impl<TEvent: EventTrait, TSnapshot> Clone for ActorRefImpl<TEvent, TSnapshot> {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
@@ -131,17 +126,17 @@ impl<TEvent: EventObject, TSnapshot> Clone for ActorRefImpl<TEvent, TSnapshot> {
     }
 }
 
-impl<TEvent: EventObject, TSnapshot: Clone + Send + Sync + 'static> ActorRef<TEvent, TSnapshot>
+impl<TEvent: EventTrait, TSnapshot: Clone + Send + Sync + 'static> ActorRef<TEvent, TSnapshot>
     for ActorRefImpl<TEvent, TSnapshot>
 {
-    fn send(&self, event: TEvent) -> Result<(), RuStateError> {
+    fn send(&self, event: TEvent) -> Result<(), StateError> {
         // Try to send the event, handle potential channel closed error
         self.event_sender.try_send(event).map_err(|e| match e {
-            mpsc::error::TrySendError::Full(_) => RuStateError::ActorMailboxFull(self.id.clone()),
-            mpsc::error::TrySendError::Closed(_) => RuStateError::ActorStopped(self.id.clone()),
+            mpsc::error::TrySendError::Full(_) => StateError::ActorMailboxFull(self.id.clone()),
+            mpsc::error::TrySendError::Closed(_) => StateError::ActorStopped(self.id.clone()),
         })
         // Or use blocking send if acceptable:
-        // self.event_sender.blocking_send(event).map_err(|_| RuStateError::ActorStopped(self.id.clone()))
+        // self.event_sender.blocking_send(event).map_err(|_| StateError::ActorStopped(self.id.clone()))
         // Or make ActorRef::send async
     }
 
@@ -158,7 +153,7 @@ impl<TEvent: EventObject, TSnapshot: Clone + Send + Sync + 'static> ActorRef<TEv
     }
 
     // TODO: Implement stop method
-    // fn stop(&self) -> Result<(), RuStateError> { ... }
+    // fn stop(&self) -> Result<(), StateError> { ... }
 }
 
 // --- create_actor function ---
@@ -170,7 +165,7 @@ pub fn create_actor<L, S, E, I>(logic: L, options: ActorOptions<I>) -> ActorRefI
 where
     L: ActorLogic<S, E, I> + Clone + Send + Sync + 'static, // Logic needs to be Clone + Send + Sync + 'static
     S: Clone + Send + Sync + 'static, // Snapshot needs to be Clone + Send + Sync + 'static
-    E: EventObject + Send + Sync + 'static, // Event needs to be Send + Sync + 'static
+    E: EventTrait + Send + Sync + 'static, // Event needs to be Send + Sync + 'static
     I: Send + Sync + 'static,         // Input needs to be Send + Sync + 'static
 {
     let actor_id = options

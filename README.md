@@ -16,10 +16,10 @@ The demo features:
 
 The RuState project is organized as a Cargo workspace consisting of several crates:
 
-- **`crates/rustate`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.) and WASM bindings.
-- **`crates/editor`**: (Work in Progress/Planned) A visual editor, likely web-based, for creating and visualizing RuState state machines.
-- **`crates/agent`**: (Work in Progress/Planned) Implements agent logic (policies, decisions, learning) potentially utilizing RuState machines for behavior control.
-- **`crates/grpc`**: Provides gRPC server/client implementations and protocol definitions (`.proto`) for communication between different components of the RuState ecosystem (e.g., editor talking to a backend, agent interacting with simulation).
+- **`crates/rustate`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.) and WASM bindings. Includes basic Model-Based Testing capabilities.
+- **`crates/editor`**: (Work in Progress) A web-based visual editor for creating and visualizing RuState state machines. Code exists but functionality may be incomplete.
+- **`crates/agent`**: (Work in Progress/Planned) Implements agent logic (policies, decisions, learning). Initial code exists but functionality is likely under development.
+- **`crates/grpc`**: Provides gRPC server/client implementations and protocol definitions (`.proto`) for communication between different components (e.g., editor talking to a backend). *(Project Maintainer Note: Add specific examples/documentation for using this crate for inter-machine communication.)*
 - **`crates/demo`**: Contains the source code for the live demo showcasing RuState features.
 
 *(Project Maintainer Note: Add a diagram here illustrating the interaction between these crates)*
@@ -41,21 +41,21 @@ RuState provides the following features (primarily within the `crates/rustate` c
 
 ## Model-Based Testing (MBT) Integration
 
-RuState incorporates the principles of model-based testing within the core `rustate` crate:
+RuState incorporates the principles of model-based testing within the core `rustate` crate. Basic infrastructure for test generation (`TestGenerator`), test execution (`TestRunner`, `PropertyTestRunner`), and coverage reporting is implemented in `crates/rustate/src/test/`.
 
 1.  **Model Definition**: Define explicit models using states, transitions, guards, and actions.
-2.  **Test Case Generation**: *(Verify Implementation Status)* The `TestGenerator` aims to automatically generate test cases from the model.
-3.  **Test Execution**: *(Verify Implementation Status)* The `TestRunner` aims to support online/offline testing.
-4.  **Complete Coverage Verification**: *(Verify Implementation Status)* Functionality for reporting state and transition coverage.
+2.  **Test Case Generation**: The `TestGenerator` provides capabilities to generate test cases from the model (e.g., based on transitions).
+3.  **Test Execution**: The `TestRunner` and `PropertyTestRunner` execute defined test cases or properties against the state machine.
+4.  **Coverage Verification**: Basic coverage reporting is available via `TestResults`.
 
-*(Project Maintainer Note: Verify the current implementation status and completeness of `TestGenerator`, `TestRunner`, and coverage reporting features in `crates/rustate/src/test` or relevant modules. Update examples and documentation accordingly.)*
+*(Project Maintainer Note: Evaluate the completeness and robustness of the current MBT implementation, especially test generation strategies and coverage metrics. Update examples and documentation accordingly.)*
 
-### Key Features (MBT - Status Needs Verification)
+### Key Features (MBT - Implemented, Completeness Varies)
 
-- **Test Generator**: Automatically generate test cases from state machines.
-- **Online Testing**: Directly test state machines at runtime.
-- **Offline Testing**: Export test cases to run later.
-- **State Coverage Report**: Verify which states and transitions have been tested.
+- **Test Generator**: Basic test case generation from state machines (e.g., all transitions).
+- **Online Testing**: `TestRunner` allows direct testing of state machines.
+- **Offline Testing**: Test cases can potentially be serialized/exported, though direct support might need verification.
+- **State Coverage Report**: `TestResults` provides basic coverage information.
 
 ## Usage Examples
 
@@ -124,7 +124,7 @@ println!("Transition coverage: {}%", coverage.transition_coverage());
 
 RuState supports integrating multiple state machines across different crates. While the examples below show direct Rust integration using shared memory (`Arc<Mutex>`, `Arc<RwLock>`), the **`crates/grpc`** crate provides an alternative mechanism for communication between potentially separate processes or components using gRPC.
 
-*(Project Maintainer Note: Add specific examples or documentation on using the `grpc` crate for inter-machine communication if applicable.)*
+*(Project Maintainer Note: Add specific examples or link to documentation within `crates/grpc/README.md` or `crates/grpc/examples/` demonstrating how to use gRPC for inter-machine communication.)*
 
 #### Design Patterns for State Machine Integration
 

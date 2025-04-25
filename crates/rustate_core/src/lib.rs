@@ -91,7 +91,7 @@ mod tests {
             Context = TestContext,
             Event = TestEvent,
             State = TestState,
-            initial: TestState::Idle { count: 0 },
+            initial: TestState::Idle,
             states: {
                 Idle { on: { Start: "Running" } },
                 Running { on: { Finish: "Finished", Reset: "Idle" } },

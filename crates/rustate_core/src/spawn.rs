@@ -3,7 +3,8 @@ use crate::actor_ref::ActorRef;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-pub const DEFAULT_BUFFER_SIZE: usize = 32; // pub を追加
+// アクターのメールボックスのデフォルトサイズ
+pub const DEFAULT_BUFFER_SIZE: usize = 32;
 
 /// アクターを生成し、独立した非同期タスクで実行を開始します。
 ///

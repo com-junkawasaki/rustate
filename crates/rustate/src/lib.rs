@@ -77,7 +77,7 @@ pub use action::{Action, ActionExecutor, ActionType, IntoAction};
 pub use context::Context;
 pub use error::{Result, StateError as Error};
 pub use event::{Event, EventTrait, IntoEvent};
-pub use guard::{Guard, GuardEvaluator, IntoGuard};
+pub use guard::{Guard, IntoGuard};
 pub use machine::{Machine, MachineBuilder};
 pub use state::{State, StateTrait, StateType};
 pub use transition::Transition;
