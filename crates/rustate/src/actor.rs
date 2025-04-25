@@ -246,28 +246,19 @@ pub async fn run_actor<
         match command {
             ActorCommand::Event(event) => {
                 if let Err(e) = actor.handle_event(event).await {
-                    eprintln!(
-                        "Actor [{}] event handling error: {}",
-                        actor_id_clone,
-                        e
-                    );
+                    eprintln!("Actor [{}] event handling error: {}", actor_id_clone, e);
                 }
             }
-            ActorCommand::Query { query, responder } => {
-                match actor.handle_query(query).await {
-                    Ok(response) => {
-                        if responder.send(Ok(response)).is_err() {
-                            eprintln!(
-                                "Actor [{}] failed to send query response.",
-                                actor_id_clone
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        let _ = responder.send(Err(e));
+            ActorCommand::Query { query, responder } => match actor.handle_query(query).await {
+                Ok(response) => {
+                    if responder.send(Ok(response)).is_err() {
+                        eprintln!("Actor [{}] failed to send query response.", actor_id_clone);
                     }
                 }
-            }
+                Err(e) => {
+                    let _ = responder.send(Err(e));
+                }
+            },
             ActorCommand::Stop => {
                 println!("Actor [{}] stopping...", actor_id_clone);
                 actor.stopped().await;
@@ -384,33 +375,24 @@ where
             match command {
                 ActorCommand::Event(event) => {
                     if let Err(e) = actor.handle_event(event).await {
-                        eprintln!(
-                            "Actor [{}] event handling error: {}",
-                            actor_id_clone,
-                            e
-                        );
+                        eprintln!("Actor [{}] event handling error: {}", actor_id_clone, e);
                     }
                 }
-                ActorCommand::Query { query, responder } => {
-                    match actor.handle_query(query).await {
-                        Ok(response) => {
-                            if responder.send(Ok(response)).is_err() {
-                                eprintln!(
-                                    "Actor [{}] failed to send query response.",
-                                    actor_id_clone
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            if responder.send(Err(e)).is_err() {
-                                eprintln!(
-                                    "Actor [{}] failed to send query error response.",
-                                    actor_id_clone
-                                );
-                            }
+                ActorCommand::Query { query, responder } => match actor.handle_query(query).await {
+                    Ok(response) => {
+                        if responder.send(Ok(response)).is_err() {
+                            eprintln!("Actor [{}] failed to send query response.", actor_id_clone);
                         }
                     }
-                }
+                    Err(e) => {
+                        if responder.send(Err(e)).is_err() {
+                            eprintln!(
+                                "Actor [{}] failed to send query error response.",
+                                actor_id_clone
+                            );
+                        }
+                    }
+                },
                 ActorCommand::Stop => {
                     println!("Actor [{}] stopping...", actor_id_clone);
                     status = ActorStatus::Stopped;
@@ -504,7 +486,8 @@ mod tests {
             _snapshot_marker: std::marker::PhantomData,
             _response_marker: std::marker::PhantomData,
         };
-        let initial_actor_ref_boxed: Box<dyn ActorRef<TestEvent, TestSnapshot>> = Box::new(initial_actor_ref);
+        let initial_actor_ref_boxed: Box<dyn ActorRef<TestEvent, TestSnapshot>> =
+            Box::new(initial_actor_ref);
 
         let actor = TestActor {
             actor_ref: Arc::new(Mutex::new(Some(initial_actor_ref_boxed.clone_ref()))),
@@ -525,7 +508,11 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         let query_result = actor_ref.query("Hello?".to_string()).await;
-        assert!(query_result.is_ok(), "Query failed: {:?}", query_result.err());
+        assert!(
+            query_result.is_ok(),
+            "Query failed: {:?}",
+            query_result.err()
+        );
         assert_eq!(query_result.unwrap().unwrap(), "Response to 'Hello?'");
 
         let stop_result = actor_ref.stop();

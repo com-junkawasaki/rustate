@@ -1,3 +1,4 @@
+use crate::error::ActionError;
 use crate::{Context, Event, EventTrait, Result};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
@@ -6,7 +7,6 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use crate::error::ActionError;
 
 /// Type alias for the action executor function
 pub type ActionExecutor =
@@ -24,10 +24,10 @@ pub enum ActionType {
 }
 
 /// Define Action as generic over C, E
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Action<C = Context, E = Event>
 where
-    C: Clone + Send + Sync + Default + 'static,
+    C: Clone + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     /// The name of this action
@@ -44,14 +44,15 @@ where
 // Need to manually implement Debug because BoxFuture is not Debug
 impl<C, E> fmt::Debug for Action<C, E>
 where
-    C: Clone + Send + Sync + Default + 'static,
+    C: Clone + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Action")
             .field("name", &self.name)
+            .field("exec", &"<Fn>") // Don't print the function itself
             .field("action_type", &self.action_type)
-            .finish_non_exhaustive() // Indicate that execute_fn is not shown
+            .finish()
     }
 }
 

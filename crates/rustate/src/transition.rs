@@ -12,28 +12,30 @@ use futures::future::try_join_all;
 use std::fmt::{self, Debug};
 use std::sync::Arc;
 use thiserror::Error;
+use serde::{Serialize, Deserialize};
+use uuid::Uuid;
 
 /// Represents a transition between states
-#[derive(Clone)]
-pub struct Transition<S, C = Context, E = Event>
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Transition<S = String, C = Context, E = Event>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq,
 {
     /// Source state id
     pub source: S,
     /// Target state id
     pub target: Option<S>,
     /// Event type that triggers this transition
-    pub event: E,
+    pub event: Option<E>,
     /// Optional guard condition
     pub guard: Option<Guard<C, E>>,
     /// Actions to execute during the transition
     pub actions: Vec<Action<C, E>>,
     /// Internal id for this transition
     #[serde(default = "uuid::Uuid::new_v4")]
-    pub(crate) id: uuid::Uuid,
+    pub(crate) id: Uuid,
     pub transition_type: TransitionType,
     _phantom_s: std::marker::PhantomData<S>,
     _phantom_c: std::marker::PhantomData<C>,
@@ -42,20 +44,27 @@ where
 
 impl<S, C, E> Transition<S, C, E>
 where
-    S: StateTrait + Send + Sync + 'static + Clone,
+    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event>,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq,
 {
     /// Create a new transition
-    pub fn new(source: S, event: E, target: Option<S>) -> Self {
+    pub fn new(
+        source: impl Into<S>,
+        target: Option<impl Into<S>>,
+        event: Option<E>,
+        guard: Option<Guard<C, E>>,
+        actions: Vec<Action<C, E>>,
+        transition_type: TransitionType,
+    ) -> Self {
         Self {
-            source,
+            id: Uuid::new_v4(),
+            source: source.into(),
+            target: target.map(|t| t.into()),
             event,
-            target,
-            actions: Vec::new(),
-            guard: None,
-            id: uuid::Uuid::new_v4(),
-            transition_type: TransitionType::External,
+            guard,
+            actions,
+            transition_type,
             _phantom_s: std::marker::PhantomData,
             _phantom_c: std::marker::PhantomData,
             _phantom_e: std::marker::PhantomData,
@@ -67,7 +76,7 @@ where
         Self {
             source: state.clone(),
             target: Some(state),
-            event,
+            event: Some(event),
             guard: None,
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
@@ -86,7 +95,7 @@ where
         Self {
             source: S::from(state_id.into()),
             target: None,
-            event: event.into_event().into(),
+            event: Some(event.into_event().into()),
             guard: None,
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
@@ -111,54 +120,58 @@ where
 
     /// Check if this transition is triggered by the given event
     pub fn matches_event(&self, event: &E) -> bool {
-        self.event == *event
+        match &self.event {
+            Some(transition_event) => transition_event == event,
+            None => true, // Eventless transitions always match
+        }
     }
 
     /// Check if this transition is enabled given the context and event
     pub async fn is_enabled(&self, context: &C, event: &E) -> bool {
-        if !self.matches_event(event) {
-            return false;
-        }
-        match &self.guard {
-            Some(guard) => guard.evaluate(context, event).await,
-            None => true,
-        }
+        self.matches_event(event) && self.check_guard(context, event).await
     }
 
     /// Execute this transition's actions
     #[async_recursion]
     pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
-        let futures = self
-            .actions
-            .iter()
-            .map(|action| action.execute(context, event));
-        try_join_all(futures).await?;
+        for action in &self.actions {
+            action.execute(context, event).await?;
+        }
         Ok(())
+    }
+
+    pub async fn check_guard(&self, context: &C, event: &E) -> bool {
+        match &self.guard {
+            Some(guard) => guard.evaluate(context, event).await,
+            None => true, // No guard means always true
+        }
     }
 }
 
 impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
+            .field("id", &self.id)
             .field("source", &self.source.id())
-            .field("event", &self.event.event_type())
             .field("target", &self.target.as_ref().map(|t| t.id()))
-            .field("actions_count", &self.actions.len())
-            .field("has_guard", &self.guard.is_some())
+            .field("event", &self.event)
+            .field("guard", &self.guard)
+            .field("actions", &self.actions)
+            .field("transition_type", &self.transition_type)
             .finish()
     }
 }
 
 impl<S, C, E> PartialEq for Transition<S, C, E>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
@@ -171,9 +184,9 @@ where
 
 impl<S, C, E> Eq for Transition<S, C, E>
 where
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq,
 {
 }
 

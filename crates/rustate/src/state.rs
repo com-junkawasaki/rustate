@@ -1,10 +1,16 @@
-use crate::{Context, Error, Event, EventTrait, IntoAction, Result};
+use crate::{Context, Error, Event, EventTrait, IntoAction, Result, StateTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
+use std::ops::Deref;
 use uuid::Uuid;
+
+/// Trait defining requirements for a state identifier
+pub trait StateTrait: Display + Debug + Eq + Hash + Clone + Send + Sync + 'static + Deref<Target=str> + From<String> {}
+impl StateTrait for String {}
+// TODO: Add impl for other types if needed, ensure they meet bounds
 
 /// Trait for state objects in a state machine
 pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync + 'static {
@@ -35,9 +41,7 @@ pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync +
     }
 
     /// Check if the state is atomic (has no children)
-    fn is_atomic(&self) -> bool {
-        self.children().is_empty()
-    }
+    fn is_atomic(&self) -> bool;
 
     /// Check if the state is a compound state
     fn is_compound(&self) -> bool {
@@ -82,19 +86,21 @@ pub enum HistoryType {
 }
 
 /// Represents a state in a state machine
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct State<S = String>
 where
-    S: StateTrait + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
+    S: StateTrait + Serialize + for<'de> serde::de::Deserialize<'de>,
 {
     /// Unique identifier for the state
     pub id: S,
     /// Type of state
+    #[serde(rename = "type")]
     pub state_type: StateType,
     /// Optional parent state id
     pub parent: Option<S>,
     /// Child states (for compound and parallel states)
-    pub children: Vec<S>,
+    pub children: HashMap<String, State<S>>,
     /// Initial state (for compound states)
     pub initial: Option<S>,
     /// Data associated with this state
@@ -110,7 +116,7 @@ where
 
 impl<S> State<S>
 where
-    S: StateTrait + Send + Sync + 'static + Clone + From<String> + Serialize + for<'de> Deserialize<'de>,
+    S: StateTrait + Serialize + for<'de> serde::de::Deserialize<'de>,
 {
     /// Create a new normal state
     pub fn new(id: S) -> Self {
@@ -118,7 +124,7 @@ where
             id,
             state_type: StateType::Normal,
             parent: None,
-            children: Vec::new(),
+            children: HashMap::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
@@ -128,16 +134,13 @@ where
     }
 
     /// Create a new compound state
-    pub fn new_compound(id: S, initial: S) -> Self
-    where
-        S: Into<String>,
-    {
+    pub fn new_compound(id: impl Into<String>, initial: impl Into<String>) -> Self {
         Self {
-            id,
+            id: S::from(id.into()),
             state_type: StateType::Compound,
             parent: None,
-            children: Vec::new(),
-            initial: Some(initial.into()),
+            children: HashMap::new(),
+            initial: Some(S::from(initial.into())),
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
@@ -151,7 +154,7 @@ where
             id,
             state_type: StateType::Parallel,
             parent: None,
-            children: Vec::new(),
+            children: HashMap::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
@@ -166,7 +169,7 @@ where
             id,
             state_type: StateType::Final,
             parent: None,
-            children: Vec::new(),
+            children: HashMap::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
@@ -181,7 +184,7 @@ where
             id,
             state_type: StateType::History,
             parent: None,
-            children: Vec::new(),
+            children: HashMap::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
@@ -196,7 +199,7 @@ where
             id,
             state_type: StateType::DeepHistory,
             parent: None,
-            children: Vec::new(),
+            children: HashMap::new(),
             initial: None,
             data: None,
             uuid: Uuid::new_v4(),
@@ -206,8 +209,9 @@ where
     }
 
     /// Add a child state to this state
-    pub fn add_child(&mut self, child_id: S) -> &mut Self {
-        self.children.push(child_id);
+    pub fn add_child(&mut self, child_state: State<S>) -> &mut Self {
+        let child_id_str = child_state.id.to_string();
+        self.children.insert(child_id_str, child_state);
         self
     }
 
@@ -246,14 +250,35 @@ where
         self.history = Some(history_type);
         self
     }
+
+    pub fn parent(&self) -> Option<&S> {
+        self.parent.as_ref()
+    }
+
+    pub fn initial(&self) -> Option<&S> {
+        self.initial.as_ref()
+    }
+
+    pub fn history(&self) -> Option<HistoryType> {
+        self.history
+    }
+
+    pub fn children(&self) -> &HashMap<String, State<S>> {
+        &self.children
+    }
+
+    /// Checks if the state is an atomic state (no children)
+    pub fn is_atomic(&self) -> bool {
+        self.children.is_empty() && self.state_type != StateType::Compound && self.state_type != StateType::Parallel
+    }
 }
 
 impl<S> StateTrait for State<S>
 where
-    S: StateTrait + Send + Sync + 'static + Clone + From<String> + fmt::Display + Serialize + for<'de> Deserialize<'de>,
+    S: StateTrait + Serialize + for<'de> serde::de::Deserialize<'de>,
 {
     fn id(&self) -> &str {
-        Box::leak(self.id.to_string().into_boxed_str())
+        &self.id
     }
 
     fn state_type(&self) -> &StateType {
@@ -261,15 +286,19 @@ where
     }
 
     fn parent(&self) -> Option<&str> {
-        self.parent.as_ref().map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
+        self.parent
+            .as_ref()
+            .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
     }
 
     fn children(&self) -> &[S] {
-        &self.children
+        self.children.values().collect::<Vec<&S>>().as_slice()
     }
 
     fn initial(&self) -> Option<&str> {
-        self.initial.as_ref().map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
+        self.initial
+            .as_ref()
+            .map(|s| Box::leak(s.to_string().into_boxed_str()) as &str)
     }
 
     fn data(&self) -> Option<&Value> {
@@ -278,6 +307,10 @@ where
 
     fn history(&self) -> Option<HistoryType> {
         self.history.clone()
+    }
+
+    fn is_atomic(&self) -> bool {
+        self.children.is_empty() && self.state_type != StateType::Compound && self.state_type != StateType::Parallel
     }
 }
 

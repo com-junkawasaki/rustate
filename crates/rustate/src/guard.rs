@@ -1,63 +1,71 @@
-use crate::{Context, Event};
+use crate::{Context, Event, EventTrait, State, StateTrait, Action, IntoAction};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use thiserror::Error;
+use uuid::Uuid;
 
 /// Type alias for the guard predicate function
 pub type GuardPredicate =
     Box<dyn Fn(&Context, &Event) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
-/// A guard condition for a transition
-#[derive(Serialize, Deserialize)]
-pub struct Guard {
+/// Represents a guard condition for a transition
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     /// The name of this guard
     pub name: String,
     /// Function pointer to evaluate the guard
     #[serde(skip)]
-    pub(crate) predicate: Option<GuardPredicate>,
+    pub condition: Arc<dyn Fn(&C, &E) -> bool + Send + Sync>,
 }
 
-impl Clone for Guard {
+impl<C, E> Clone for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     fn clone(&self) -> Self {
         // Note: We can't actually clone the predicate function,
         // so this creates a guard with the same name but no predicate
         Self {
             name: self.name.clone(),
-            predicate: None,
+            condition: Arc::new(move |ctx, evt| (self.condition)(ctx, evt)),
         }
     }
 }
 
-impl fmt::Debug for Guard {
+impl<C, E> fmt::Debug for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Guard")
             .field("name", &self.name)
-            .field(
-                "predicate",
-                &format_args!(
-                    "{}",
-                    if self.predicate.is_some() {
-                        "Some(Fn)"
-                    } else {
-                        "None"
-                    }
-                ),
-            )
+            .field("condition", &"<Fn>")
             .finish()
     }
 }
 
-impl Guard {
+impl<C, E> Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     /// Create a new guard with a name and predicate function
-    pub fn new<F, Fut>(name: impl Into<String>, predicate: F) -> Self
+    pub fn new<F>(name: impl Into<String>, condition: F) -> Self
     where
-        F: Fn(&Context, &Event) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = bool> + Send + 'static,
+        F: Fn(&C, &E) -> bool + Send + Sync + 'static,
     {
         Self {
             name: name.into(),
-            predicate: Some(Box::new(move |ctx, evt| Box::pin(predicate(ctx, evt)))),
+            condition: Arc::new(condition),
         }
     }
 
@@ -65,24 +73,21 @@ impl Guard {
     pub fn named(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            predicate: None,
+            condition: Arc::new(|_ctx, _evt| false),
         }
     }
 
     /// Evaluate the guard against a context and event
-    pub async fn evaluate(&self, context: &Context, event: &Event) -> bool {
-        match &self.predicate {
-            Some(predicate) => predicate(context, event).await,
-            None => {
-                // Default behavior for serialized guards with no predicate
-                // In a real implementation, you might look up a predicate from a registry
-                true
-            }
-        }
+    pub fn check(&self, context: &C, event: &E) -> bool {
+        (self.condition)(context, event)
     }
 }
 
-impl fmt::Display for Guard {
+impl<C, E> fmt::Display for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Guard({})", self.name)
     }
@@ -91,21 +96,25 @@ impl fmt::Display for Guard {
 /// Trait for types that can be converted into a guard
 pub trait IntoGuard {
     /// Convert into a guard
-    fn into_guard(self) -> Guard;
+    fn into_guard(self) -> Guard<C, E>;
 }
 
-impl IntoGuard for Guard {
-    fn into_guard(self) -> Guard {
+impl<C, E> IntoGuard for Guard<C, E>
+where
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn into_guard(self) -> Guard<C, E> {
         self
     }
 }
 
-impl<F, Fut> IntoGuard for (&str, F)
+impl<C, E> IntoGuard for (&str, &dyn Fn(&C, &E) -> bool + Send + Sync)
 where
-    F: Fn(&Context, &Event) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = bool> + Send + 'static,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
 {
-    fn into_guard(self) -> Guard {
+    fn into_guard(self) -> Guard<C, E> {
         Guard::new(self.0, self.1)
     }
 }
