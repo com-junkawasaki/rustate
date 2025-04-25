@@ -208,7 +208,7 @@ where
 }
 
 // --- Actor Implementation (The actual actor instance) ---
-pub struct ActorImpl<L, S, E, I, Q, Resp>
+pub struct ActorImpl<L, C, E, S, Q, R>
 where
     L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
     S: StateTrait + Send + Sync + 'static,
@@ -218,6 +218,12 @@ where
     Resp: Send + Sync + 'static,
 {
     id: Uuid,
+    logic: L,
+    initial_state: S,
+    context: Context,
+    actor_id: Option<Uuid>,
+    buffer_size: usize,
+    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp>>,
     logic: Arc<L>,
     state: S,
     context: Arc<tokio::sync::RwLock<Context>>,
@@ -336,7 +342,7 @@ pub async fn run_actor<
 pub fn create_actor<L, S, E, I, Q, R>(
     logic: L,
     initial_state: S,
-    context: Context,
+    ctx: Context,
     actor_id: Option<Uuid>,
     buffer_size: usize,
 ) -> (ActorRefImpl<E, Q, Result<R, StateError>>, JoinHandle<()>)
@@ -366,7 +372,7 @@ where
         id,
         logic: Arc::new(logic),
         state: initial_state,
-        context: Arc::new(tokio::sync::RwLock::new(context)),
+        context: Arc::new(tokio::sync::RwLock::new(ctx)),
         inbox: receiver, // receiver is moved here
         status: actor_ref.status.clone(),
         snapshot: None,
@@ -540,7 +546,7 @@ mod tests {
         let (actor_ref, handle) = create_actor::<_, _, _, _, _, TestResponse>(
             TestActorLogic,
             initial_state.clone(),
-            Context::new(None, None, None),
+            Context::new(),
             None,
             100,
         );
@@ -584,7 +590,7 @@ mod tests {
         let (actor_ref, handle) = create_actor::<_, _, _, _, _, TestResponse>(
             TestActorLogic,
             initial_state.clone(),
-            Context::new(None, None, None),
+            Context::new(),
             None,
             100,
         );
@@ -620,7 +626,7 @@ mod tests {
         let (actor_ref, handle) = create_actor::<_, _, _, _, _, TestResponse>(
             TestActorLogic,
             initial_state.clone(),
-            Context::new(None, None, None),
+            Context::new(),
             None,
             100,
         );

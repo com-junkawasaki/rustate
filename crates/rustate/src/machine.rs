@@ -42,7 +42,8 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent,
+        + IntoEvent
+        + Default,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -92,7 +93,8 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent,
+        + IntoEvent
+        + Default,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -188,7 +190,7 @@ where
     /// Initialize the machine by entering the initial state
     async fn initialize(&mut self, initial_state_id: &S) -> Result<()> {
         let init_event = E::default();
-        self.enter_state(initial_state_id, &init_event).await?;
+        self.enter_state(initial_state_id, &init_event, self.context.clone()).await?;
         Ok(())
     }
 
@@ -262,7 +264,7 @@ where
         let target_states = match &transition.target {
             Some(target) => {
                 if !self.states.contains(target) {
-                    return Err(StateError::TargetStateNotFound(target.to_string()).into());
+                    return Err(StateError::StateNotFound(target.to_string()).into());
                 }
                 Some(target.clone())
             }
@@ -309,13 +311,13 @@ where
 
         // Refine exit states based on transition type (especially for external)
         if transition.transition_type == TransitionType::External {
-            if let Some(source) = &transition.source {
-                if exit_states.contains(source)
-                    || (lcca_id == Some(source) && target_states.is_some())
+            if let Some(source) = transition.source {
+                if exit_states.contains(&source)
+                    || (lcca_id == Some(&source) && target_states.is_some())
                 {
                     // Ensure source is exited for external
                     exit_states.insert(source.clone());
-                } else if lcca_id.map_or(false, |lcca| self.is_ancestor(source, lcca)) {
+                } else if lcca_id.map_or(false, |lcca| self.is_ancestor(&source, lcca)) {
                     exit_states.insert(source.clone());
                 }
             }
@@ -460,15 +462,17 @@ where
                 StateType::Parallel => {
                     log::debug!("Entering parallel children of {}", state_id);
                     let mut enter_futures = Vec::new();
+                    let event_clone = event.clone(); // Clone event once before the loop
                     for child_key in child_keys {
                         let child_id = S::from(child_key); // Assuming S: From<String>
                         log::debug!("Entering parallel child: {}", child_id);
+                        let child_id_clone = child_id.clone(); // Clone child_id for the async block
+                        let context_for_child = context.clone(); // Clone Arc for the async block
+                        let event_for_child = event_clone.clone(); // Clone event for the async block
                         // Pass context down recursively, clone Arc for each future
-                        enter_futures.push(Box::pin(self.enter_state(
-                            &child_id,
-                            event,
-                            context.clone(),
-                        )));
+                        enter_futures.push(Box::pin(async move {
+                            self.enter_state(&child_id_clone, &event_for_child, context_for_child).await
+                        }));
                     }
                     let results: Vec<Result<(), StateError>> =
                         futures::future::join_all(enter_futures).await;
@@ -501,13 +505,19 @@ where
 
         // Clone context for recursive calls
         let context_clone = context.clone();
+        let event_clone = event.clone(); // Clone event for the async block
         let mut exit_futures = Vec::new();
         for child_id in active_children_to_exit {
             log::debug!("Exiting child {} of {}", child_id, state_id);
+            let child_id_clone = child_id.clone(); // Clone child_id for the async block
+            let context_for_child = context_clone.clone(); // Clone Arc for the async block
+            let event_for_child = event_clone.clone(); // Clone event for the async block
             // Pass context down recursively
             exit_futures.push(
-                self.exit_state(&child_id, event, context_clone.clone())
-                    .boxed(),
+                // Wrap the recursive call in an async block to ensure the resulting future is Send
+                async move {
+                    self.exit_state(&child_id_clone, &event_for_child, context_for_child).await
+                }.boxed()
             );
         }
         // Await all child exits before exiting the parent
@@ -746,12 +756,8 @@ where
 #[derive(Clone)]
 pub struct MachineBuilder<C, E, S, O>
 where
-    C: ContextTrait + Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + IntoEvent,
+    C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -776,12 +782,8 @@ where
 
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
-    C: ContextTrait + Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + IntoEvent,
+    C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
