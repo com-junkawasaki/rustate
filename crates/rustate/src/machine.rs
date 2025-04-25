@@ -757,7 +757,7 @@ where
 pub struct MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Default,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -783,7 +783,7 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Default,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {

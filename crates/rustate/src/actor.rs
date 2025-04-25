@@ -113,14 +113,17 @@ where
 
 // Enum for commands sent to the actor channel
 #[derive(fmt::Debug)]
-pub enum ActorCommand<E, Q, Resp>
+pub enum ActorCommand<E, Q, Resp, C, R>
 where
     E: EventTrait + Send + 'static,
     Q: Send + 'static,
     Resp: Send + 'static,
+    C: Send + 'static,
+    R: Send + 'static,
 {
     SendEvent(E),
     Query(Q, oneshot::Sender<Resp>),
+    GetSnapshot(oneshot::Sender<Result<Snapshot<C, R>, StateError>>),
     Stop,
 }
 
@@ -207,15 +210,39 @@ where
     }
 }
 
-// --- Actor Implementation (The actual actor instance) ---
-pub struct ActorImpl<L, C, E, S, Q, R>
+// Define the internal state struct
+struct InternalActorState<L, C, E, S, I, Q, R, Resp>
 where
     L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
     S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
     I: Send + Sync + 'static,
     Q: Send + Sync + 'static,
-    Resp: Send + Sync + 'static,
+    R: Send + Sync + 'static + Debug,
+    Resp: Send + Sync + 'static + Debug,
+{
+    logic: Arc<L>, // Store Arc<L>
+    state: S,
+    context: Arc<RwLock<C>>,
+    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp>>,
+    status: Arc<RwLock<ActorStatus>>,
+    // Add necessary PhantomData if not all generics are used directly in fields
+    _phantom_i: PhantomData<I>,
+    _phantom_r: PhantomData<R>,
+}
+
+// --- Actor Implementation (The actual actor instance) ---
+pub struct ActorImpl<L, C, E, S, I, Q, R, Resp>
+where
+    L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
+    S: StateTrait + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static,
+    I: Send + Sync + 'static,
+    Q: Send + Sync + 'static,
+    R: Send + Sync + 'static + Debug,
+    Resp: Send + Sync + 'static + Debug + Default, // Added Default bound
 {
     id: Uuid,
     logic: L,
@@ -224,27 +251,26 @@ where
     actor_id: Option<Uuid>,
     buffer_size: usize,
     inbox: mpsc::Receiver<ActorCommand<E, Q, Resp>>,
-    logic: Arc<L>,
-    state: S,
-    context: Arc<tokio::sync::RwLock<Context>>,
-    inbox: mpsc::Receiver<ActorCommand<E, Q, Resp>>,
     status: Arc<RwLock<ActorStatus>>,
     snapshot: Option<Snapshot<Context>>,
+    _phantom_c: PhantomData<C>,
     _phantom_i: PhantomData<I>,
-    _phantom_e: PhantomData<E>,
+    _phantom_r: PhantomData<R>,
     _phantom_resp: PhantomData<Resp>,
 }
 
 // Implementation for ActorImpl using the defined ActorTrait
 #[async_trait]
-impl<L, S, E, I, Q, Resp> ActorTrait<E, Q, Resp> for ActorImpl<L, S, E, I, Q, Resp>
+impl<L, C, E, S, I, Q, R, Resp> ActorTrait<E, Q, Resp> for ActorImpl<L, C, E, S, I, Q, R, Resp>
 where
     L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
     S: StateTrait + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
     I: Send + Sync + 'static,
     Q: Send + Sync + 'static,
-    Resp: Send + Sync + 'static + Debug,
+    R: Send + Sync + 'static + Debug,
+    Resp: Send + Sync + 'static + Debug + Default, // Added Default bound
 {
     fn id(&self) -> Uuid {
         self.id
@@ -282,6 +308,97 @@ where
 
     async fn stopped(&mut self) {
         info!(actor_id = %self.id, "Actor implementation stopped hook.");
+    }
+}
+
+impl<L, C, E, S, I, Q, R, Resp> ActorImpl<L, C, E, S, I, Q, R, Resp>
+where
+    L: ActorLogic<S, E, I, Q, Resp> + Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
+    S: StateTrait + Send + Sync + 'static + PartialEq, // Added PartialEq for state comparison
+    E: EventTrait + Send + Sync + 'static,
+    I: Send + Sync + 'static + Default, // Add Default for Snapshot creation
+    Q: Send + Sync + 'static,
+    R: Send + Sync + 'static + Debug + Default, // Add Default for Snapshot creation
+    Resp: Send + Sync + 'static + Debug + Default, // Added Default bound
+{
+    pub async fn run(mut self) {
+        // Call initial() and destructure
+        let (initial_state, initial_context) = self.logic.initial();
+
+        let mut actor_state = InternalActorState {
+            logic: Arc::new(self.logic), // Pass L, store Arc<L>
+            state: initial_state,
+            context: Arc::new(RwLock::new(initial_context)), // Wrap context
+            inbox: self.inbox,
+            status: self.status.clone(),
+            _phantom_i: PhantomData,
+            _phantom_r: PhantomData,
+        };
+
+        log::info!("Actor started actor_id={}", self.id);
+
+        loop {
+            tokio::select! {
+                // TODO: Add signal handling for graceful shutdown
+
+                Some(command) = actor_state.inbox.recv() => {
+                    match command {
+                        ActorCommand::SendEvent(event) => {
+                            // Lock context for writing
+                            let mut context_guard = actor_state.context.write().await;
+                            // Call logic.transition using Arc<L>
+                            match actor_state.logic.transition(actor_state.state.clone(), (*context_guard).clone(), event).await {
+                                Ok((next_state, next_context)) => {
+                                    if actor_state.state != next_state {
+                                        log::debug!("State transition: {:?} -> {:?} actor_id={}", actor_state.state, next_state, self.id);
+                                        actor_state.state = next_state;
+                                    }
+                                    // Update context within the guard
+                                    *context_guard = next_context;
+                                    // Guard dropped here
+                                }
+                                Err(e) => {
+                                     log::error!("Error processing event: {:?} actor_id={}", e, self.id);
+                                     // Decide whether to stop or continue based on error
+                                }
+                            }
+                        }
+                        ActorCommand::Query(query, responder) => {
+                             // Lock context for reading
+                            let context_guard = actor_state.context.read().await;
+                            // TODO: Implement query handling using actor_state.logic if needed
+                            // For now, just respond with default/error if no logic provided
+                            let _ = responder.send(Resp::default()); // Needs Resp: Default
+                            log::debug!("Processed query actor_id={}", self.id);
+                        }
+                         ActorCommand::GetSnapshot(responder) => {
+                            // Lock context for reading
+                            let context_guard = actor_state.context.read().await;
+                            let snapshot = Snapshot {
+                                value: serde_json::to_value(actor_state.state.clone()).unwrap_or(serde_json::Value::Null),
+                                context: (*context_guard).clone(),
+                                output: Some(R::default()), // Use Default for R
+                                status: *actor_state.status.read().await,
+                            };
+                            let _ = responder.send(Ok(snapshot));
+                        }
+                        ActorCommand::Stop => {
+                             log::info!("Stop command received actor_id={}", self.id);
+                            *actor_state.status.write().await = ActorStatus::Stopped;
+                            break; // Exit the loop
+                        }
+                    }
+                }
+                else => {
+                     log::info!("Actor inbox closed, stopping. actor_id={}", self.id);
+                    break; // Exit loop if channel closes
+                }
+            }
+        }
+
+        *actor_state.status.write().await = ActorStatus::Stopped;
+        log::info!("Actor stopped actor_id={}", self.id);
     }
 }
 
@@ -371,13 +488,16 @@ where
     let actor_instance = ActorImpl {
         id,
         logic: Arc::new(logic),
-        state: initial_state,
-        context: Arc::new(tokio::sync::RwLock::new(ctx)),
+        initial_state,
+        context: ctx,
+        actor_id,
+        buffer_size,
         inbox: receiver, // receiver is moved here
         status: actor_ref.status.clone(),
         snapshot: None,
+        _phantom_c: PhantomData,
         _phantom_i: PhantomData,
-        _phantom_e: PhantomData,
+        _phantom_r: PhantomData,
         _phantom_resp: PhantomData::<Result<R, StateError>>,
     };
 
@@ -388,7 +508,7 @@ where
     // Spawn a task that will run the actor's internal loop.
     // The run_actor function is not suitable anymore.
     // We need a method on ActorImpl or ActorTrait to start the loop.
-    // Example: actor_boxed.run() or similar.
+    // Example: actor_boxed.run_loop().await should be called here.
     // For now, let's spawn a task that just holds the actor.
     // The actual message processing loop needs to be implemented.
 
