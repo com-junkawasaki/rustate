@@ -4,6 +4,8 @@ use rustate::{
 };
 use std::fmt;
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+use std::sync::Arc;
 
 #[cfg(feature = "codegen")]
 use rustate::{CodegenExt, JsonExportOptions};
@@ -154,10 +156,10 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     let _ = context.set("paymentProcessed", false);
 
     // アクションの作成
-    let add_to_cart_action = Action::from_fn(|mut ctx: &mut Context, _| async move {
-        let item_count = ctx.get::<i32>("itemCount").unwrap_or(0);
+    let add_to_cart_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _| async move {
+        let item_count = ctx_arc.read().await.get::<i32>("itemCount").unwrap_or(0);
         let new_count = item_count + 1;
-        let _ = ctx.set("itemCount", new_count);
+        let _ = ctx_arc.write().await.set("itemCount", new_count);
         println!(
             "カートに商品を追加しました。現在の商品数: {}",
             new_count
@@ -165,9 +167,9 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     });
 
     let process_payment_action =
-        Action::from_fn(|mut ctx: &mut Context, _| async move {
+        Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _| async move {
             println!("決済処理中...");
-            let _ = ctx.set("paymentProcessed", true);
+            let _ = ctx_arc.write().await.set("paymentProcessed", true);
             println!("決済処理が完了しました");
         });
 

@@ -325,17 +325,12 @@ where
 
         // 3. Execute exit actions and recursive exit
         let mut exit_futures = Vec::new();
-        let context_clone = self.context.clone(); // Clone Arc for passing to async blocks
+        let context_clone_for_exit = self.context.clone(); // Clone Arc for exit states
         for id in &exit_states {
-            // Pass context clone here
-            exit_futures.push(self.exit_state(id, event, context_clone.clone()).boxed());
+            exit_futures.push(self.exit_state(id, event, context_clone_for_exit.clone()).boxed());
         }
-        // Execute exits concurrently
         let exit_results = futures::future::join_all(exit_futures).await;
-        // Propagate the first error encountered during exit
-        for result in exit_results {
-            result?;
-        }
+        for result in exit_results { result?; }
 
         // 3.5 Update history for exited states *after* exiting
         for id in &exit_states {
@@ -343,14 +338,12 @@ where
         }
 
         // 4. Execute transition actions (if any)
-        // actions is not optional
         if !transition.actions.is_empty() {
-            let mut context_guard = self.context.write().await;
+            // Pass the Arc<RwLock<C>> directly
+            let context_clone_for_trans = self.context.clone();
             for action in &transition.actions {
-                // Iterate directly
-                action.execute(&mut *context_guard, event).await;
+                action.execute(context_clone_for_trans.clone(), event).await;
             }
-            drop(context_guard);
         }
 
         // 5. Determine states to enter
@@ -392,17 +385,12 @@ where
 
         // 6. Execute entry actions and recursive entry
         let mut enter_futures = Vec::new();
-        let context_clone = self.context.clone(); // Clone Arc for passing to async blocks
+        let context_clone_for_entry = self.context.clone(); // Clone Arc for entry states
         for id in &enter_states {
-            // Pass context clone here
-            enter_futures.push(self.enter_state(id, event, context_clone.clone()).boxed());
+            enter_futures.push(self.enter_state(id, event, context_clone_for_entry.clone()).boxed());
         }
-        // Execute entries concurrently
         let enter_results = futures::future::join_all(enter_futures).await;
-        // Propagate the first error encountered during entry
-        for result in enter_results {
-            result?;
-        }
+        for result in enter_results { result?; }
 
         // 7. Update current_states
         // Remove exited states (important: use the final exit_states set)
@@ -460,7 +448,8 @@ where
                     if let Some(child_id) = child_to_enter {
                         log::debug!("Entering child {} of {}", child_id, state_id);
                         // Pass context down recursively
-                        self.enter_state(&child_id, event, context).await?;
+                        let enter_future = self.enter_state(&child_id, event, context.clone());
+                        Box::pin(enter_future).await?;
                     }
                 }
                 StateType::Parallel => {
@@ -552,20 +541,12 @@ where
         context: Arc<RwLock<C>>,
     ) -> Result<(), Error> {
         let id_str = state_id.to_string();
-        // Use immutable borrow of self.entry_actions
         if let Some(actions) = self.entry_actions.get(&id_str) {
             log::debug!("Executing entry actions for {}", state_id);
-            // Actions are cloned implicitly if Action struct doesn't borrow self,
-            // otherwise, we need actions.clone() if actions require cloning.
-            // Assuming Action::execute takes &mut C, not &mut self.
-            let actions_to_run = actions.clone(); // Clone Vec<Action>
-            let mut context_guard = context.write().await;
+            let actions_to_run = actions.clone();
             for action in actions_to_run {
-                // Iterate over cloned actions
-                action.execute(&mut *context_guard, event).await;
+                action.execute(context.clone(), event).await;
             }
-            // Drop guard explicitly after all actions for this state
-            drop(context_guard);
             log::debug!("Finished entry actions for {}", state_id);
         }
         Ok(())
@@ -579,17 +560,12 @@ where
         context: Arc<RwLock<C>>,
     ) -> Result<(), Error> {
         let id_str = state_id.to_string();
-        // Use immutable borrow of self.exit_actions
         if let Some(actions) = self.exit_actions.get(&id_str) {
             log::debug!("Executing exit actions for {}", state_id);
-            let actions_to_run = actions.clone(); // Clone Vec<Action>
-            let mut context_guard = context.write().await;
+            let actions_to_run = actions.clone();
             for action in actions_to_run {
-                // Iterate over cloned actions
-                action.execute(&mut *context_guard, event).await;
+                action.execute(context.clone(), event).await;
             }
-            // Drop guard explicitly after all actions for this state
-            drop(context_guard);
             log::debug!("Finished exit actions for {}", state_id);
         }
         Ok(())

@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use uuid::Uuid;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Represents a transition between states
 #[derive(Clone, Serialize, Deserialize)]
@@ -53,7 +55,7 @@ where
 impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static + Default,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Create a new transition
@@ -151,9 +153,9 @@ where
     }
 
     /// Execute this transition's actions
-    pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
+    pub async fn execute_actions(&self, context: Arc<RwLock<C>>, event: &E) -> Result<()> {
         for action in &self.actions {
-            action.execute(context, event).await;
+            action.execute(context.clone(), event).await;
         }
         Ok(())
     }
@@ -215,7 +217,7 @@ pub enum TransitionType {
 
 trait TransitionTrait<C, E> {
     fn is_enabled(&self, context: &C, event: &E) -> bool;
-    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>;
+    async fn execute_actions(&self, context: Arc<RwLock<C>>, event: &E) -> Result<()>;
 }
 
 impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
@@ -233,7 +235,7 @@ where
 
     /// Execute all actions associated with this transition
     #[tracing::instrument(skip(self, context))]
-    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
+    async fn execute_actions(&self, context: Arc<RwLock<C>>, event: &E) -> Result<()> {
         // Directly call the inherent method
         self::Transition::execute_actions(self, context, event).await
     }

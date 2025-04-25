@@ -5,6 +5,8 @@ use rustate::{
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tokio; // Need tokio runtime for async main
+use tokio::sync::RwLock; // Import RwLock
+use std::sync::Arc; // Import Arc for shared ownership
 
 // Define a custom Event type
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -126,42 +128,42 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     // paused.parent = Some("player".to_string()); // Remove manual parent setting
 
     // Create actions first
-    let log_power_on = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_power_on = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Power ON - Player ready")
     });
-    let log_power_off = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_power_off = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Power OFF")
     });
-    let log_playing = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_playing = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Playing track")
     });
-    let log_stopped = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_stopped = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Stopped")
     });
-    let log_paused = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_paused = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Paused")
     });
-    let log_double_speed = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_double_speed = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Playing at double speed")
     });
-    let log_normal_speed = Action::from_fn(|_ctx: &mut Context, _evt: &MusicEvent| async {
+    let log_normal_speed = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
         println!("Playing at normal speed")
     });
-    let next_track_action = Action::from_fn(|ctx: &mut Context, _evt: &MusicEvent| async move {
-        let current_track = ctx.get::<usize>("track").unwrap_or(0);
+    let next_track_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+        let current_track = ctx_arc.read().await.get::<usize>("track").unwrap_or(0);
         let next_track = current_track + 1;
         println!("Changing to track {}", next_track);
-        let _ = ctx.set("track", next_track);
+        let _ = ctx_arc.write().await.set("track", next_track); // Assign to _
     });
-    let prev_track_action = Action::from_fn(|ctx: &mut Context, _evt: &MusicEvent| async move {
-        let current_track = ctx.get::<usize>("track").unwrap_or(0);
+    let prev_track_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+        let current_track = ctx_arc.read().await.get::<usize>("track").unwrap_or(0);
         let prev_track = if current_track > 0 {
             current_track - 1
         } else {
             0
         };
         println!("Changing to track {}", prev_track);
-        let _ = ctx.set("track", prev_track);
+        let _ = ctx_arc.write().await.set("track", prev_track); // Assign to _
     });
 
 

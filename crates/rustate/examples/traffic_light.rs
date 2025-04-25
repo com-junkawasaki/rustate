@@ -5,6 +5,8 @@ use rustate::{
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tokio::time::{sleep, Duration};
+use tokio::sync::RwLock;
+use std::sync::Arc;
 
 // Define Event Enum
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -66,15 +68,15 @@ async fn create_traffic_light() -> rustate::Result<Machine<Context, TrafficEvent
     let red = State::new(red_id.clone());
 
     // Define some actions
-    let log_green = Action::from_fn(|_ctx: &mut Context, _evt: &TrafficEvent| async move {
+    let log_green = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &TrafficEvent| async move {
         println!("Entering GREEN state - Go!")
     });
 
-    let log_yellow = Action::from_fn(|_ctx: &mut Context, _evt: &TrafficEvent| async move {
+    let log_yellow = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &TrafficEvent| async move {
         println!("Entering YELLOW state - Slow down!")
     });
 
-    let log_red = Action::from_fn(|_ctx: &mut Context, _evt: &TrafficEvent| async move {
+    let log_red = Action::from_fn(|_ctx_arc: Arc<RwLock<Context>>, _evt: &TrafficEvent| async move {
         println!("Entering RED state - Stop!")
     });
 

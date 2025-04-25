@@ -4,10 +4,11 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Represents an action to be executed
 pub type ActionFn<C, E> =
-    Arc<dyn Fn(&mut C, &E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+    Arc<dyn Fn(Arc<RwLock<C>>, &E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Represents an action to be executed
 #[derive(Clone, Serialize, Deserialize)]
@@ -39,25 +40,25 @@ impl<C, E> Debug for Action<C, E> {
 
 impl<C, E> Action<C, E>
 where
-    C: Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone,
     E: EventTrait + Send + Sync + 'static,
 {
     /// Create a new action from a function
     pub fn from_fn<F, Fut>(f: F) -> Self
     where
-        F: Fn(&mut C, &E) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<RwLock<C>>, &E) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let action_fn: ActionFn<C, E> = Arc::new(move |ctx, evt| Box::pin(f(ctx, evt)));
+        let action_fn: ActionFn<C, E> = Arc::new(move |ctx_arc, evt| Box::pin(f(ctx_arc, evt)));
         Self {
             action_type: ActionType::Function(action_fn),
         }
     }
 
     /// Execute the action
-    pub async fn execute(&self, context: &mut C, event: &E) {
+    pub async fn execute(&self, context_arc: Arc<RwLock<C>>, event: &E) {
         match &self.action_type {
-            ActionType::Function(f) => f(context, event).await,
+            ActionType::Function(f) => f(context_arc, event).await,
         }
     }
 }
@@ -77,9 +78,9 @@ pub trait IntoAction<C, E> {
 // Implement IntoAction for functions
 impl<C, E, F, Fut> IntoAction<C, E> for F
 where
-    F: Fn(&mut C, &E) -> Fut + Send + Sync + 'static,
+    F: Fn(Arc<RwLock<C>>, &E) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
-    C: Send + Sync + 'static,
+    C: Send + Sync + 'static + Default + Clone,
     E: EventTrait + Send + Sync + 'static,
 {
     fn into_action(self) -> Action<C, E> {
