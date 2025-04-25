@@ -109,6 +109,12 @@ pub enum StateError {
     /// Failed to spawn actor task
     #[error("Failed to spawn actor task: {0}")]
     SpawnError(String),
+    /// Invalid state
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+    /// Feature not implemented
+    #[error("Feature not implemented: {0}")]
+    NotImplemented(String),
 }
 
 /// Result type for operations that can fail

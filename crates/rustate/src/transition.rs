@@ -16,7 +16,6 @@ use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use thiserror::Error;
-use uuid::Uuid;
 
 /// Represents a transition between states
 #[derive(Clone, Serialize, Deserialize)]
@@ -34,7 +33,7 @@ where
         + 'static
         + Clone
         + Eq
-        + Debug
+        + fmt::Debug
         + Serialize
         + DeserializeOwned,
 {
@@ -74,7 +73,7 @@ where
         + 'static
         + Clone
         + Eq
-        + Debug
+        + fmt::Debug
         + Serialize
         + DeserializeOwned,
 {
@@ -129,14 +128,15 @@ where
             + 'static
             + Clone
             + Eq
-            + Debug
+            + fmt::Debug
             + Serialize
             + DeserializeOwned,
+        C: Default,
     {
         // Use Transition::new for internal transitions as well
         Transition::new(
             source,                   // source
-            None,                     // target (None for internal)
+            None::<S>,                // target (None for internal) with type hint
             Some(event),              // event
             None,                     // guard
             vec![],                   // actions
@@ -151,7 +151,9 @@ where
     }
 
     /// Add an action to this transition
-    pub fn with_action(mut self, action: impl IntoAction<C, E>) -> Self {
+    pub fn with_action(mut self, action: impl IntoAction<C, E>) -> Self
+    where C: Default
+    {
         self.actions.push(action.into_action());
         self
     }
@@ -171,9 +173,11 @@ where
 
     /// Execute this transition's actions
     #[async_recursion]
-    pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
+    pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>
+    where C: Default
+    {
         for action in &self.actions {
-            action.execute(context, event).await?;
+            action.execute(context, event).await;
         }
         Ok(())
     }
@@ -196,7 +200,7 @@ where
         + 'static
         + Clone
         + Eq
-        + Debug
+        + fmt::Debug
         + Serialize
         + DeserializeOwned,
 {
@@ -222,7 +226,7 @@ where
         + 'static
         + Clone
         + Eq
-        + Debug
+        + fmt::Debug
         + Serialize
         + DeserializeOwned,
 {
@@ -244,7 +248,7 @@ where
         + 'static
         + Clone
         + Eq
-        + Debug
+        + fmt::Debug
         + Serialize
         + DeserializeOwned,
 {
@@ -265,22 +269,24 @@ trait TransitionTrait<C, E> {
 impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
 where
     S: StateTrait + Send + Sync + 'static,
-    C: Send + Sync + 'static,
-    E: EventTrait + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static,
+    E: EventTrait + Send + Sync + 'static + fmt::Debug + Clone + Eq + Serialize + DeserializeOwned,
 {
     /// Check if the transition guard allows the transition
     async fn is_enabled(&self, context: &C, event: &E) -> bool {
         if let Some(guard) = &self.guard {
-            guard.check(context, event).await
+            guard.check(context, event)
         } else {
             true
         }
     }
 
     /// Execute all actions associated with this transition
-    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()> {
+    async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>
+    where C: Default
+    {
         for action in &self.actions {
-            action.execute(context, event).await?;
+            action.execute(context, event).await;
         }
         Ok(())
     }

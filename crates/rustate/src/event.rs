@@ -92,9 +92,9 @@ impl IntoEvent for &str {
     }
 }
 
-impl IntoEvent for String {
-    fn into_event(self) -> Event {
-        Event::new(self)
+impl From<&str> for Event {
+    fn from(s: &str) -> Self {
+        Event::new(s)
     }
 }
 
