@@ -1,9 +1,9 @@
 use crate::action::Action;
+use crate::transition::Transition;
 use crate::{Context, Event, EventTrait};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::transition::Transition;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;

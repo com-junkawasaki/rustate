@@ -8,15 +8,18 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
+use futures::FutureExt;
+use log;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{self, Debug, Display};
+use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::future::Future;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
@@ -39,8 +42,7 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent
-        + Default,
+        + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -55,8 +57,9 @@ where
     pub initial: S,
     /// Current active state IDs
     pub current_states: HashSet<S>,
-    /// Current context data
-    pub context: C,
+    /// Current context data wrapped in Arc<RwLock>
+    #[serde(skip)]
+    pub context: Arc<RwLock<C>>,
     /// History states mapping (state id -> last active child)
     #[serde(default)]
     pub(crate) history: HashMap<String, S>,
@@ -89,8 +92,7 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent
-        + Default,
+        + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
@@ -103,7 +105,7 @@ where
             initial,
             entry_actions,
             exit_actions,
-            context,
+            context_opt,
             _phantom_e: _,
             _phantom_o: _,
         } = builder;
@@ -142,7 +144,9 @@ where
             return Err(Error::StateNotFound(initial.to_string()));
         }
 
-        let initial_context = context.unwrap_or_default();
+        // Wrap context in Arc<RwLock>
+        let initial_context = context_opt.unwrap_or_default();
+        let context_rw = Arc::new(RwLock::new(initial_context));
 
         let mut final_entry_actions = entry_actions;
         let mut final_exit_actions = exit_actions;
@@ -173,7 +177,7 @@ where
             _phantom_e: PhantomData,
             _phantom_o: PhantomData,
             current_states: HashSet::new(),
-            context: initial_context,
+            context: context_rw,
         };
 
         machine.initialize(&initial).await?;
@@ -195,7 +199,11 @@ where
         let current_state_ids = self.current_states.clone();
         let mut executed = false;
         let mut valid_transitions = Vec::new();
-        let current_context = self.context.clone();
+
+        // Read context once using Arc<RwLock>
+        let current_context_locked = self.context.read().await;
+        let current_context_cloned = (*current_context_locked).clone(); // Clone the inner C
+        drop(current_context_locked); // Release read lock quickly
 
         for state_id in current_state_ids.iter() {
             // Find direct transitions
@@ -203,7 +211,7 @@ where
                 let stream = stream::iter(state_transitions)
                     .filter(|t| futures::future::ready(t.matches_event(&event)))
                     .then(|t| {
-                        let context_clone = current_context.clone();
+                        let context_clone = current_context_cloned.clone(); // Use cloned C
                         let event_clone = event.clone();
                         async move {
                             if t.is_enabled(&context_clone, &event_clone).await {
@@ -220,7 +228,7 @@ where
             if let Some(wildcard_transitions) = self.transitions.get(&S::from("*".to_string())) {
                 let stream = stream::iter(wildcard_transitions)
                     .then(|t| {
-                        let context_clone = current_context.clone();
+                        let context_clone = current_context_cloned.clone(); // Use cloned C
                         let event_clone = event.clone();
                         async move {
                             if t.is_enabled(&context_clone, &event_clone).await {
@@ -231,12 +239,13 @@ where
                         }
                     })
                     .filter_map(|t| futures::future::ready(t));
-                 valid_transitions.extend(stream.collect::<Vec<_>>().await);
+                valid_transitions.extend(stream.collect::<Vec<_>>().await);
             }
         }
 
         if let Some(transition) = valid_transitions.into_iter().next() {
-            self.execute_transition(&transition, &current_state_ids, &event).await?;
+            self.execute_transition(&transition, &current_state_ids, &event)
+                .await?;
             executed = true;
         }
 
@@ -250,206 +259,334 @@ where
         current_state_ids: &HashSet<S>,
         event: &E,
     ) -> Result<()> {
-        let mut states_to_exit = HashSet::new();
-        let mut states_to_enter = HashSet::new();
-        let target_state_id_opt = transition.target.as_ref();
-
-        if transition.transition_type == TransitionType::External && target_state_id_opt.is_some() {
-            let target_state_id = target_state_id_opt.unwrap();
-            // Find least common compound ancestor (LCCA)
-            // LCCA calculation might need adjustment based on source state
-            let source_state_id = &transition.source; // Use source from transition
-            let lcca_id_opt = self.find_lcca(source_state_id, target_state_id);
-
-            // Exit states from current up to LCCA
-            let mut exit_queue = VecDeque::from_iter(current_state_ids.clone());
-            while let Some(state_to_check) = exit_queue.pop_front() {
-                 if self.is_descendant(&state_to_check, source_state_id) {
-                     let mut current_exit = Some(state_to_check);
-                     while let Some(state_to_exit) = current_exit {
-                         if Some(&state_to_exit) == lcca_id_opt {
-                             break;
-                         }
-                         states_to_exit.insert(state_to_exit.clone());
-                         current_exit = self.states.get(&state_to_exit).and_then(|s| s.parent.clone());
-                     }
-                 }
+        let target_states = match &transition.target {
+            Some(target) => {
+                if !self.states.contains(target) {
+                    return Err(StateError::TargetStateNotFound(target.to_string()).into());
+                }
+                Some(target.clone())
             }
-            
-            // Enter states from LCCA down to target
-            let mut entry_queue = VecDeque::new();
-            let mut current_entry = Some(target_state_id.clone());
-            while let Some(state_to_enter) = current_entry {
-                 if Some(&state_to_enter) == lcca_id_opt {
-                     break;
-                 }
-                 entry_queue.push_front(state_to_enter.clone());
-                 current_entry = self.states.get(&state_to_enter).and_then(|s| s.parent.clone());
-            }
-            states_to_enter = entry_queue.into_iter().collect();
+            None => None, // Targetless transition
+        };
 
+        // 1. Find the LCCA (Least Common Compound Ancestor)
+        // For transitions originating from the machine root (no source specified in transition def)
+        // or for targetless transitions, LCCA is implicitly the root.
+        let source_state_id = transition.source.as_ref().unwrap_or(&self.initial); // Assume root if source is None
+        let lcca_id = target_states
+            .as_ref()
+            .and_then(|target_id| self.find_lcca(source_state_id, target_id));
+
+        // 2. Determine states to exit
+        let mut exit_states = HashSet::new();
+        for current_id in current_state_ids {
+            // Only exit states that are descendants of the LCCA (or all if LCCA is root)
+            // For external transitions, the source state itself should also be exited if it's an ancestor of the target within LCCA boundary
+            if let Some(lcca) = lcca_id {
+                if self.is_descendant(current_id, lcca) && current_id != lcca {
+                    // For external transitions, exit source even if it's the LCCA?
+                    // Let's stick to exiting only proper descendants for now.
+                    // External transition handling might need finer logic here based on source/target relationship to LCCA.
+                    if transition.transition_type == TransitionType::External
+                        || self.is_descendant(current_id, source_state_id)
+                    {
+                        exit_states.insert(current_id.clone());
+                    }
+                } else if transition.transition_type == TransitionType::External
+                    && current_id == lcca
+                    && self.is_ancestor(target_states.as_ref().unwrap(), lcca)
+                {
+                    // Special case for external transition where LCCA is the source state
+                    exit_states.insert(current_id.clone());
+                }
+            } else {
+                // If no LCCA (e.g., targetless or root transition), exit all descendants of the source.
+                if self.is_descendant(current_id, source_state_id) {
+                    exit_states.insert(current_id.clone());
+                }
+            }
         }
 
-        // Execute exit actions
-        let exit_futures: Vec<_> = states_to_exit.iter().map(|id| self.exit_state(id, event)).collect();
+        // Refine exit states based on transition type (especially for external)
+        if transition.transition_type == TransitionType::External {
+            if let Some(source) = &transition.source {
+                if exit_states.contains(source)
+                    || (lcca_id == Some(source) && target_states.is_some())
+                {
+                    // Ensure source is exited for external
+                    exit_states.insert(source.clone());
+                } else if lcca_id.map_or(false, |lcca| self.is_ancestor(source, lcca)) {
+                    exit_states.insert(source.clone());
+                }
+            }
+        }
+
+        // 3. Execute exit actions and recursive exit
+        let mut exit_futures = Vec::new();
+        let context_clone = self.context.clone(); // Clone Arc for passing to async blocks
+        for id in &exit_states {
+            // Pass context clone here
+            exit_futures.push(self.exit_state(id, event, context_clone.clone()).boxed());
+        }
+        // Execute exits concurrently
         let exit_results = futures::future::join_all(exit_futures).await;
-        for result in exit_results { result?; }
+        // Propagate the first error encountered during exit
+        for result in exit_results {
+            result?;
+        }
 
-        // Execute transition actions
-        transition.execute_actions(&mut self.context.write().await, event).await?;
+        // 3.5 Update history for exited states *after* exiting
+        for id in &exit_states {
+            self.update_history_on_exit(id);
+        }
 
-        // Execute entry actions
-        let entry_futures: Vec<_> = states_to_enter.iter().map(|id| self.enter_state(id, event)).collect();
-        let entry_results = futures::future::join_all(entry_futures).await;
-        for result in entry_results { result?; }
+        // 4. Execute transition actions (if any)
+        if let Some(actions) = &transition.actions {
+            let mut context_guard = self.context.write().await;
+            for action in actions {
+                action.execute(&mut *context_guard, event).await;
+            }
+            // Drop guard explicitly to release lock before entering states
+            drop(context_guard);
+        }
+
+        // 5. Determine states to enter
+        let mut enter_states = HashSet::new();
+        if let Some(target_id) = target_states {
+            // Add target and its ancestors up to (but not including) the LCCA
+            let mut current = Some(target_id.clone());
+            while let Some(id) = current {
+                if let Some(lcca) = lcca_id {
+                    // Stop if we reach LCCA, unless it's an internal transition *within* LCCA
+                    if id == *lcca {
+                        // If it's an internal transition and target is LCCA itself, don't enter it again.
+                        // If target is a descendant of LCCA, LCCA should not be entered.
+                        if transition.transition_type == TransitionType::Internal
+                            && &target_id == lcca
+                        {
+                            // Don't enter LCCA on internal transition targeting LCCA
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                enter_states.insert(id.clone());
+                current = self.get_parent_id(&id);
+            }
+
+            // For external transitions, if LCCA was exited, it needs to be re-entered if it's an ancestor of the target
+            if transition.transition_type == TransitionType::External {
+                if let Some(lcca) = lcca_id {
+                    if exit_states.contains(lcca) && self.is_ancestor(&target_id, lcca) {
+                        enter_states.insert(lcca.clone());
+                    }
+                }
+            }
+        }
+
+        // 6. Execute entry actions and recursive entry
+        let mut enter_futures = Vec::new();
+        let context_clone = self.context.clone(); // Clone Arc for passing to async blocks
+        for id in &enter_states {
+            // Pass context clone here
+            enter_futures.push(self.enter_state(id, event, context_clone.clone()).boxed());
+        }
+        // Execute entries concurrently
+        let enter_results = futures::future::join_all(enter_futures).await;
+        // Propagate the first error encountered during entry
+        for result in enter_results {
+            result?;
+        }
+
+        // 7. Update current_states
+        // Remove exited states (important: use the final exit_states set)
+        self.current_states.retain(|id| !exit_states.contains(id));
+        // Add entered states
+        self.current_states.extend(enter_states);
+
+        // If targetless transition, current_states remains modified by exits only.
 
         Ok(())
     }
 
-    /// Enter a state and its initial children recursively
-    async fn enter_state(&mut self, state_id: &S, event: &E) -> Result<()> {
-        // Ensure the state exists before proceeding
-        let state_exists = self.states.contains(state_id);
-        if !state_exists {
-            return Err(Error::StateNotFound(state_id.to_string()));
-        }
+    /// Enter a state and its children recursively
+    async fn enter_state(&self, state_id: &S, event: &E, context: Arc<RwLock<C>>) -> Result<()> {
+        log::debug!("Entering state: {}", state_id);
 
-        // Add state to current states
-        self.current_states.insert(state_id.clone());
+        // Add state to current_states immediately? No, let execute_transition handle the final set.
 
-        // Execute entry actions for this state
-        self.execute_entry_actions(state_id, event).await?;
+        // Execute entry actions for this state first
+        self.execute_entry_actions(state_id, event, context.clone())
+            .await?;
 
         // --- Handle entering child states --- Start
-        // Clone necessary info to avoid borrowing issues
         let state_info = match self.states.get(state_id) {
             Some(s) => Some((
                 s.state_type.clone(),
                 s.initial.clone(),
                 s.history.clone(),
-                s.children.keys().cloned().collect::<Vec<_>>(),
-            )), // Clone required fields
-            None => None, // Should not happen due to check above, but handle defensively
+                s.children.keys().cloned().collect::<Vec<_>>(), // Use keys directly if S: From<String>
+            )),
+            None => return Err(StateError::StateNotFound(state_id.to_string()).into()), // Return error if state doesn't exist
         };
 
         if let Some((state_type, initial_child_opt, history_type_opt, child_keys)) = state_info {
             match state_type {
                 StateType::Compound => {
-                    // Determine the child state to enter
                     let child_to_enter: Option<S> = if let Some(history_type) = history_type_opt {
-                        let state_id_str = state_id.to_string(); // Use Display impl of S
+                        let state_id_str = state_id.to_string();
                         match history_type {
-                            // Shallow history: Use last active direct child
-                            HistoryType::Shallow => self.history.get(&state_id_str).cloned(), // Clone the value
-                            // Deep history: TODO: Implement deep history logic (needs tracking nested history)
+                            HistoryType::Shallow => self.history.get(&state_id_str).cloned(),
                             HistoryType::Deep => {
-                                // For now, fallback to initial if deep history not found or implemented
+                                // TODO: Implement proper deep history logic
+                                // Needs to traverse down the history map based on nested states
                                 self.history
                                     .get(&state_id_str)
                                     .cloned()
-                                    .or(initial_child_opt.clone()) // Clone initial
+                                    .or(initial_child_opt.clone())
                             }
                         }
-                        .or(initial_child_opt.clone()) // Fallback to initial if history is empty
+                        .or(initial_child_opt.clone())
                     } else {
-                        initial_child_opt.clone() // Use the defined initial state if no history
+                        initial_child_opt.clone()
                     };
 
                     if let Some(child_id) = child_to_enter {
-                        self.enter_state(&child_id, event).await?; // Recurse into child
+                        log::debug!("Entering child {} of {}", child_id, state_id);
+                        // Pass context down recursively
+                        self.enter_state(&child_id, event, context).await?;
                     }
                 }
                 StateType::Parallel => {
-                    // Enter all child states in parallel
-                    let mut enter_futures: Vec<Pin<Box<dyn Future<Output = Result<(), StateError>> + Send>>> = Vec::new();
-                    // Iterate over cloned keys to avoid borrowing self.states within the loop
+                    log::debug!("Entering parallel children of {}", state_id);
+                    let mut enter_futures = Vec::new();
                     for child_key in child_keys {
-                        // Assuming child_key (String) can be converted back to S
-                        // This might need adjustment based on how S is defined and used as HashMap key
-                        let child_id = S::from(child_key); // Use From<String> bound
-                        enter_futures.push(Box::pin(self.enter_state(&child_id, event)));
+                        let child_id = S::from(child_key); // Assuming S: From<String>
+                        log::debug!("Entering parallel child: {}", child_id);
+                        // Pass context down recursively, clone Arc for each future
+                        enter_futures.push(Box::pin(self.enter_state(
+                            &child_id,
+                            event,
+                            context.clone(),
+                        )));
                     }
-                    // Await all parallel entry futures
-                    let results: Vec<Result<(), StateError>> = futures::future::join_all(enter_futures).await;
+                    let results: Vec<Result<(), StateError>> =
+                        futures::future::join_all(enter_futures).await;
+                    // Check all results, return first error
                     for result in results {
                         result?;
                     }
+                    log::debug!("Finished entering parallel children of {}", state_id);
                 }
-                _ => {} // Normal, Final states have no children to enter
+                _ => {} // Normal, Final states
             }
         }
         // --- Handle entering child states --- End
-
+        log::debug!("Finished entering state: {}", state_id);
         Ok(())
     }
 
     /// Exit a state and its active children recursively
-    async fn exit_state(&mut self, state_id: &S, event: &E) -> Result<()> {
+    async fn exit_state(&self, state_id: &S, event: &E, context: Arc<RwLock<C>>) -> Result<()> {
+        log::debug!("Exiting state: {}", state_id);
         // --- Handle exiting child states first (recursion/iteration needed) --- Start
-        // Clone necessary info to avoid borrowing issues
-        let children_to_exit = self
+        // Find currently active states that are direct children of state_id
+        // Need immutable borrow of self.current_states and self.states here
+        let active_children_to_exit = self
             .current_states
             .iter()
-            .filter_map(|current_id| {
-                // Check if current_id is a descendant of state_id
-                // This requires traversing the parent links up from current_id
-                let mut parent_opt = self.states.get(current_id).and_then(|s| s.parent.clone());
-                while let Some(p_id) = parent_opt {
-                    if &p_id == state_id {
-                        return Some(current_id.clone()); // Found a child to exit
-                    }
-                    parent_opt = self.states.get(&p_id).and_then(|s| s.parent.clone());
-                }
-                None
-            })
+            .filter(|current_id| self.get_parent_id(current_id).as_ref() == Some(state_id))
+            .cloned()
             .collect::<Vec<_>>();
 
-        for child_id in children_to_exit {
-            self.exit_state(&child_id, event).await?; // Recurse into children
+        // Clone context for recursive calls
+        let context_clone = context.clone();
+        let mut exit_futures = Vec::new();
+        for child_id in active_children_to_exit {
+            log::debug!("Exiting child {} of {}", child_id, state_id);
+            // Pass context down recursively
+            exit_futures.push(
+                self.exit_state(&child_id, event, context_clone.clone())
+                    .boxed(),
+            );
         }
+        // Await all child exits before exiting the parent
+        let results: Vec<Result<(), StateError>> = futures::future::join_all(exit_futures).await;
+        // Check all results, return first error
+        for result in results {
+            result?; // Propagate errors
+        }
+        log::debug!("Finished exiting children of {}", state_id);
         // --- Handle exiting child states first --- End
 
-        // Ensure state still exists after potential child exits
-        if !self.states.contains(state_id) {
-            // Might have been removed if it was a child of a previously exited state
-            // This logic might need refinement depending on desired behavior.
-            return Ok(()); // Or potentially an error/warning
-        }
+        // Ensure state exists (immutable check)
+        // Removed check: If it's in current_states (implicitly checked by caller context), it should exist.
+        // If called directly, this check might be needed, but within transition flow it's less critical.
+        // if !self.states.contains(state_id) {
+        //     log::warn!("State {} not found during exit", state_id);
+        //     return Ok(());
+        // }
 
-        // Update history before executing exit actions and removing state
-        self.update_history_on_exit(state_id);
+        // Removed: Update history - moved to execute_transition
+        // self.update_history_on_exit(state_id);
 
         // Execute exit actions for this state
-        self.execute_exit_actions(state_id, event).await?;
+        self.execute_exit_actions(state_id, event, context).await?;
 
-        // Remove state from current states
-        self.current_states.remove(state_id);
+        // Removed: Remove state from current states - handled in execute_transition
+        // self.current_states.remove(state_id);
 
+        log::debug!("Finished exiting state: {}", state_id);
         Ok(())
     }
 
     /// Execute entry actions for a state
-    async fn execute_entry_actions(&mut self, state_id: &S, event: &E) -> Result<(), Error> {
+    async fn execute_entry_actions(
+        &self,
+        state_id: &S,
+        event: &E,
+        context: Arc<RwLock<C>>,
+    ) -> Result<(), Error> {
         let id_str = state_id.to_string();
-        // Clone actions to avoid borrowing `self` mutably while iterating
-        if let Some(actions) = self.entry_actions.get(&id_str).cloned() {
-            for action in actions {
-                // Execute action with mutable access to context
-                action.execute(&mut self.context, event).await;
+        // Use immutable borrow of self.entry_actions
+        if let Some(actions) = self.entry_actions.get(&id_str) {
+            log::debug!("Executing entry actions for {}", state_id);
+            // Actions are cloned implicitly if Action struct doesn't borrow self,
+            // otherwise, we need actions.clone() if actions require cloning.
+            // Assuming Action::execute takes &mut C, not &mut self.
+            let actions_to_run = actions.clone(); // Clone Vec<Action>
+            let mut context_guard = context.write().await;
+            for action in actions_to_run {
+                // Iterate over cloned actions
+                action.execute(&mut *context_guard, event).await;
             }
+            // Drop guard explicitly after all actions for this state
+            drop(context_guard);
+            log::debug!("Finished entry actions for {}", state_id);
         }
         Ok(())
     }
 
     /// Execute exit actions for a state
-    async fn execute_exit_actions(&mut self, state_id: &S, event: &E) -> Result<(), Error> {
+    async fn execute_exit_actions(
+        &self,
+        state_id: &S,
+        event: &E,
+        context: Arc<RwLock<C>>,
+    ) -> Result<(), Error> {
         let id_str = state_id.to_string();
-        // Clone actions to avoid borrowing `self` mutably while iterating
-        if let Some(actions) = self.exit_actions.get(&id_str).cloned() {
-            for action in actions {
-                // Execute action with mutable access to context
-                action.execute(&mut self.context, event).await;
+        // Use immutable borrow of self.exit_actions
+        if let Some(actions) = self.exit_actions.get(&id_str) {
+            log::debug!("Executing exit actions for {}", state_id);
+            let actions_to_run = actions.clone(); // Clone Vec<Action>
+            let mut context_guard = context.write().await;
+            for action in actions_to_run {
+                // Iterate over cloned actions
+                action.execute(&mut *context_guard, event).await;
             }
+            // Drop guard explicitly after all actions for this state
+            drop(context_guard);
+            log::debug!("Finished exit actions for {}", state_id);
         }
         Ok(())
     }
@@ -592,25 +729,30 @@ where
         }
         false
     }
+
+    fn is_ancestor(&self, ancestor_id: &S, descendant_id: &S) -> bool {
+        let mut current = Some(ancestor_id);
+        while let Some(id) = current {
+            if id == descendant_id {
+                return true;
+            }
+            current = self.states.get(id).and_then(|s| s.parent.as_ref());
+        }
+        false
+    }
 }
 
 /// Builder for creating Machine instances
 #[derive(Clone)]
-pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
+pub struct MachineBuilder<C, E, S, O>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
+    C: ContextTrait + Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
     E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Default
-        + Eq
         + Serialize
         + DeserializeOwned
         + fmt::Debug
         + IntoEvent,
-    S: StateTrait + Display + PartialEq + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
@@ -622,7 +764,7 @@ where
     /// Initial state id (Use S directly)
     pub initial: S,
     /// Context for the machine
-    pub context: Option<C>,
+    pub context_opt: Option<C>,
     /// Entry actions for states
     pub(crate) entry_actions: HashMap<String, Vec<Action<C, E>>>,
     /// Exit actions for states
@@ -634,19 +776,13 @@ where
 
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
+    C: ContextTrait + Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
     E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Default
-        + Eq
         + Serialize
         + DeserializeOwned
         + fmt::Debug
         + IntoEvent,
-    S: StateTrait + Display + PartialEq + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new MachineBuilder
@@ -656,7 +792,7 @@ where
             states: StateCollection::new(),
             transitions: Vec::new(),
             initial,
-            context: None,
+            context_opt: None,
             entry_actions: HashMap::new(),
             exit_actions: HashMap::new(),
             _phantom_e: PhantomData,
@@ -696,7 +832,7 @@ where
 
     /// Set the initial context for the machine
     pub fn context(mut self, context: C) -> Self {
-        self.context = Some(context);
+        self.context_opt = Some(context);
         self
     }
 
@@ -748,64 +884,5 @@ where
     }
     pub fn current_states(&self) -> &HashSet<S> {
         &self.current_states
-    }
-}
-
-#[async_trait]
-impl<C, E, S, O, I, Q, R> ActorLogic<S, E, I, Q, R> for Machine<C, E, S, O>
-where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Default
-        + Eq
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + IntoEvent,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    I: Send + Sync + 'static + Default,
-    Q: Send + Sync + 'static,
-    R: Send + Sync + 'static,
-{
-    fn get_initial_snapshot(&self, _input: Option<I>) -> S {
-        self.initial.clone()
-    }
-
-    async fn handle_event(
-        &self,
-        _state: &mut S,
-        _context: &mut Context,
-        _event: &E,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    async fn handle_query(&self, _state: &S, _context: &Context, _query: Q) -> R {
-        panic!("Query handling not implemented for Machine as ActorLogic");
-    }
-
-    async fn decide(
-        &self,
-        _state: &S,
-        _context: &Context,
-        _snapshot: &Option<crate::actor::Snapshot<Context>>,
-    ) -> Result<Vec<E>, Error> {
-        Ok(vec![])
-    }
-
-    async fn transition(&self, _snapshot: S, event: E) -> Result<S, StateError> {
-        let mut temp_machine = self.clone();
-        let _ = temp_machine.send(event.clone()).await;
-        Ok(temp_machine
-            .current_states
-            .iter()
-            .next()
-            .cloned()
-            .unwrap_or_else(|| self.initial.clone()))
     }
 }

@@ -1,9 +1,9 @@
 use crate::{Context, EventTrait, Result};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 
 /// Represents an action to be executed
 pub type ActionFn<C, E> =
