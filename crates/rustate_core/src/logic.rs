@@ -3,34 +3,57 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-/// アクターの具体的な状態遷移ロジック、アクション、ガードなどをカプセル化するトレイト。
+/// Defines the core logic for state transitions, actions, and guards within an actor.
 ///
-/// 通常、`create_machine` マクロ（フェーズ2で実装予定）がこのトレイトを実装する
-/// ステートマシン構造体を自動生成します。
-/// 手動で実装することも可能ですが、マクロの使用が推奨されます。
+/// This trait encapsulates the behavior of a state machine. It determines how the actor
+/// moves between states and updates its context based on incoming events.
+///
+/// Typically, the `create_machine` macro (planned for Phase 2) will automatically generate
+/// a struct implementing this trait based on a declarative state machine definition.
+/// Manual implementation is possible but the macro approach is generally preferred for
+/// consistency and reduced boilerplate.
 #[async_trait]
 pub trait ActorLogic: Send + Sync + 'static {
-    /// アクターのコンテキスト（拡張状態）の型。ステートマシンが保持するデータ。
+    /// The type representing the actor's context (extended state).
+    /// This is the data the state machine holds and potentially modifies during transitions.
+    /// Context must be serializable, deserializable, cloneable, debuggable, sendable, and syncable.
     type Context: Send + Sync + Clone + Debug + Serialize + for<'de> Deserialize<'de>;
-    /// アクターが処理するイベントの型。`Actor` トレイトの `Event` と一致する必要があります。
+
+    /// The type representing the events that the actor logic processes.
+    /// This should typically match the `Event` type defined in the corresponding `Actor` trait implementation.
+    /// Events must be debuggable, sendable, syncable, serializable, and deserializable.
     type Event: Send + Sync + Debug + Serialize + for<'de> Deserialize<'de>;
-    /// アクターの状態を表す型（通常は enum）。
+
+    /// The type representing the possible states of the actor (usually an enum).
+    /// State must be serializable, deserializable, cloneable, debuggable, equatable, sendable, and syncable.
     type State: Send + Sync + Clone + Debug + PartialEq + Eq + Serialize + for<'de> Deserialize<'de>;
 
-    /// ステートマシンの初期状態と初期コンテキストを返します。
+    /// Returns the initial state and initial context for the state machine.
+    ///
+    /// This is called when the actor associated with this logic is started.
     fn initial(&self) -> (Self::State, Self::Context);
 
-    /// 特定の状態とコンテキストにおいて、指定されたイベントに対する遷移を実行します。
+    /// Executes a state transition based on the current state, context, and a received event.
+    ///
+    /// This is the core method where the state machine's transition rules are applied.
+    /// It may involve evaluating guards, executing actions, and determining the next state.
     ///
     /// # Arguments
-    /// * `state` - 現在の状態。
-    /// * `context` - 現在のコンテキスト。
-    /// * `event` - 受信したイベント。
+    ///
+    /// * `state` - The current state of the machine.
+    /// * `context` - The current context (data) associated with the state.
+    /// * `event` - The event that triggered the potential transition.
     ///
     /// # Returns
-    /// 遷移後の新しい状態とコンテキスト、またはエラー。
-    /// 状態やコンテキストが変化しない場合（例: ガードが偽、イベントが未処理）、
-    /// 現在の状態とコンテキストをそのまま返すか、特定の `NoTransition` エラーを返します。
+    ///
+    /// A `Result` containing:
+    /// * `Ok((Self::State, Self::Context))` - The new state and potentially updated context after the transition.
+    /// * `Err(ActorError)` - If an error occurred during the transition logic (e.g., an action failed).
+    ///
+    /// If no transition is defined for the given event in the current state (or if a guard condition fails),
+    /// this method should typically return `Ok((state, context))` (the current state and context unchanged).
+    /// A specific `ActorError` variant could potentially be used to indicate "no transition occurred",
+    /// but returning the current state is often sufficient.
     async fn transition(
         &self,
         state: Self::State,
@@ -38,21 +61,33 @@ pub trait ActorLogic: Send + Sync + 'static {
         event: Self::Event,
     ) -> Result<(Self::State, Self::Context), ActorError>;
 
-    // 将来的に追加される可能性のあるメソッド:
-    // - 状態 एंट्री/エグジットアクションの実行
-    // - 遷移アクションの実行
-    // - ガード条件の評価
+    // --- Potential Future Enhancements ---
+
+    /// Executes actions upon entering a state.
+    // async fn on_entry(&self, state: &Self::State, context: &mut Self::Context) -> Result<(), ActorError> { Ok(()) }
+
+    /// Executes actions upon exiting a state.
+    // async fn on_exit(&self, state: &Self::State, context: &mut Self::Context) -> Result<(), ActorError> { Ok(()) }
+
+    /// Evaluates guard conditions before executing a transition.
+    // async fn check_guard(&self, state: &Self::State, context: &Self::Context, event: &Self::Event) -> bool { true }
+
+    /// Executes actions associated with a specific transition.
+    // async fn execute_action(&self, state: &Self::State, context: &mut Self::Context, event: &Self::Event) -> Result<(), ActorError> { Ok(()) }
 }
 
-// ActorLogic を実装した具体的なステートマシンの例 (ダミー)
+// --- Example Dummy Implementation ---
 /*
 struct MyMachineLogic;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum MyState { Idle, Processing }
 
 #[async_trait]
 impl ActorLogic for MyMachineLogic {
     type Context = i32;
     type Event = String;
-    type State = MyState; // enum MyState { Idle, Processing }
+    type State = MyState;
 
     fn initial(&self) -> (Self::State, Self::Context) {
         (MyState::Idle, 0)
@@ -61,8 +96,12 @@ impl ActorLogic for MyMachineLogic {
     async fn transition(&self, state: Self::State, context: Self::Context, event: Self::Event)
         -> Result<(Self::State, Self::Context), ActorError>
     {
-        // ... 実際の遷移ロジック ...
-        Ok((state, context))
+        println!("Transitioning from {:?} with context {} on event \"{}\"", state, context, event);
+        match (state, event.as_str()) {
+            (MyState::Idle, "START") => Ok((MyState::Processing, context + 1)),
+            (MyState::Processing, "STOP") => Ok((MyState::Idle, context)),
+            (s, _) => Ok((s, context)), // No change for other events
+        }
     }
 }
 */

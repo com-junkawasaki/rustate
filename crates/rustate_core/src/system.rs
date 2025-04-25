@@ -1,17 +1,32 @@
 use crate::actor::Actor;
 use crate::actor_ref::ActorRef;
-use crate::spawn::{spawn_actor, DEFAULT_BUFFER_SIZE}; // 既存のspawnロジックと定数をインポート
+use crate::spawn::{spawn_actor, DEFAULT_BUFFER_SIZE}; // Import existing spawn logic and constant
 
-/// アクターシステムの基本的な実装。
-/// 主にトップレベルアクターの生成と管理のエントリーポイントとして機能します。
-#[derive(Debug, Clone)] // システムを複数箇所から参照できるように Clone を派生
+/// Represents a basic actor system, acting as an entry point for creating
+/// and potentially managing top-level actors.
+///
+/// An `ActorSystem` provides a scope or context for actors. While this implementation
+/// is minimal, a full-fledged actor system might handle configuration, supervision,
+/// actor discovery, logging, and lifecycle management.
+///
+/// Cloning the `ActorSystem` allows sharing the system context (e.g., for spawning
+/// actors from different parts of an application) without transferring ownership.
+#[derive(Debug, Clone)] // Clone allows the system handle to be shared.
 pub struct ActorSystem {
+    /// The name of the actor system, primarily for identification and logging.
     name: String,
-    // 将来的にシステム全体の設定や、管理対象のアクターへの参照などを持つ可能性あり
+    // Future extensions could include:
+    // - System-wide configuration (e.g., dispatchers, serializers).
+    // - A registry of top-level actors managed by the system.
+    // - Supervision strategies for top-level actors.
 }
 
 impl ActorSystem {
-    /// 指定された名前で新しいアクターシステムを作成します。
+    /// Creates a new `ActorSystem` with the specified name.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - A string slice representing the name of the system.
     pub fn new(name: &str) -> Self {
         println!("Initializing ActorSystem '{}'...", name);
         ActorSystem {
@@ -19,43 +34,60 @@ impl ActorSystem {
         }
     }
 
-    /// システムの名前を取得します。
+    /// Returns the name of the actor system.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// このシステム内に新しいトップレベルアクターを生成します。
+    /// Spawns a new top-level actor within this system.
     ///
-    /// アクターは独立した非同期タスクで実行されます。
+    /// This method utilizes the underlying `spawn_actor` function to create
+    /// the actor and run it in an independent asynchronous task.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `A`: The type of the actor, implementing `Actor` and `A::State: PartialEq`.
     ///
     /// # Arguments
-    /// * `actor` - 生成する `Actor` トレイトを実装したインスタンス。
-    /// * `buffer` - アクターのイベントキュー（メールボックス）のサイズ。
+    ///
+    /// * `actor` - An instance of the actor logic (`A`).
+    /// * `buffer` - The size of the actor's event queue (mailbox).
     ///
     /// # Returns
-    /// 生成されたアクターへの参照 (`ActorRef`)。
+    ///
+    /// An `ActorRef<A>` handle to the newly spawned actor.
     pub fn spawn<A: Actor>(&self, actor: A, buffer: usize) -> ActorRef<A>
     where
-        A::State: PartialEq, // spawn_actor が要求するため、この境界は必要
+        // This bound is required by the underlying spawn_actor function for logging.
+        A::State: PartialEq,
     {
         println!(
             "ActorSystem '{}' spawning actor with buffer size {}...",
             self.name, buffer
         );
-        // 既存のspawnロジックを呼び出す
+        // Delegate to the actual spawning logic.
         spawn_actor(actor, buffer)
     }
 
-    /// デフォルトのバッファサイズで新しいトップレベルアクターを生成します。
+    /// Spawns a new top-level actor within this system using the default buffer size.
+    ///
+    /// This is a convenience method that calls `spawn` with `DEFAULT_BUFFER_SIZE`.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `A`: The type of the actor, implementing `Actor` and `A::State: PartialEq`.
     ///
     /// # Arguments
-    /// * `actor` - 生成する `Actor` トレイトを実装したインスタンス。
+    ///
+    /// * `actor` - An instance of the actor logic (`A`).
     ///
     /// # Returns
-    /// 生成されたアクターへの参照 (`ActorRef`)。
+    ///
+    /// An `ActorRef<A>` handle to the newly spawned actor.
     pub fn spawn_default<A: Actor>(&self, actor: A) -> ActorRef<A>
     where
-        A::State: PartialEq, // spawn_actor が要求するため、この境界は必要
+        // This bound is required by the underlying spawn_actor function for logging.
+        A::State: PartialEq,
     {
         println!(
             "ActorSystem '{}' spawning actor with default buffer size...",
@@ -64,12 +96,22 @@ impl ActorSystem {
         self.spawn(actor, DEFAULT_BUFFER_SIZE)
     }
 
-    // 将来的に追加される可能性のあるメソッド:
-    // - システム全体のシャットダウン
-    // - アクターの検索（限定的なスコープで）
-    // - システムレベルの監視設定
+    // --- Potential Future Enhancements ---
+    //
+    // /// Initiates a graceful shutdown of the entire actor system.
+    // pub async fn shutdown(&self) { /* ... */ }
+    //
+    // /// Attempts to find an actor by its ID or name within the system.
+    // /// (Note: Actor discovery can be complex and might require a registry).
+    // pub fn find_actor<A: Actor>(&self, id: &str) -> Option<ActorRef<A>> { /* ... */ }
+    //
+    // /// Configures system-level monitoring or metrics.
+    // pub fn configure_monitoring(&mut self, config: MonitorConfig) { /* ... */ }
 }
 
-// ActorSystem 自体がスレッドセーフであることを示すマーカー (内容物に依存)
-// 現在の実装では name: String のみなので Send + Sync は自明。
-// 将来的に内部状態を持つ場合は注意が必要。
+// Note on Send + Sync for ActorSystem:
+// The current implementation only contains `name: String`, which is Send + Sync.
+// Therefore, `ActorSystem` itself is implicitly Send + Sync.
+// If internal state (like actor registries using `Arc<Mutex<...>>` or channels)
+// is added later, care must be taken to ensure the entire system remains Send + Sync
+// if required.

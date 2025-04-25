@@ -6,7 +6,10 @@ use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
 use syn::{braced, parse_macro_input, Error, Expr, Ident, LitStr, Token, Type};
 
-// Represents `FieldName: FieldValue` used in initial context
+/// Represents a `FieldName: FieldValue` pair used for defining the initial context.
+///
+/// This struct is used during parsing to capture the fields and their initial values
+/// provided within the `initial: { ... }` block of the macro input.
 #[derive(Clone)]
 struct InitialContextField {
     member: Ident,
@@ -25,7 +28,10 @@ impl Parse for InitialContextField {
     }
 }
 
-// Represents a single transition: EVENT: "TargetState" or EVENT: { target: "TargetState", actions: [...] }
+/// Represents a single transition definition within a state: `EVENT: "TargetState"`.
+///
+/// This struct captures the event identifier that triggers the transition and the
+/// string literal representing the target state's name.
 #[derive(Clone)]
 struct Transition {
     event_ident: Ident,
@@ -44,11 +50,13 @@ impl Parse for Transition {
     }
 }
 
-// Represents the definition of a single state, including its transitions
+/// Represents the definition of a single state, including its name and transitions.
+///
+/// Parses a block like `StateName { on: { EVENT1: "Target1", EVENT2: "Target2" } }`.
 #[derive(Clone)]
 struct StateDefinition {
     state_name: Ident,
-    transitions: Punctuated<Transition, Token![,]>,
+    transitions: Punctuated<Transition, Token![,]>
 }
 
 impl Parse for StateDefinition {
@@ -81,7 +89,11 @@ impl Parse for StateDefinition {
     }
 }
 
-// Represents the overall machine definition input
+/// Represents the overall structure of the `create_machine` macro input.
+///
+/// This struct holds all the parsed components of the machine definition,
+/// including its name, associated types (Context, Event, State), initial state,
+/// initial context, and state definitions.
 struct MachineDefinition {
     machine_name: Ident,
     context_type: Type,
@@ -154,7 +166,117 @@ impl Parse for MachineDefinition {
     }
 }
 
-/// XState v5 ライクな定義から ActorLogic を実装する構造体を生成するマクロ。
+/// Procedural macro to generate a state machine structure implementing `ActorLogic`.
+///
+/// This macro takes a definition resembling XState v5's machine configuration and
+/// generates a Rust struct that implements the `rustate_core::logic::ActorLogic` trait.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// use rustate_core::logic::ActorLogic;
+/// use rustate_macros::create_machine;
+/// use async_trait::async_trait;
+///
+/// #[derive(Debug, Clone, PartialEq)]
+/// pub enum LightState {
+///     Green,
+///     Yellow,
+///     Red,
+/// }
+///
+/// #[derive(Debug, Clone)]
+/// pub struct LightContext {
+///     timer: u32,
+/// }
+///
+/// #[derive(Debug, Clone)]
+/// pub enum LightEvent {
+///     TimerElapsed,
+///     PowerOutage,
+/// }
+///
+/// create_machine!(
+///     TrafficLightMachine, // Name of the generated struct
+///     Context: LightContext,
+///     Event: LightEvent,
+///     State: LightState,
+///     initial: LightState::Red { // Initial state and context
+///         timer: 0
+///     },
+///     states: { // State definitions
+///         Red {
+///             on: { // Transitions for the Red state
+///                 TimerElapsed: "Green"
+///             }
+///         },
+///         Yellow {
+///             on: {
+///                 TimerElapsed: "Red"
+///             }
+///         },
+///         Green {
+///             on: {
+///                 TimerElapsed: "Yellow"
+///             }
+///         }
+///     }
+/// );
+///
+/// // The macro generates:
+/// // #[derive(Debug, Clone, Default)]
+/// // pub struct TrafficLightMachine;
+/// //
+/// // #[async_trait]
+/// // impl ActorLogic for TrafficLightMachine {
+/// //     type Context = LightContext;
+/// //     type Event = LightEvent;
+/// //     type State = LightState;
+/// //
+/// //     fn initial(&self) -> (Self::State, Self::Context) {
+/// //         (LightState::Red, LightContext { timer: 0 })
+/// //     }
+/// //
+/// //     async fn transition(
+/// //         &self,
+/// //         state: Self::State,
+/// //         context: Self::Context,
+/// //         event: Self::Event,
+/// //     ) -> Result<(Self::State, Self::Context), ActorError> {
+/// //         match (state.clone(), event) {
+/// //             (LightState::Red, LightEvent::TimerElapsed { .. }) => Ok((LightState::Green, context)),
+/// //             (LightState::Red, _) => Ok((state, context)), // No transition for other events
+/// //             (LightState::Yellow, LightEvent::TimerElapsed { .. }) => Ok((LightState::Red, context)),
+/// //             (LightState::Yellow, _) => Ok((state, context)),
+/// //             (LightState::Green, LightEvent::TimerElapsed { .. }) => Ok((LightState::Yellow, context)),
+/// //             (LightState::Green, _) => Ok((state, context)),
+/// //         }
+/// //     }
+/// // }
+/// ```
+///
+/// # Arguments
+///
+/// The macro input follows this structure:
+///
+/// 1.  `MachineName`: The identifier for the generated state machine struct.
+/// 2.  `Context: Type`: The type used for the machine's context data.
+/// 3.  `Event: Type`: The enum type representing events the machine can process.
+/// 4.  `State: Type`: The enum type representing the possible states of the machine.
+/// 5.  `initial: StateVariant { field1: value1, ... }`: Specifies the initial state variant and the initial values for the context fields.
+/// 6.  `states: { StateName { on: { EVENT: "TargetState", ... } }, ... }`: Defines each state and its transitions.
+///     - `StateName`: An identifier matching a variant in the `State` enum.
+///     - `on: { ... }`: Contains the transition definitions for this state.
+///         - `EVENT: "TargetState"`: Maps an `Event` enum variant to the name (as a string literal) of the target `State` variant.
+///
+/// # Generated Code
+///
+/// The macro generates:
+/// - A unit struct named `MachineName` with `Debug`, `Clone`, and `Default` derives.
+/// - An `async_trait` implementation of `ActorLogic` for the `MachineName` struct:
+///     - Associated types `Context`, `Event`, and `State` are set to the provided types.
+///     - The `initial` method returns the specified initial state and context.
+///     - The `transition` method implements the state transitions based on the `states` definition. It matches on the current state and incoming event, returning the new state and unmodified context. If no transition is defined for a given event in the current state, it returns the current state and context.
 #[proc_macro]
 pub fn create_machine(input: TokenStream) -> TokenStream {
     let def = parse_macro_input!(input as MachineDefinition);
@@ -202,6 +324,8 @@ pub fn create_machine(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
+        /// Generated state machine logic struct.
+        /// Implements `rustate_core::logic::ActorLogic`.
         #[derive(Debug, Clone, Default)]
         pub struct #machine_name;
 
@@ -211,6 +335,7 @@ pub fn create_machine(input: TokenStream) -> TokenStream {
             type Event = #event_type;
             type State = #state_type;
 
+            /// Returns the initial state and context for the machine.
             fn initial(&self) -> (Self::State, Self::Context) {
                 (
                     #initial_state_value,
@@ -220,6 +345,18 @@ pub fn create_machine(input: TokenStream) -> TokenStream {
                 )
             }
 
+            /// Processes an event and transitions the machine to a new state if applicable.
+            ///
+            /// # Arguments
+            ///
+            /// * `state` - The current state of the machine.
+            /// * `context` - The current context of the machine.
+            /// * `event` - The event to process.
+            ///
+            /// # Returns
+            ///
+            /// A `Result` containing the new state and context, or an `ActorError`.
+            /// Currently, context is passed through unchanged.
             async fn transition(
                 &self,
                 state: Self::State,

@@ -2,15 +2,21 @@ use crate::actor::{Actor, ActorError};
 use std::fmt::Debug;
 use tokio::sync::mpsc;
 
-/// アクターへの参照を表し、アクターとのインタラクション（主にイベント送信）を提供します。
+/// Represents a reference to an actor, providing a way to interact with it,
+/// primarily by sending events.
 ///
-/// `ActorRef` はアクターインスタンスへの直接的なポインタではなく、
-/// アクターシステムの管理下にあるアクターへのハンドルです。
-/// これにより、アクターの場所（ローカル、リモートなど）を抽象化できます。
+/// An `ActorRef` is not a direct pointer to an actor instance but rather a handle
+/// managed by the actor system. This abstraction allows the system to manage
+/// actor lifecycle, location transparency (local/remote), and communication.
+///
+/// Cloning an `ActorRef` creates another handle to the same actor instance,
+/// increasing the reference count to its communication channel.
 #[derive(Clone)]
 pub struct ActorRef<A: Actor> {
-    id: String, // デバッグや識別のためのID (UUIDなど)
-    // アクターのメールボックスへの送信チャネル
+    /// A unique identifier for the actor, useful for debugging and tracking.
+    id: String, // Typically a UUID or a descriptive name.
+    /// The sender part of the MPSC channel connected to the actor's mailbox.
+    /// Used to send events to the actor.
     sender: mpsc::Sender<A::Event>,
 }
 
@@ -18,52 +24,74 @@ impl<A: Actor> Debug for ActorRef<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ActorRef")
             .field("id", &self.id)
-            // sender は通常デバッグ情報には含めないか、アドレス程度にする
-            .field("sender", &"...")
+            // Avoid printing the sender details directly for brevity and security.
+            .field("sender", &"<mpsc::Sender>")
             .finish()
     }
 }
 
 impl<A: Actor> ActorRef<A> {
-    /// アクターにイベントを非同期で送信します。
+    /// Asynchronously sends an event to the actor associated with this `ActorRef`.
     ///
-    /// このメソッドは通常ノンブロッキングであり、イベントをアクターのキューに入れて即座に返ります。
-    /// 送信先のキューが一杯の場合、キューに空きができるまで待機します。
+    /// This method places the event into the actor's mailbox (queue).
+    /// It is generally non-blocking, returning immediately after queueing the event.
+    /// However, if the actor's mailbox is full (bounded channel), this method
+    /// will wait (`await`) until there is space available.
     ///
     /// # Arguments
-    /// * `event` - 送信するイベント。アクターの `Event` 型と一致する必要があります。
+    ///
+    /// * `event` - The event to send. Must match the `Actor::Event` associated type.
     ///
     /// # Returns
-    /// 送信が成功した場合は `Ok(())`、失敗した場合は `Err(ActorError)`。
-    /// 失敗の主な理由は、受信側のアクター（対応する Receiver）が既にドロップされている（アクターが停止した）場合です。
+    ///
+    /// * `Ok(())` - If the event was successfully sent (queued).
+    /// * `Err(ActorError::Stopped)` - If the receiving actor has already stopped
+    ///   (i.e., the `Receiver` end of the channel has been dropped).
     pub async fn send(&self, event: A::Event) -> Result<(), ActorError> {
         self.sender.send(event).await.map_err(|_send_error| {
-            // SendError<T> は T を含みますが、ここではイベント自体は不要
-            // エラーの主な原因は受信側の消失なので Stopped とする
+            // The SendError contains the event, but we don't need it here.
+            // The primary reason for a send error in this context is that the receiver
+            // has been dropped, indicating the actor is stopped.
             ActorError::Stopped
         })
     }
 
-    /// アクターの現在の状態を取得します（実装はオプション、または別の方法で提供される可能性あり）。
-    // pub async fn ask_state(&self) -> Result<A::State, ActorError> { ... }
+    /// Retrieves the current state of the actor.
+    ///
+    /// Note: This functionality often requires a request-response pattern (ask pattern)
+    /// involving temporary channels, which is not implemented here by default.
+    /// It might be provided by higher-level abstractions or specific actor system implementations.
+    // pub async fn ask_state(&self) -> Result<A::State, ActorError> { unimplemented!() }
 
-    /// アクターの停止を試みます。
-    // pub async fn stop(&self) -> Result<(), ActorError> { ... }
+    /// Attempts to signal the actor to stop processing.
+    ///
+    /// Note: Graceful shutdown typically involves sending a specific `Stop` event
+    /// or using a dedicated signal mechanism managed by the actor system.
+    /// A direct `stop` method on the `ActorRef` might not be the standard approach.
+    // pub async fn stop(&self) -> Result<(), ActorError> { unimplemented!() }
 
-    // 内部的なコンストラクタ（アクターシステムなどが使用）
-    // Sender を受け取るように変更
+    /// Internal constructor used by the actor system (or spawning mechanism).
+    ///
+    /// Creates a new `ActorRef` linked to an actor's mailbox sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The unique identifier for the actor.
+    /// * `sender` - The `mpsc::Sender` connected to the actor's mailbox.
     pub(crate) fn new(id: String, sender: mpsc::Sender<A::Event>) -> Self {
         Self { id, sender }
     }
 
-    /// アクター参照のIDを取得します。
+    /// Returns the unique identifier of the actor associated with this reference.
     pub fn id(&self) -> &str {
         &self.id
     }
 }
 
-// ActorRef が Send と Sync であることは、mpsc::Sender が A::Event が Send であれば
-// Send + Sync であることに依存します。Actor トレイトの境界により A::Event は Send + Sync なので
-// ActorRef も自動的に Send + Sync になります。unsafe impl は不要です。
+// Note on Send + Sync:
+// `ActorRef` is automatically `Send` and `Sync` if `A::Event` is `Send`.
+// This is because `mpsc::Sender<T>` is `Send` and `Sync` if `T` is `Send`.
+// The `Actor` trait bounds already require `A::Event: Send + Sync`,
+// so no `unsafe impl` is necessary.
 // unsafe impl<A: Actor> Send for ActorRef<A> {}
 // unsafe impl<A: Actor> Sync for ActorRef<A> {}

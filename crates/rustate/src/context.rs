@@ -1,69 +1,69 @@
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt;
 
 /// Represents the extended state (context) for a state machine
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Context {
-    /// The context data
-    pub data: serde_json::Value,
+    #[serde(flatten)]
+    data: HashMap<String, Value>,
 }
 
 impl Context {
     /// Create a new empty context
     pub fn new() -> Self {
-        Self {
-            data: serde_json::json!({}),
-        }
+        Self { data: HashMap::new() }
     }
 
-    /// Create a new context with data
-    pub fn with_data(data: impl Into<serde_json::Value>) -> Self {
-        Self { data: data.into() }
+    /// Creates a new context from a serde_json Value.
+    /// Assumes the input Value is an Object.
+    pub fn from_value(value: Value) -> Self {
+        match value {
+            Value::Object(map) => Self { 
+                data: map.into_iter().collect() // Convert serde_json::Map to HashMap
+            },
+            _ => Self::new(), // Return empty context if not an object
+        }
     }
 
     /// Set a value in the context
     pub fn set<T: Serialize>(&mut self, key: &str, value: T) -> Result<(), serde_json::Error> {
-        match &mut self.data {
-            serde_json::Value::Object(map) => {
-                map.insert(key.to_string(), serde_json::to_value(value)?);
-                Ok(())
-            }
-            _ => {
-                self.data = serde_json::json!({ key: value });
-                Ok(())
-            }
-        }
+        let value = serde_json::to_value(value)?;
+        self.data.insert(key.to_string(), value);
+        Ok(())
     }
 
     /// Get a value from the context
-    pub fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<T> {
-        match &self.data {
-            serde_json::Value::Object(map) => map
-                .get(key)
-                .and_then(|val| serde_json::from_value(val.clone()).ok()),
-            _ => None,
-        }
+    pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<Result<T, serde_json::Error>> {
+        self.data.get(key).map(|value| serde_json::from_value(value.clone()))
+    }
+    
+    /// Get a value from the context
+    pub fn get_value(&self, key: &str) -> Option<&Value> {
+        self.data.get(key)
     }
 
     /// Check if a key exists in the context
-    pub fn contains_key(&self, key: &str) -> bool {
-        match &self.data {
-            serde_json::Value::Object(map) => map.contains_key(key),
-            _ => false,
-        }
+    pub fn has(&self, key: &str) -> bool {
+        self.data.contains_key(key)
     }
 
     /// Remove a key from the context
-    pub fn remove(&mut self, key: &str) -> Option<serde_json::Value> {
-        match &mut self.data {
-            serde_json::Value::Object(map) => map.remove(key),
-            _ => None,
-        }
+    pub fn remove(&mut self, key: &str) -> Option<Value> {
+        self.data.remove(key)
+    }
+    
+    /// Check if the context is empty
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
 impl fmt::Display for Context {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.data)
+        // Use Debug formatting for HashMap
+        write!(f, "{:?}", self.data)
     }
 }

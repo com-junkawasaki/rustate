@@ -155,23 +155,27 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
     let _ = context.set("itemCount", 0i32); // Specify type for clarity
     let _ = context.set("paymentProcessed", false);
 
-    // アクションの作成
-    let add_to_cart_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _| async move {
-        let item_count = ctx_arc.read().await.get::<i32>("itemCount").unwrap_or(0);
-        let new_count = item_count + 1;
-        let _ = ctx_arc.write().await.set("itemCount", new_count);
-        println!(
-            "カートに商品を追加しました。現在の商品数: {}",
-            new_count
-        );
+    // Add action for processing payment
+    let process_payment_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _evt| {
+        Box::pin(async move {
+            println!("ACTION: Processing payment...");
+            let _ = ctx_arc.write().await.set("paymentProcessed", true);
+        })
     });
 
-    let process_payment_action =
-        Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _| async move {
-            println!("決済処理中...");
-            let _ = ctx_arc.write().await.set("paymentProcessed", true);
-            println!("決済処理が完了しました");
-        });
+    // Add action for adding items to cart
+    let add_to_cart_action = Action::from_fn(|ctx_arc: Arc<RwLock<Context>>, _evt| {
+        Box::pin(async move {
+            let item_count_result = ctx_arc.read().await.get::<i32>("itemCount");
+            let item_count = item_count_result
+                .and_then(|res| res.ok())
+                .unwrap_or(0);
+
+            let new_count = item_count + 1;
+            println!("ACTION: Item added to cart. Total items: {}", new_count);
+            let _ = ctx_arc.write().await.set("itemCount", new_count);
+        })
+    });
 
     // 遷移の作成
     let start_browsing = Transition::new(
