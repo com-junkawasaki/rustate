@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use rustate::{EventTrait, StateTrait};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -12,14 +12,8 @@ use std::sync::{Arc, Mutex};
 #[async_trait]
 pub trait Storage<S, E>: Send + Sync
 where
-    S: StateTrait + Debug + Send + Sync + for<'deserialize> Deserialize<'deserialize> + 'static,
-    E: EventTrait
-        + Debug
-        + Clone
-        + Send
-        + Sync
-        + for<'deserialize> Deserialize<'deserialize>
-        + 'static,
+    S: StateTrait + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static + Clone,
+    E: EventTrait + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static + Clone,
 {
     /// 観測データを保存します
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()>;
@@ -254,6 +248,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
     E: EventTrait
@@ -261,6 +256,7 @@ where
         + Debug
         + Send
         + Sync
+        + Serialize
         + for<'deserialize> Deserialize<'deserialize>
         + 'static,
 {

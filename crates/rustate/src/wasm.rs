@@ -1,6 +1,5 @@
 //! WASM bindings for the rustate library.
 #![cfg(feature = "wasm")]
-use crate::utils::set_panic_hook;
 use crate::{
     action::{Action, ActionType},
     context::Context,
@@ -373,7 +372,6 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
 
 #[wasm_bindgen]
 pub fn init_traffic_light() {
-    set_panic_hook();
     match create_traffic_light() {
         Ok(machine) => TRAFFIC_MACHINE.with(|m| *m.borrow_mut() = Some(machine)),
         Err(e) => console::error_1(&format!("Failed to init traffic light: {:?}", e).into()),
@@ -382,7 +380,6 @@ pub fn init_traffic_light() {
 
 #[wasm_bindgen]
 pub fn init_music_player() {
-    set_panic_hook();
     match create_music_player() {
         Ok(machine) => MUSIC_MACHINE.with(|m| *m.borrow_mut() = Some(machine)),
         Err(e) => console::error_1(&format!("Failed to init music player: {:?}", e).into()),

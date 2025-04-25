@@ -1,4 +1,5 @@
 use crate::{decision::Decision, feedback::Feedback, insight::Insight, observation::Observation};
+use crate::goal::Goal;
 use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -15,8 +16,8 @@ use uuid::Uuid;
 )]
 pub struct Episode<S, E>
 where
-    S: StateTrait + Send + Sync + 'static,
-    E: EventTrait + Send + Sync + Debug + 'static + Clone,
+    S: StateTrait + Send + Sync + Clone + Debug + 'static,
+    E: EventTrait + Send + Sync + Debug + Clone + 'static,
 {
     /// エピソードの一意な識別子
     pub id: Uuid,
@@ -34,7 +35,7 @@ where
     pub initial_state: S,
 
     /// エピソードの目標状態（ある場合）
-    pub goal_state: S,
+    pub goal: Goal<S>,
 
     /// エピソード中に記録された観測データ
     pub observations: Vec<Observation<S, E>>,
@@ -60,18 +61,18 @@ where
 
 impl<S, E> Episode<S, E>
 where
-    S: StateTrait + Send + Sync + Debug + 'static,
-    E: EventTrait + Send + Sync + Debug + 'static + Clone,
+    S: StateTrait + Send + Sync + Clone + Debug + 'static,
+    E: EventTrait + Send + Sync + Debug + Clone + 'static,
 {
     /// 新しいエピソードを作成します
-    pub fn new(name: impl Into<String>, initial_state: S, goal_state: S) -> Self {
+    pub fn new(name: impl Into<String>, initial_state: S, goal: Goal<S>) -> Self {
         Self {
             id: Uuid::new_v4(),
             name: name.into(),
             start_time: SystemTime::now(),
             end_time: None,
             initial_state,
-            goal_state,
+            goal,
             observations: Vec::new(),
             decisions: Vec::new(),
             insights: Vec::new(),
@@ -289,31 +290,39 @@ mod tests {
 
     #[test]
     fn test_episode_creation() {
-        let episode: Episode<TestState, TestEvent> =
-            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
+        let initial = TestState::Initial;
+        let goal_state = TestState::Final;
+        let goal: Goal<TestState> = Goal::new(goal_state.clone());
+        let episode: Episode<TestState, TestEvent> = Episode::new("Test Episode", initial.clone(), goal.clone());
 
-        assert_eq!(episode.name, "テストエピソード");
-        assert_eq!(episode.initial_state, TestState::Initial);
-        assert_eq!(episode.goal_state, TestState::Final);
+        assert_eq!(episode.name, "Test Episode");
+        assert_eq!(episode.initial_state, initial);
+        assert_eq!(episode.goal.target_state, goal_state);
+        assert!(episode.end_time.is_none());
+        assert!(!episode.is_successful);
         assert!(episode.observations.is_empty());
         assert!(episode.decisions.is_empty());
         assert!(episode.insights.is_empty());
-        assert_eq!(episode.is_successful, false);
-        assert!(episode.feedback.is_none());
+        assert_eq!(episode.metadata, serde_json::Value::Null);
     }
 
     #[test]
     fn test_episode_with_observations_and_decisions() {
-        let mut episode = Episode::new("Test Episode", TestState::Initial, TestState::Final);
+        let initial = TestState::Initial;
+        let goal: Goal<TestState> = Goal::new(TestState::Final);
+        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 2", initial.clone(), goal.clone());
 
-        let observation =
-            Observation::new(TestState::Initial, TestEvent::Start, TestState::Processing);
+        let obs = Observation::new(
+            initial,
+            TestEvent::Start,
+            TestState::Processing
+        );
 
         let insight = Insight::new("Test Insight", "This is a test insight", 0.9);
 
         let decision = Decision::simple(TestEvent::Start, 0.9);
 
-        episode.add_observation(observation);
+        episode.add_observation(obs);
         episode.add_decision(decision.clone());
         episode.add_insight(insight);
 
@@ -324,10 +333,11 @@ mod tests {
 
     #[test]
     fn test_episode_completion() {
-        let mut episode: Episode<TestState, TestEvent> =
-            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
+        let initial = TestState::Initial;
+        let goal: Goal<TestState> = Goal::new(TestState::Final);
+        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 3", initial, goal.clone());
 
-        assert_eq!(episode.is_completed(), false);
+        assert!(!episode.is_completed());
         assert!(episode.end_time.is_none());
 
         episode.complete(true);
@@ -339,11 +349,11 @@ mod tests {
 
     #[test]
     fn test_episode_feedback() {
-        let mut episode: Episode<TestState, TestEvent> =
-            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
+        let initial = TestState::Initial;
+        let goal: Goal<TestState> = Goal::new(TestState::Final);
+        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 4", initial, goal.clone());
 
-        let feedback: Feedback<TestEvent> =
-            Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
+        let feedback: Feedback<TestEvent> = Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
         episode.add_feedback(feedback);
 
         assert!(episode.feedback.is_some());
@@ -356,8 +366,9 @@ mod tests {
 
     #[test]
     fn test_add_metadata() {
-        let mut episode: Episode<TestState, TestEvent> =
-            Episode::new("テストエピソード", TestState::Initial, TestState::Final);
+        let initial = TestState::Initial;
+        let goal: Goal<TestState> = Goal::new(TestState::Final);
+        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 5", initial, goal.clone());
 
         episode.add_metadata("priority", "high").unwrap();
         episode

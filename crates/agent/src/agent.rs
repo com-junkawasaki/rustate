@@ -12,13 +12,15 @@ use crate::{
 use rustate::{
     machine::{Machine, MachineBuilder},
     state::{StateTrait as RuStateTrait, StateType as RuStateType},
-    Context, EventTrait as RuEventTrait, IntoEvent as RuIntoEvent, SharedMachineRef, State as RuState, Transition,
+    Context, EventTrait as RuEventTrait, IntoEvent as RuIntoEvent, SharedMachineRef,
+    State as RuState, Transition,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -53,7 +55,15 @@ impl Default for AgentConfig {
 /// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, SM, P>
 where
-    S: RuStateTrait + Clone + Debug + Send + Sync + Serialize + DeserializeOwned + Default + 'static,
+    S: RuStateTrait
+        + Clone
+        + Debug
+        + Send
+        + Sync
+        + Serialize
+        + DeserializeOwned
+        + Default
+        + 'static,
     E: RuEventTrait
         + Clone
         + Debug
@@ -87,7 +97,15 @@ where
 
 impl<S, E, SM, P> Agent<S, E, SM, P>
 where
-    S: RuStateTrait + Clone + Debug + Send + Sync + Serialize + DeserializeOwned + Default + 'static,
+    S: RuStateTrait
+        + Clone
+        + Debug
+        + Send
+        + Sync
+        + Serialize
+        + DeserializeOwned
+        + Default
+        + 'static,
     E: RuEventTrait
         + Clone
         + Debug
@@ -210,7 +228,7 @@ where
     }
 
     /// Start a new episode for the agent.
-    pub async fn start_episode<G: Into<Goal<S, E>>>(
+    pub async fn start_episode<G: Into<Goal<S>>>(
         &mut self,
         name: impl Into<String>,
         initial_state: S,
@@ -290,28 +308,39 @@ where
         let current_state = self.current_state()?;
         let decision = self.make_decision().await?;
 
-        // Now get mutable borrow of episode
-        let episode = self
-            .current_episode
-            .as_mut()
-            .ok_or(AgentError::NoActiveEpisode)?;
-
-        // Add decision before applying it (apply_decision also borrows self immutably via process_event)
-        episode.add_decision(decision.clone());
-        // Observation logic might need rethinking if it depends on next_state before save
+        // Clone episode data needed *before* applying decision
+        let episode_id;
+        {
+            let episode = self
+                .current_episode
+                .as_mut()
+                .ok_or(AgentError::NoActiveEpisode)?;
+            episode.add_decision(decision.clone());
+            episode_id = episode.id; // Clone ID
+            // Mutable borrow ends here
+        }
 
         // Apply decision (immutable borrow)
         let next_state = self.apply_decision(&decision).await?;
 
-        // Save episode (mutable borrow again, but previous immutable borrows are finished)
-        self.storage.save_episode(episode).await?;
-
         // Check if goal reached (immutable borrow)
-        if self.is_goal_reached(&next_state)? {
-            // Need mutable borrow again to complete episode
-            // No need to explicitly drop `episode` borrow here, as it goes out of scope
-            // Re-borrow self mutably to complete
+        let goal_reached = self.is_goal_reached(&next_state)?;
+
+        if goal_reached {
+            // complete_episode takes &mut self and handles saving internally
             self.complete_episode(true).await?;
+        } else {
+            // If not completed, get the episode again (mutably) and save
+            // This re-borrow is fine as other borrows are finished
+            let episode_to_save = self
+                .current_episode
+                .as_mut()
+                .ok_or_else(|| AgentError::InternalError(format!(
+                    "Episode {} disappeared unexpectedly after step but before save",
+                    episode_id
+                )))?;
+            // storage.save_episode takes &Episode
+            self.storage.save_episode(episode_to_save).await?;
         }
 
         Ok(next_state)
@@ -421,12 +450,18 @@ where
             .target_state // Access the target_state field within Goal
             .clone();
 
-        // TODO: Gather observations, insights, etc. for the context
-        // let observations = self.storage.get_observations(...).await?;
-        // let insights = self.storage.get_insights(...).await?;
-        // let context = DecisionContext::new(current_state, goal_state, observations, insights);
+        // Create DecisionContext (ensure all args are provided)
+        // Note: DecisionContext::new expects current_state, goal_state, observations, feedbacks, insights
+        let _decision_context: DecisionContext<S, E> = DecisionContext::new(
+            current_state.clone(), // Pass current state
+            goal_state.clone(),    // Pass goal state directly
+            Vec::new(),            // Placeholder for observations
+            Vec::new(),            // Placeholder for feedbacks
+            Vec::new(),            // Placeholder for insights
+        );
 
-        // Use simplified Policy::decide signature for now
+        // Use the policy to make a decision based on the context
+        // Revert to original call signature based on current Policy trait definition
         self.policy.decide(current_state, goal_state).await
     }
 
@@ -478,64 +513,63 @@ mod tests {
     use super::*;
     use crate::{
         decision::{Decision, DecisionContext},
+        episode::Goal,
         error::AgentError,
         feedback::Feedback,
         insight::Insight,
         observation::Observation,
-        storage::MemoryStorage,
+        policy::Policy,
+        storage::{MemoryStorage, Storage},
     };
-    use rustate::MachineBuilder;
-    use serde::{Deserialize, Serialize};
-    use serde_json::json;
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-    use uuid::Uuid;
+    use rustate::{Event, EventTrait, MachineBuilder, State, StateTrait, StateType as RuStateType, Transition};
+    use async_trait::async_trait;
+    use serde_json::Value;
+    use std::fmt::Debug;
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
     enum TestState {
+        #[default]
         Idle,
         Processing,
         Completed,
         Error,
     }
 
-    impl Default for TestState {
-        fn default() -> Self {
-            TestState::Idle
-        }
-    }
-
-    impl RuStateTrait for TestState {
+    impl StateTrait for TestState {
         fn id(&self) -> &str {
             match self {
-                TestState::Idle => "idle",
-                TestState::Processing => "processing",
-                TestState::Completed => "completed",
-                TestState::Error => "error",
+                TestState::Idle => "Idle",
+                TestState::Processing => "Processing",
+                TestState::Completed => "Completed",
+                TestState::Error => "Error",
             }
         }
-        fn state_type(&self) -> &rustate::StateType {
+
+        fn state_type(&self) -> &RuStateType {
             match self {
-                TestState::Completed => &StateType::Final,
-                _ => &StateType::Normal,
+                TestState::Completed => &RuStateType::Final,
+                _ => &RuStateType::Normal,
             }
         }
+
         fn parent(&self) -> Option<&str> {
             None
         }
+
         fn children(&self) -> &[String] {
             &[]
         }
+
         fn initial(&self) -> Option<&str> {
             None
         }
-        fn data(&self) -> Option<&serde_json::Value> {
+
+        fn data(&self) -> Option<&Value> {
             None
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Complete,
@@ -543,7 +577,13 @@ mod tests {
         Retry,
     }
 
-    impl RuEventTrait for TestEvent {
+    impl RuIntoEvent for TestEvent {
+        fn into_event(self) -> Event {
+            Event::new(self.event_type())
+        }
+    }
+
+    impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
             match self {
                 TestEvent::Start => "START",
@@ -552,18 +592,12 @@ mod tests {
                 TestEvent::Retry => "RETRY",
             }
         }
-        fn payload(&self) -> Option<&serde_json::Value> {
+
+        fn payload(&self) -> Option<&Value> {
             None
         }
     }
 
-    impl RuIntoEvent for TestEvent {
-        fn into_event(self) -> rustate::Event {
-            Event::new(self.event_type())
-        }
-    }
-
-    #[async_trait]
     struct TestPolicy;
 
     #[async_trait]
@@ -575,17 +609,10 @@ mod tests {
         ) -> Result<Decision<TestEvent>> {
             let event = match current_state {
                 TestState::Idle => TestEvent::Start,
-                TestState::Processing => TestEvent::Complete, // Assume happy path
-                TestState::Completed => TestEvent::Start,     // Restart?
-                TestState::Error => TestEvent::Retry,
+                TestState::Processing => TestEvent::Complete,
+                _ => TestEvent::Abort,
             };
-            Ok(Decision::new(
-                Uuid::new_v4().to_string(),
-                event,
-                1.0,
-                Some(current_state), // Origin is the current state
-                Some(_goal_state),   // Target state from goal
-            ))
+            Ok(Decision::simple(event, 1.0))
         }
     }
 
@@ -595,8 +622,12 @@ mod tests {
                 s.on(TestEvent::Start, TestState::Processing, |_ctx, _payload| {})
             })
             .state(TestState::Processing, |s| {
-                s.on(TestEvent::Complete, TestState::Completed, |_ctx, _payload| {})
-                 .on(TestEvent::Abort, TestState::Error, |_ctx, _payload| {})
+                s.on(
+                    TestEvent::Complete,
+                    TestState::Completed,
+                    |_ctx, _payload| {},
+                )
+                .on(TestEvent::Abort, TestState::Error, |_ctx, _payload| {})
             })
             .state(TestState::Completed, |s| s.r#type(RuStateType::Final)) // Mark as final
             .state(TestState::Error, |s| {
@@ -632,10 +663,10 @@ mod tests {
         let agent_result = Agent::new(
             "test-agent-creation",
             builder,
-            policy.clone(), // Clone Arc
+            policy.clone(),  // Clone Arc
             storage.clone(), // Clone Arc
-            None, // config
-            None, // shared_context
+            None,            // config
+            None,            // shared_context
         );
 
         assert!(agent_result.is_ok());
@@ -649,15 +680,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_next_decision_and_step() { // Renamed from make_decision
+    async fn test_agent_next_decision_and_step() {
+        // Renamed from make_decision
         let builder = create_test_machine_builder();
         let policy = Arc::new(TestPolicy);
         let storage = Arc::new(MemoryStorage::<TestState, TestEvent>::new());
         // Agent needs to be mutable to start episode and step
-        let mut agent = Agent::new("test-agent-step", builder, policy, storage, None, None).unwrap();
+        let mut agent =
+            Agent::new("test-agent-step", builder, policy, storage, None, None).unwrap();
 
         // Start an episode first
-        agent.start_episode("ep1", TestState::Idle, TestState::Completed).await.unwrap();
+        agent
+            .start_episode("ep1", TestState::Idle, TestState::Completed)
+            .await
+            .unwrap();
         assert_eq!(agent.current_state().unwrap(), TestState::Idle);
 
         // Test next_decision (public API)
@@ -675,11 +711,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_process_event() { // Renamed from apply_decision
+    async fn test_agent_process_event() {
+        // Renamed from apply_decision
         let builder = create_test_machine_builder();
         let policy = Arc::new(TestPolicy);
         let storage = Arc::new(MemoryStorage::<TestState, TestEvent>::new());
-        let mut agent = Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
+        let mut agent =
+            Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
 
         // Set initial state implicitly via start_episode or explicitly if needed
         // For process_event, we might not need a full episode context, just the machine state.
@@ -696,7 +734,6 @@ mod tests {
         assert_eq!(agent.current_state().unwrap(), TestState::Processing); // Verify internal state
     }
 
-
     #[tokio::test]
     async fn test_agent_run_until_goal() {
         let builder = create_test_machine_builder();
@@ -706,7 +743,10 @@ mod tests {
         let mut agent = Agent::new("test-agent-run", builder, policy, storage, None, None).unwrap();
 
         // Start an episode
-        agent.start_episode("ep1", TestState::Idle, TestState::Completed).await.unwrap();
+        agent
+            .start_episode("ep1", TestState::Idle, TestState::Completed)
+            .await
+            .unwrap();
         assert_eq!(agent.current_state().unwrap(), TestState::Idle); // Verify initial state
 
         // Run until goal
@@ -719,17 +759,21 @@ mod tests {
 
         // Check episode status
         assert!(agent.current_episode.is_none()); // Episode should be completed and removed
-        // TODO: Check storage to see if episode was saved correctly as completed
+                                                  // TODO: Check storage to see if episode was saved correctly as completed
     }
 
     #[tokio::test]
     async fn test_agent_run_max_steps() {
-         let builder = create_test_machine_builder();
+        let builder = create_test_machine_builder();
         let policy = Arc::new(TestPolicy);
         let storage = Arc::new(MemoryStorage::<TestState, TestEvent>::new());
-        let mut agent = Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
+        let mut agent =
+            Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
 
-        agent.start_episode("ep_max", TestState::Idle, TestState::Completed).await.unwrap();
+        agent
+            .start_episode("ep_max", TestState::Idle, TestState::Completed)
+            .await
+            .unwrap();
 
         // Set max_steps lower than required to reach goal (Idle -> Processing -> Completed needs 2 steps)
         let reached_goal_result = agent.run_until_goal(Some(1)).await;
@@ -739,7 +783,7 @@ mod tests {
         assert!(!reached_goal); // Should not reach goal due to max_steps
         assert_eq!(agent.current_state().unwrap(), TestState::Processing); // Should be in Processing state after 1 step
         assert!(agent.current_episode.is_none()); // Episode should be completed (unsuccessfully)
-        // TODO: Check storage for unsuccessful episode completion
+                                                  // TODO: Check storage for unsuccessful episode completion
     }
 
     #[tokio::test]
@@ -747,13 +791,19 @@ mod tests {
         let builder = create_test_machine_builder();
         let policy = Arc::new(TestPolicy);
         let storage = Arc::new(MemoryStorage::<TestState, TestEvent>::new());
-        let mut agent = Agent::new("test-agent-episode", builder, policy, storage, None, None).unwrap();
+        let mut agent =
+            Agent::new("test-agent-episode", builder, policy, storage, None, None).unwrap();
 
         // Cannot step without active episode
-        assert!(matches!(agent.step().await, Err(AgentError::NoActiveEpisode)));
+        assert!(matches!(
+            agent.step().await,
+            Err(AgentError::NoActiveEpisode)
+        ));
 
         // Start episode
-        let start_result = agent.start_episode("ep1", TestState::Idle, TestState::Completed).await;
+        let start_result = agent
+            .start_episode("ep1", TestState::Idle, TestState::Completed)
+            .await;
         assert!(start_result.is_ok());
         assert!(agent.current_episode.is_some());
         assert_eq!(agent.current_episode().unwrap().name, "ep1");
@@ -765,6 +815,10 @@ mod tests {
         assert!(agent.current_episode.is_none());
 
         // Cannot complete again
-        assert!(matches!(agent.complete_episode(true).await, Err(AgentError::NoActiveEpisode)));
+        assert!(matches!(
+            agent.complete_episode(true).await,
+            Err(AgentError::NoActiveEpisode)
+        ));
     }
 }
+

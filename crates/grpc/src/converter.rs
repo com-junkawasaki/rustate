@@ -9,8 +9,9 @@ use crate::proto;
 use rustate::state::{State as RuState, StateType as RuStateType};
 use rustate::transition::Transition as RuTransition;
 use rustate::ActionType as RuActionType;
-use rustate::{Action, Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
-use serde_json::Value;
+use rustate::{
+    Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder,
+};
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
 ///
@@ -547,7 +548,7 @@ mod tests {
         let mut transition = create_test_transition("stateA", "EVENT", "stateB");
         // Transition fields actions: Vec<Action>, guard: Option<Guard>
         transition.actions = vec![action.clone()]; // Assign Action directly
-        transition.guard = Some(guard.clone());   // Assign Guard directly
+        transition.guard = Some(guard.clone()); // Assign Guard directly
 
         let proto_transition = transition_to_proto(&transition);
         assert_eq!(proto_transition.source, "stateA");
