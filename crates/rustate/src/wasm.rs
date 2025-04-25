@@ -10,7 +10,8 @@ use crate::{
     machine::MachineBuilder,
     state::{State, StateType},
     transition::{Transition, TransitionType},
-    Event,   // Use crate::Event
+    Event, // Use crate::Event
+    IntoEvent,
     Machine, // Use crate::Machine
 };
 use serde::{Deserialize, Serialize};
@@ -24,47 +25,75 @@ thread_local! {
     static MUSIC_MACHINE: RefCell<Option<Machine<Context, MusicPlayerEvent, String>>> = RefCell::new(None);
 }
 
-// Define a simple event type for the traffic light example
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-enum TrafficLightEvent {
-    #[default]
+// Define TrafficLightEvent enum
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TrafficLightEvent {
     Timer,
+    PowerOutage,
+    PowerRestored,
 }
 
+// Implement EventTrait for TrafficLightEvent
 impl EventTrait for TrafficLightEvent {
-    fn name(&self) -> &str {
+    fn event_type(&self) -> &str {
         match self {
             TrafficLightEvent::Timer => "TIMER",
+            TrafficLightEvent::PowerOutage => "POWER_OUTAGE",
+            TrafficLightEvent::PowerRestored => "POWER_RESTORED",
         }
+    }
+
+    fn payload(&self) -> Option<&Value> {
+        None
+    }
+
+    fn name(&self) -> &str {
+        self.event_type()
     }
 }
 
-// Define a simple event type for the music player example
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-enum MusicPlayerEvent {
-    #[default]
-    Power,
-    Play,
-    Stop,
-    Pause,
-    NextTrack,
-    PrevTrack,
-    SpeedUp,
-    SpeedNormal,
+// Implement IntoEvent for TrafficLightEvent
+impl IntoEvent for TrafficLightEvent {
+    fn into_event(self) -> Event {
+        Event::new(self.event_type())
+    }
 }
 
+// Define MusicPlayerEvent enum
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MusicPlayerEvent {
+    Play,
+    Pause,
+    Stop,
+    Next,
+    Previous,
+}
+
+// Implement EventTrait for MusicPlayerEvent
 impl EventTrait for MusicPlayerEvent {
-    fn name(&self) -> &str {
+    fn event_type(&self) -> &str {
         match self {
-            MusicPlayerEvent::Power => "POWER",
             MusicPlayerEvent::Play => "PLAY",
-            MusicPlayerEvent::Stop => "STOP",
             MusicPlayerEvent::Pause => "PAUSE",
-            MusicPlayerEvent::NextTrack => "NEXT_TRACK",
-            MusicPlayerEvent::PrevTrack => "PREV_TRACK",
-            MusicPlayerEvent::SpeedUp => "SPEED_UP",
-            MusicPlayerEvent::SpeedNormal => "SPEED_NORMAL",
+            MusicPlayerEvent::Stop => "STOP",
+            MusicPlayerEvent::Next => "NEXT",
+            MusicPlayerEvent::Previous => "PREVIOUS",
         }
+    }
+
+    fn payload(&self) -> Option<&Value> {
+        None
+    }
+
+    fn name(&self) -> &str {
+        self.event_type()
+    }
+}
+
+// Implement IntoEvent for MusicPlayerEvent
+impl IntoEvent for MusicPlayerEvent {
+    fn into_event(self) -> Event {
+        Event::new(self.event_type())
     }
 }
 
@@ -172,7 +201,7 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     let power_toggle = Transition::new(
         "powerOff".to_string(),
         Some("player".to_string()),
-        Some(MusicPlayerEvent::Power),
+        Some(MusicPlayerEvent::Play),
         None,
         vec![],
         TransitionType::External,
@@ -180,7 +209,7 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     let power_off_transition = Transition::new(
         "player".to_string(),
         Some("powerOff".to_string()),
-        Some(MusicPlayerEvent::Power),
+        Some(MusicPlayerEvent::Pause),
         None,
         vec![],
         TransitionType::External,
@@ -220,7 +249,7 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     let speed_up = Transition::new(
         "normal".to_string(),
         Some("doubleSpeed".to_string()),
-        Some(MusicPlayerEvent::SpeedUp),
+        Some(MusicPlayerEvent::Play),
         None,
         vec![],
         TransitionType::External,
@@ -228,7 +257,7 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     let speed_normal = Transition::new(
         "doubleSpeed".to_string(),
         Some("normal".to_string()),
-        Some(MusicPlayerEvent::SpeedNormal),
+        Some(MusicPlayerEvent::Play),
         None,
         vec![],
         TransitionType::External,
@@ -316,7 +345,7 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     .transition(Transition::new(
         "stopped".to_string(),
         Some("playing".to_string()),
-        Some(MusicPlayerEvent::NextTrack),
+        Some(MusicPlayerEvent::Next),
         Some(is_track_valid_guard.clone()),
         vec![next_track_action.clone()],
         TransitionType::External,
@@ -324,7 +353,7 @@ fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, Strin
     .transition(Transition::new(
         "stopped".to_string(),
         Some("playing".to_string()),
-        Some(MusicPlayerEvent::PrevTrack),
+        Some(MusicPlayerEvent::Previous),
         None,
         vec![prev_track_action.clone()],
         TransitionType::External,
@@ -384,14 +413,11 @@ pub async fn send_traffic_event(event_name: String) -> Result<JsValue, JsValue> 
 #[wasm_bindgen]
 pub async fn send_music_event(event_name: String) -> Result<JsValue, JsValue> {
     let event = match event_name.as_str() {
-        "POWER" => MusicPlayerEvent::Power,
         "PLAY" => MusicPlayerEvent::Play,
-        "STOP" => MusicPlayerEvent::Stop,
         "PAUSE" => MusicPlayerEvent::Pause,
-        "NEXT_TRACK" => MusicPlayerEvent::NextTrack,
-        "PREV_TRACK" => MusicPlayerEvent::PrevTrack,
-        "SPEED_UP" => MusicPlayerEvent::SpeedUp,
-        "SPEED_NORMAL" => MusicPlayerEvent::SpeedNormal,
+        "STOP" => MusicPlayerEvent::Stop,
+        "NEXT" => MusicPlayerEvent::Next,
+        "PREVIOUS" => MusicPlayerEvent::Previous,
         _ => return Err(JsValue::from_str("Unknown music event")),
     };
 

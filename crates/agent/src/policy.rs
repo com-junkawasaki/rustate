@@ -1,4 +1,5 @@
 use crate::{decision::Decision, error::Result};
+use crate::error::AgentError;
 use async_trait::async_trait;
 use rand::seq::SliceRandom;
 use rustate::{EventTrait, StateTrait};
@@ -180,6 +181,10 @@ mod tests {
         fn payload(&self) -> Option<&Value> {
             None
         }
+
+        fn name(&self) -> &str {
+            self.event_type()
+        }
     }
 
     #[tokio::test]
@@ -195,8 +200,8 @@ mod tests {
         assert!(events.contains(&decision.event));
         assert_eq!(decision.confidence, 0.5);
         assert!(decision.id.len() > 0);
-        assert_eq!(decision.origin_state, Some(TestState::Initial));
-        assert_eq!(decision.target_state, Some(TestState::Final));
+        assert_eq!(decision.state_context, Some("Initial".to_string()));
+        assert_eq!(decision.goal_context, Some("Final".to_string()));
     }
 
     struct MockPolicy;

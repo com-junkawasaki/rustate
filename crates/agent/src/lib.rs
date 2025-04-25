@@ -16,6 +16,7 @@ pub mod insight;
 pub mod observation;
 pub mod policy;
 pub mod storage;
+pub mod goal;
 
 // 再エクスポート
 pub use agent::Agent;
@@ -27,6 +28,7 @@ pub use insight::Insight;
 pub use observation::Observation;
 pub use policy::Policy;
 pub use storage::Storage;
+pub use goal::Goal;
 
 /// ライブラリ内のすべての公開項目をひとつの場所からアクセスできるようにします
 pub mod prelude {
@@ -39,6 +41,7 @@ pub mod prelude {
     pub use crate::observation::Observation;
     pub use crate::policy::Policy;
     pub use crate::storage::Storage;
+    pub use crate::goal::Goal;
 
     // rustate の必要な型も再エクスポートする
     pub use rustate::{Context, Event, EventTrait, Machine, State, StateTrait};

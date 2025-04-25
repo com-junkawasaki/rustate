@@ -11,7 +11,7 @@ use crate::{
 };
 use rustate::{
     machine::{Machine, MachineBuilder},
-    state::StateTrait,
+    state::{StateTrait, StateType as RuStateType},
     Context, EventTrait, IntoEvent, SharedMachineRef, State as RuState, Transition,
 };
 use serde::de::DeserializeOwned;
@@ -262,11 +262,11 @@ where
     pub async fn next_decision(&self) -> Result<Decision<E>> {
         if let Some(episode) = &self.current_episode {
             let current_state = self.current_state()?;
-            let goal_state = episode.goal().target_state.clone(); // Assuming Episode::goal exists
-            let episode_id_str = episode.id.to_string(); // Convert Uuid to String for storage calls
-            let observations = self.storage.get_observation(&episode_id_str).await?; // Use get_observation (singular)
-            let feedbacks = self.storage.get_feedback(&episode_id_str).await?; // Pass &str
-            let insights = self.storage.get_insight(&episode_id_str).await?; // Use get_insight (singular)
+            let goal_state = episode.goal.target_state.clone();
+            let episode_id_str = episode.id.to_string();
+            let observations = self.storage.get_observation(&episode_id_str).await?;
+            let feedbacks = self.storage.get_feedback(&episode_id_str).await?;
+            let insights = self.storage.get_insight(&episode_id_str).await?;
 
             // TODO: get_observation/get_insight return single items, but DecisionContext expects Vec.
             // Need to adjust storage trait/impls or how context is built.
@@ -278,34 +278,40 @@ where
                 vec![feedbacks],    // Placeholder
                 vec![insights],     // Placeholder
             );
-            self.policy.decide(decision_context).await
+            self.policy.decide(current_state, goal_state).await
         } else {
-            Err(AgentError::Other("No active episode".to_string()))
+            Err(AgentError::NoActiveEpisode)
         }
     }
 
     /// Executes a single step in the agent's decision-making process.
     pub async fn step(&mut self) -> Result<S> {
+        // Get current state and decision first (immutable borrows)
+        let current_state = self.current_state()?;
+        let decision = self.make_decision().await?;
+
+        // Now get mutable borrow of episode
         let episode = self
             .current_episode
             .as_mut()
             .ok_or(AgentError::NoActiveEpisode)?;
 
-        let current_state = self.current_state()?;
-        // episode.add_observation(Observation::new(current_state.clone(), None));
-
-        let decision = self.make_decision().await?;
+        // Add decision before applying it (apply_decision also borrows self immutably via process_event)
         episode.add_decision(decision.clone());
+        // Observation logic might need rethinking if it depends on next_state before save
 
+        // Apply decision (immutable borrow)
         let next_state = self.apply_decision(&decision).await?;
-        // episode.add_observation(Observation::new(next_state.clone(), Some(decision.event)));
 
+        // Save episode (mutable borrow again, but previous immutable borrows are finished)
         self.storage.save_episode(episode).await?;
 
-        // Check if goal reached
+        // Check if goal reached (immutable borrow)
         if self.is_goal_reached(&next_state)? {
+            // Need mutable borrow again to complete episode
+            // No need to explicitly drop `episode` borrow here, as it goes out of scope
+            // Re-borrow self mutably to complete
             self.complete_episode(true).await?;
-            // Potentially return GoalReached indicator instead of just state?
         }
 
         Ok(next_state)
@@ -333,8 +339,13 @@ where
 
             // Additional check: If the machine entered a final state not necessarily the goal
             if let Ok(machine) = self.machine() {
-                // Check only for owned machine
-                if machine.is_in_final_state() {
+                let is_final = machine.current_states.iter().any(|s_id| {
+                    machine
+                        .states
+                        .get(s_id)
+                        .map_or(false, |s| s.state_type == RuStateType::Final)
+                });
+                if is_final {
                     // Check if this final state matches the goal
                     if self.is_goal_reached(&current_state)? {
                         return Ok(true);
@@ -370,7 +381,7 @@ where
             // Clone to get mut access temporarily
             machine
                 .transition(event.into_event(), context)
-                .map_err(|e| AgentError::MachineError(e.to_string()))
+                .map_err(AgentError::MachineError)
         } else {
             Err(AgentError::NotInitialized)
         };
@@ -454,7 +465,7 @@ where
     /// Checks if the current state matches the goal state.
     fn is_goal_reached(&self, current_state: &S) -> Result<bool> {
         if let Some(episode) = &self.current_episode {
-            // Compare the current state ID with the goal state ID
+            // Access goal field directly
             Ok(episode.goal.target_state.id() == current_state.id())
         } else {
             Err(AgentError::NoActiveEpisode)
@@ -658,7 +669,8 @@ mod tests {
         shared_context
             .lock()
             .await
-            .insert("shared_key".to_string(), json!("initial_value"));
+            .set("shared_key", json!("initial_value"))
+            .expect("Failed to set value in shared context");
 
         let agent_id = Uuid::new_v4().to_string();
         let config = AgentConfig {

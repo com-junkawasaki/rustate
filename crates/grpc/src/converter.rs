@@ -10,6 +10,7 @@ use rustate::state::{State as RuState, StateType as RuStateType};
 use rustate::transition::Transition as RuTransition;
 use rustate::ActionType as RuActionType;
 use rustate::{Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
+use serde_json::Value;
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
 ///
@@ -443,13 +444,14 @@ mod tests {
         ));
         let guard = Arc::new(Guard::new("transitionGuard", |_ctx, _evt| true));
 
-        // Use with_action and with_guard
+        // Clone Arc for with_action/with_guard, they consume the value
         let t1 = Transition::new("draft", "SUBMIT", "review").with_action(action.clone());
         let t2 = Transition::new("review", "APPROVE", "published").with_guard(guard.clone());
         let t3 = Transition::new("review", "REJECT", "draft");
         let t4 = Transition::new("published", "ARCHIVE", "archived");
         let t5 = Transition::new("archived", "RESTORE", "draft");
 
+        // builder.transition consumes the builder and the transition
         builder = builder.transition(t1);
         builder = builder.transition(t2);
         builder = builder.transition(t3);
@@ -458,8 +460,10 @@ mod tests {
 
         // Add initial context if needed
         let mut initial_context = RuContext::new();
-        // Use set instead of insert
-        initial_context.set("initial_key".to_string(), json!("initial_value"));
+        // Use set with &str for key
+        initial_context
+            .set("initial_key", json!("initial_value"))
+            .unwrap();
         builder = builder.context(initial_context);
 
         builder.build().unwrap() // Assuming build can succeed
@@ -537,9 +541,9 @@ mod tests {
         ));
         let guard = Arc::new(Guard::new("transitionGuard", |_ctx, _evt| true));
         let mut transition = create_test_transition("stateA", "EVENT", "stateB");
-        // Transition actions is Vec<Arc<Action>>
+        // Assign Arc directly to fields if Transition struct holds Arcs
+        // Assuming Transition fields are `actions: Vec<Arc<Action>>` and `guard: Option<Arc<Guard>>`
         transition.actions = vec![action.clone()];
-        // Transition guard is Option<Arc<Guard>>
         transition.guard = Some(guard.clone());
 
         let proto_transition = transition_to_proto(&transition);
@@ -549,9 +553,9 @@ mod tests {
 
         // Assuming actions/guards in proto are just string IDs for now
         assert_eq!(proto_transition.actions.len(), 1);
-        assert_eq!(proto_transition.actions[0], "transitionAction"); // Compare the action ID string
+        assert_eq!(proto_transition.actions[0], "transitionAction");
         assert_eq!(proto_transition.guards.len(), 1);
-        assert_eq!(proto_transition.guards[0], "transitionGuard"); // Compare the guard ID string
+        assert_eq!(proto_transition.guards[0], "transitionGuard");
     }
 
     #[test]
@@ -594,21 +598,26 @@ mod tests {
     #[test]
     fn test_convert_context_to_proto() -> Result<()> {
         let mut context = RuContext::new();
-        // Use set instead of insert
-        context.set("count".to_string(), json!(10));
-        context.set("user".to_string(), json!({"name": "Alice", "id": 123}));
+        // Use set with &str for key
+        context.set("count", json!(10)).unwrap();
+        context
+            .set("user", json!({"name": "Alice", "id": 123}))
+            .unwrap();
 
         let proto_context = convert_context_to_proto(&context)?; // Use helper
 
         // Deserialize back to check content
         let deserialized_context: RuContext =
-            // Use Serialization variant for from_str errors based on context
             serde_json::from_str(&proto_context).map_err(GrpcError::Serialization)?;
 
-        assert_eq!(deserialized_context.get("count").unwrap(), &json!(10));
+        // Use get::<Value> for type annotation
+        assert_eq!(
+            deserialized_context.get::<Value>("count").unwrap(),
+            &json!(10)
+        );
         assert_eq!(
             deserialized_context
-                .get::<serde_json::Value>("user") // Add type annotation
+                .get::<Value>("user") // Add type annotation
                 .unwrap()
                 .get("name")
                 .unwrap(),
@@ -683,9 +692,10 @@ mod tests {
         let context_json = r#"{"count": 20, "user": {"name": "Bob"}}"#.to_string();
         let context = convert_proto_to_context(&context_json)?; // Use helper
 
-        assert_eq!(context.get("count").unwrap(), &json!(20));
+        // Use get::<Value> for type annotation
+        assert_eq!(context.get::<Value>("count").unwrap(), &json!(20));
         assert_eq!(
-            context.get::<serde_json::Value>("user").unwrap().get("name").unwrap(), // Add type annotation
+            context.get::<Value>("user").unwrap().get("name").unwrap(), // Add type annotation
             &json!("Bob")
         );
         Ok(())
@@ -816,15 +826,21 @@ mod tests {
             );
             // Further check action/guard names/ids if they are reliably converted
             if !original_t.actions.is_empty() {
+                // Assuming converted_t.actions is also Vec<Arc<Action>>
                 assert_eq!(converted_t.actions[0].name, original_t.actions[0].name);
             }
             // Check Option<Guard> correctly
             if let (Some(ref conv_guard), Some(ref orig_guard)) =
+                // Assuming converted_t.guard is Option<Arc<Guard>>
                 (converted_t.guard.as_ref(), original_t.guard.as_ref())
             {
                 assert_eq!(conv_guard.name, orig_guard.name);
             } else {
-                assert_eq!(converted_t.guard.is_none(), original_t.guard.is_none(), "Guard Option mismatch");
+                assert_eq!(
+                    converted_t.guard.is_none(),
+                    original_t.guard.is_none(),
+                    "Guard Option mismatch"
+                );
             }
         }
 

@@ -268,9 +268,9 @@ pub async fn run_actor<
     mut actor: A,
     mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, R>>,
 ) where
-    // Add the necessary bound here for the Query variant
-    ActorCommand<TEvent, Q, R>: From<ActorCommand<TEvent, <A as Actor<TEvent, TSnapshot>>::Query, <A as Actor<TEvent, TSnapshot>>::Response>>,
-    TEvent: QueryableEvent<Query = <A as Actor<TEvent, TSnapshot>>::Query, Response = <A as Actor<TEvent, TSnapshot>>::Response>
+    TEvent: QueryableEvent<Query = Q, Response = R>,
+    Q: Send + fmt::Debug + 'static,
+    R: Send + fmt::Debug + 'static,
 {
     info!(actor_id = %actor.actor_ref().id(), "Actor started");
     actor.started().await;
@@ -278,18 +278,15 @@ pub async fn run_actor<
     while let Some(command) = receiver.recv().await {
         match command {
             ActorCommand::Send(event) => {
-                // Removed ActorCommand::Event
                 debug!(actor_id = %actor.actor_ref().id(), event = ?event, "Received event");
                 actor.handle_event(event).await;
             }
             ActorCommand::Query(query, responder) => {
                 debug!(actor_id = %actor.actor_ref().id(), query = ?query, "Received query");
-                 // Directly call handle_query and send the response
-                 let response = actor.handle_query(query).await;
-                 if let Err(e) = responder.send(response) {
-                     error!(actor_id = %actor.actor_ref().id(), "Failed to send query response: {:?}", e);
-                 }
-
+                let response: R = actor.handle_query(query).await;
+                if let Err(e) = responder.send(response) {
+                    error!(actor_id = %actor.actor_ref().id(), "Failed to send query response: {:?}", e);
+                }
             }
             ActorCommand::Stop => {
                 info!(actor_id = %actor.actor_ref().id(), "Stopping actor");
@@ -315,15 +312,19 @@ pub fn spawn_actor<
 ) -> Box<dyn ActorRef<TEvent, TSnapshot>>
 where
     TEvent: QueryableEvent<Query = Q, Response = R>,
+    Q: Send + fmt::Debug + 'static,
+    R: Send + fmt::Debug + 'static,
 {
     let (sender, receiver) = mpsc::channel::<ActorCommand<TEvent, Q, R>>(buffer_size);
-    let actor_id = actor.actor_ref().id().to_string();
+    let snapshot = actor.snapshot();
+    let actor_id = Uuid::new_v4().to_string();
 
     let actor_ref = ActorRefImpl {
-        id: actor_id,
+        id: actor_id.clone(),
         sender: sender.clone(),
-        _query_marker: std::marker::PhantomData,
-        _response_marker: std::marker::PhantomData,
+        snapshot: Arc::new(RwLock::new(snapshot)),
+        _query_marker: PhantomData,
+        _response_marker: PhantomData,
     };
 
     tokio::spawn(run_actor(actor, receiver));
@@ -486,7 +487,7 @@ mod tests {
         }
         // Implemented missing name() method
         fn name(&self) -> &str {
-             self.event_type()
+            self.event_type()
         }
     }
 
@@ -525,8 +526,7 @@ mod tests {
             debug!("Handling query: {:?}", query);
             TestResponse(format!(
                 "Response to {} from state {}",
-                query.0,
-                self.state.0
+                query.0, self.state.0
             ))
         }
 
@@ -638,5 +638,4 @@ mod tests {
 
         let _ = actor_ref.stop(); // Stop the actor
     }
-
 }
