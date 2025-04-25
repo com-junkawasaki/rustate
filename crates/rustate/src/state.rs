@@ -114,15 +114,7 @@ impl<S, C, E> State<S, C, E>
 where
     S: StateTrait,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Eq
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
     /// Create a new normal state
     pub fn new(id: S) -> Self {
@@ -360,15 +352,7 @@ pub struct StateCollection<S, C = Context, E = Event>
 where
     S: StateTrait,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Eq
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
     // Use String as key for simplicity, derived from S::Display
     // Ensure S satisfies Hash + Eq which is required by StateTrait
@@ -385,15 +369,7 @@ impl<S, C, E> StateCollection<S, C, E>
 where
     S: StateTrait,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Eq
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
     /// Creates a new, empty `StateCollection`.
     pub fn new() -> Self {

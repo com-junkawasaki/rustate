@@ -3,13 +3,17 @@ use crate::Error::ActionError;
 use crate::{Context, Event, EventTrait, Result};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
+use serde::{
+    de::{self, Visitor},
+    ser::SerializeStruct,
+    Deserializer, Serializer,
+};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::marker::PhantomData;
-use serde::{de::{self, Visitor}, ser::{SerializeStruct}, Deserializer, Serializer};
 
 /// Type alias for the action executor function
 pub type ActionExecutor =
@@ -208,9 +212,9 @@ where
     fn into_action(self) -> Action<C, E> {
         // The closure F returns Fut which returns (), matching execute_fn's signature
         Action::new(
-            "closure_action", // TODO: Allow naming?
-            ActionType::Transition, // Default, consider allowing specification
-            move |ctx, evt| Box::pin(self(ctx, evt)) // Box the future directly
+            "closure_action",                         // TODO: Allow naming?
+            ActionType::Transition,                   // Default, consider allowing specification
+            move |ctx, evt| Box::pin(self(ctx, evt)), // Box the future directly
         )
     }
 }
@@ -254,7 +258,10 @@ where
     where
         D: Deserializer<'de>,
     {
-        enum Field { Name, ActionType }
+        enum Field {
+            Name,
+            ActionType,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -325,7 +332,8 @@ where
                     }
                 }
                 let name = name.ok_or_else(|| de::Error::missing_field("name"))?;
-                let action_type = action_type.ok_or_else(|| de::Error::missing_field("action_type"))?;
+                let action_type =
+                    action_type.ok_or_else(|| de::Error::missing_field("action_type"))?;
                 Ok(Action {
                     name,
                     action_type,
@@ -338,6 +346,13 @@ where
         }
 
         const FIELDS: &'static [&'static str] = &["name", "action_type"];
-        deserializer.deserialize_struct("Action", FIELDS, ActionVisitor { _phantom_c: PhantomData, _phantom_e: PhantomData })
+        deserializer.deserialize_struct(
+            "Action",
+            FIELDS,
+            ActionVisitor {
+                _phantom_c: PhantomData,
+                _phantom_e: PhantomData,
+            },
+        )
     }
 }

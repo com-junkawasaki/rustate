@@ -28,15 +28,7 @@ pub struct Transition<S = String, C = Context, E = Event>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Eq
-        + fmt::Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Source state id
     pub source: S,
@@ -68,15 +60,7 @@ impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Eq
-        + fmt::Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Create a new transition
     pub fn new(
@@ -86,8 +70,7 @@ where
         guard: Option<Guard<C, E>>,
         actions: Vec<Action<C, E>>,
         transition_type: TransitionType,
-    ) -> Self
-    {
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             source: source.into(),
@@ -153,7 +136,8 @@ where
 
     /// Add an action to this transition
     pub fn with_action(mut self, action: impl IntoAction<C, E>) -> Self
-    where C: Default
+    where
+        C: Default,
     {
         self.actions.push(action.into_action());
         self
@@ -175,7 +159,8 @@ where
     /// Execute this transition's actions
     #[async_recursion]
     pub async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>
-    where C: Default
+    where
+        C: Default,
     {
         for action in &self.actions {
             action.execute(context, event).await;
@@ -195,15 +180,7 @@ impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
     S: StateTrait + fmt::Debug,
     C: Clone + Send + Sync + 'static + Debug,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Eq
-        + fmt::Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
@@ -221,15 +198,7 @@ impl<S, C, E> PartialEq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Eq
-        + fmt::Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
@@ -243,15 +212,7 @@ impl<S, C, E> Eq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
     C: Clone + Send + Sync + 'static,
-    E: EventTrait
-        + Send
-        + Sync
-        + 'static
-        + Clone
-        + Eq
-        + fmt::Debug
-        + Serialize
-        + DeserializeOwned,
+    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
 }
 
@@ -275,12 +236,15 @@ where
 {
     /// Check if the transition guard allows the transition (synchronous)
     fn is_enabled(&self, context: &C, event: &E) -> bool {
-        self.guard.as_ref().map_or(true, |g| g.check(context, event))
+        self.guard
+            .as_ref()
+            .map_or(true, |g| g.check(context, event))
     }
 
     /// Execute all actions associated with this transition
     async fn execute_actions(&self, context: &mut C, event: &E) -> Result<()>
-    where C: Default
+    where
+        C: Default,
     {
         for action in &self.actions {
             action.execute(context, event).await;

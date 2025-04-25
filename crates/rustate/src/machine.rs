@@ -38,8 +38,9 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+        + IntoEvent
+        + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
@@ -87,8 +88,9 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+        + IntoEvent
+        + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new state machine instance from a builder
@@ -124,7 +126,10 @@ where
                 }
             }
             // Group the transition
-            grouped_transitions.entry(t.source.clone()).or_default().push(t);
+            grouped_transitions
+                .entry(t.source.clone())
+                .or_default()
+                .push(t);
         }
         // --- Group Transitions by Source State --- End
 
@@ -197,13 +202,10 @@ where
             if let Some(state_transitions) = self.transitions.get(state_id) {
                 for t in state_transitions {
                     // Check event match first
-                    let event_matches = t
-                        .event
-                        .as_ref()
-                        .map_or(false, |te| te == &event);
+                    let event_matches = t.event.as_ref().map_or(false, |te| te == &event);
                     if event_matches {
                         // Check guard condition if event matches
-                        if t.is_enabled(&current_context, &event) {
+                        if t.is_enabled(&current_context, &event).await {
                             enabled_transition = Some((t, state_id.clone())); // Clone state_id
                             break; // Found the highest priority transition for this state
                         }
@@ -224,14 +226,18 @@ where
                         for t in state_transitions {
                             if t.event.is_none() {
                                 // Check for transitions with no event specified
-                                if t.is_enabled(&current_context, &event) {
+                                if t.is_enabled(&current_context, &event).await {
                                     enabled_transition = Some((t, current_state_id.clone())); // Clone state_id
                                     break;
                                 }
                             }
                         }
                     }
-                    if let Some(parent_id) = self.states.get(current_check_id).and_then(|s| s.parent.clone()) {
+                    if let Some(parent_id) = self
+                        .states
+                        .get(current_check_id)
+                        .and_then(|s| s.parent.clone())
+                    {
                         current_check_id = parent_id;
                     } else {
                         break;
@@ -243,7 +249,7 @@ where
         for t in &self.transitions {
             if t.source.to_string() == "*"
                 && t.event.as_ref().map_or(false, |te| te == &event)
-                && t.is_enabled(&current_context, &event)
+                && t.is_enabled(&current_context, &event).await?
             {
                 if enabled_transition.is_none() {
                     // Found a wildcard transition
@@ -253,26 +259,31 @@ where
                         enabled_transition = Some((t, first_current_state.clone()));
                     } else {
                         // This case should ideally not happen if the machine is initialized
-                        return Err(Error::InvalidState("No current state to apply wildcard transition".to_string()));
+                        return Err(Error::InvalidState(
+                            "No current state to apply wildcard transition".to_string(),
+                        ));
                     }
                 }
             }
         }
+
+        // Check for wildcard transitions (*) last
+        let wildcard_transition = async {
+            self.transitions.values().flatten().find(|t| {
+                t.source.to_string() == "*"
+                    && t.event.as_ref().map_or(false, |te| te == &event)
+                    && t.is_enabled(&current_context, &event).await
+            })
+        }
+        .await;
 
         if let Some((transition, source_state_id)) = enabled_transition {
             self.execute_transition(&transition.clone(), &source_state_id, &event)
                 .await?;
             processed = true;
         } else {
-            // Check for wildcard transitions if no specific transition was found
-            let wildcard_transition = self.transitions.values().flatten().find(|t| {
-                t.source.to_string() == "*"
-                    && t.event.as_ref().map_or(false, |te| te == &event)
-                    && t.is_enabled(&current_context, &event)
-            });
-
-            if let Some(t) = wildcard_transition {
-                self.execute_transition(&t.clone(), &self.initial.clone(), &event)
+            if let Some(wildcard_t) = wildcard_transition {
+                self.execute_transition(&wildcard_t.clone(), &self.initial.clone(), &event)
                     .await?;
                 processed = true;
             }
@@ -357,7 +368,12 @@ where
         // --- Handle entering child states --- Start
         // Clone necessary info to avoid borrowing issues
         let state_info = match self.states.get(state_id) {
-            Some(s) => Some((s.state_type.clone(), s.initial.clone(), s.history.clone(), s.children.keys().cloned().collect::<Vec<_>>())), // Clone required fields
+            Some(s) => Some((
+                s.state_type.clone(),
+                s.initial.clone(),
+                s.history.clone(),
+                s.children.keys().cloned().collect::<Vec<_>>(),
+            )), // Clone required fields
             None => None, // Should not happen due to check above, but handle defensively
         };
 
@@ -373,9 +389,13 @@ where
                             // Deep history: TODO: Implement deep history logic (needs tracking nested history)
                             HistoryType::Deep => {
                                 // For now, fallback to initial if deep history not found or implemented
-                                self.history.get(&state_id_str).cloned().or(initial_child_opt.clone()) // Clone initial
+                                self.history
+                                    .get(&state_id_str)
+                                    .cloned()
+                                    .or(initial_child_opt.clone()) // Clone initial
                             }
-                        }.or(initial_child_opt.clone()) // Fallback to initial if history is empty
+                        }
+                        .or(initial_child_opt.clone()) // Fallback to initial if history is empty
                     } else {
                         initial_child_opt.clone() // Use the defined initial state if no history
                     };
@@ -409,7 +429,9 @@ where
     async fn exit_state(&mut self, state_id: &S, event: &E) -> Result<()> {
         // --- Handle exiting child states first (recursion/iteration needed) --- Start
         // Clone necessary info to avoid borrowing issues
-        let children_to_exit = self.current_states.iter()
+        let children_to_exit = self
+            .current_states
+            .iter()
             .filter_map(|current_id| {
                 // Check if current_id is a descendant of state_id
                 // This requires traversing the parent links up from current_id
@@ -610,8 +632,18 @@ where
 pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned + fmt::Debug + IntoEvent,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Default
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + IntoEvent,
+    S: StateTrait + Display + PartialEq + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
@@ -636,8 +668,18 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Default + Eq + Serialize + DeserializeOwned + fmt::Debug + IntoEvent,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Default
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + IntoEvent,
+    S: StateTrait + Display + PartialEq + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new MachineBuilder
@@ -756,8 +798,9 @@ where
         + Serialize
         + DeserializeOwned
         + fmt::Debug
-        + IntoEvent,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
+        + IntoEvent
+        + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     fn get_initial_snapshot(&self, _input: Option<O>) -> MachineSnapshot<C, S, O> {
