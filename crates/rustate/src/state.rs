@@ -2,9 +2,9 @@ use crate::{Context, Error, Event, EventTrait, IntoAction, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use uuid::Uuid;
 use std::fmt;
 use std::hash::Hash;
+use uuid::Uuid;
 
 /// Trait for state objects in a state machine
 pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync + 'static {
@@ -88,7 +88,10 @@ where
     }
 
     /// Create a new compound state
-    pub fn new_compound(id: S, initial: S) -> Self where S: Into<String> {
+    pub fn new_compound(id: S, initial: S) -> Self
+    where
+        S: Into<String>,
+    {
         Self {
             id,
             state_type: StateType::Compound,

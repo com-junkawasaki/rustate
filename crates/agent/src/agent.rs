@@ -132,11 +132,7 @@ where
     }
 
     /// 共有状態機械参照を使用してエージェントを作成します
-    pub fn with_shared_machine(
-        machine_ref: SharedMachineRef,
-        policy: P,
-        storage: SM,
-    ) -> Self {
+    pub fn with_shared_machine(machine_ref: SharedMachineRef, policy: P, storage: SM) -> Self {
         Self {
             id: Uuid::new_v4(),
             machine_ref: Some(machine_ref),
@@ -231,10 +227,7 @@ where
     }
 
     /// 現在のエピソードを完了します
-    pub async fn complete_episode(
-        &mut self,
-        is_successful: bool,
-    ) -> Result<Option<Episode<S, E>>> {
+    pub async fn complete_episode(&mut self, is_successful: bool) -> Result<Option<Episode<S, E>>> {
         if let Some(mut episode) = self.current_episode.take() {
             episode.complete(is_successful);
             self.storage.save_episode(&episode).await?;
@@ -501,11 +494,13 @@ where
         // Ideally, the initial state should be queried from the shared machine if possible.
         let placeholder_state_id = "__shared_placeholder__";
         let mut internal_machine = MachineBuilder::new("agent_internal_dummy")
-             // We cannot easily create an instance of S here.
-             // The dummy machine doesn't need a real state object if we don't transition it.
-             .initial(placeholder_state_id)
-             .build()
-             .map_err(|e| AgentError::InternalError(format!("Failed to create dummy machine: {}", e)))?;
+            // We cannot easily create an instance of S here.
+            // The dummy machine doesn't need a real state object if we don't transition it.
+            .initial(placeholder_state_id)
+            .build()
+            .map_err(|e| {
+                AgentError::InternalError(format!("Failed to create dummy machine: {}", e))
+            })?;
 
         Ok(Self {
             id: id.into(),
@@ -523,76 +518,78 @@ where
     /// Returns a reference to the internal state machine.
     /// NOTE: If using SharedMachineRef, this returns the dummy internal machine.
     pub fn machine(&self) -> Result<&Machine<S, E>> {
-         // Always return the internal machine (which might be a dummy)
-         Ok(&self.machine)
-     }
+        // Always return the internal machine (which might be a dummy)
+        Ok(&self.machine)
+    }
 
     /// Returns a mutable reference to the internal state machine.
     /// NOTE: If using SharedMachineRef, this returns the dummy internal machine.
     pub fn machine_mut(&mut self) -> Result<&mut Machine<S, E>> {
         // Always return the internal machine (which might be a dummy)
-         Ok(&mut self.machine)
-     }
+        Ok(&mut self.machine)
+    }
 
     /// Returns the current state of the agent.
     /// NOTE: If using SharedMachineRef, this is NOT IMPLEMENTED and returns an error,
     /// as SharedMachineRef doesn't currently expose state reading.
     pub fn current_state(&self) -> Result<S> {
-         if self.machine_ref.is_some() {
-             // We cannot get the state from the shared machine currently.
-             Err(AgentError::NotSupported(
-                 "Fetching current state from SharedMachineRef is not supported.".to_string(),
-             ))
-         } else {
-              // Get state from the internal machine.
-              self.machine
-                 .current_state()
-                 .cloned()
-                 .ok_or_else(|| AgentError::InternalError("Machine has no current state".to_string()))
-         }
-     }
+        if self.machine_ref.is_some() {
+            // We cannot get the state from the shared machine currently.
+            Err(AgentError::NotSupported(
+                "Fetching current state from SharedMachineRef is not supported.".to_string(),
+            ))
+        } else {
+            // Get state from the internal machine.
+            self.machine.current_state().cloned().ok_or_else(|| {
+                AgentError::InternalError("Machine has no current state".to_string())
+            })
+        }
+    }
 
     /// Applies a decision, transitioning the state machine.
     pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S> {
-         // Get state BEFORE transition for observation recording
-         // This will fail if using shared machine due to current_state() limitation
-         let previous_state = self.current_state()?;
+        // Get state BEFORE transition for observation recording
+        // This will fail if using shared machine due to current_state() limitation
+        let previous_state = self.current_state()?;
 
-         let transition_result = if let Some(shared_ref) = &self.machine_ref {
-             // Send event to the shared machine
-             shared_ref
-                 .send_event(decision.event()) // Assumes EventTrait ~ IntoEvent
-                 .map_err(|e| AgentError::IntegrationError(format!("Shared machine send error: {}", e)))?;
-             // Successfully sent, but we CANNOT know the resulting state.
-             // Return the *previous* state or an error?
-             // Returning previous state might be misleading. Let's return error for now.
-             Err(AgentError::NotSupported(
-                 "Cannot determine next state after sending event via SharedMachineRef".to_string(),
-             ))
+        let transition_result = if let Some(shared_ref) = &self.machine_ref {
+            // Send event to the shared machine
+            shared_ref
+                .send_event(decision.event()) // Assumes EventTrait ~ IntoEvent
+                .map_err(|e| {
+                    AgentError::IntegrationError(format!("Shared machine send error: {}", e))
+                })?;
+            // Successfully sent, but we CANNOT know the resulting state.
+            // Return the *previous* state or an error?
+            // Returning previous state might be misleading. Let's return error for now.
+            Err(AgentError::NotSupported(
+                "Cannot determine next state after sending event via SharedMachineRef".to_string(),
+            ))
+        } else {
+            // Send event to the internal machine
+            self.machine.send(decision.event()).map_err(|e| {
+                AgentError::StateMachineError(format!("Internal machine send error: {}", e))
+            })?;
+            // Get the new state from the internal machine
+            Ok(self.machine.current_state().cloned().ok_or_else(|| {
+                AgentError::InternalError(
+                    "Internal machine has no current state after transition".to_string(),
+                )
+            })?)
+        };
 
-         } else {
-             // Send event to the internal machine
-             self.machine
-                 .send(decision.event())
-                 .map_err(|e| AgentError::StateMachineError(format!("Internal machine send error: {}", e)))?;
-             // Get the new state from the internal machine
-             Ok(self.machine.current_state().cloned().ok_or_else(|| AgentError::InternalError(
-                 "Internal machine has no current state after transition".to_string()
-             ))?)
-         };
+        let next_state = transition_result?;
 
-         let next_state = transition_result?;
+        // Record observation using the state *before* the transition and the *result* state
+        if self.current_episode.is_some() {
+            self.record_observation(decision.event.clone(), next_state.clone())?;
+        }
 
-         // Record observation using the state *before* the transition and the *result* state
-         if self.current_episode.is_some() {
-             self.record_observation(decision.event.clone(), next_state.clone())?;
-         }
+        // Store the decision
+        self.storage.save_decision(decision).await?;
 
-         // Store the decision
-         self.storage.save_decision(decision).await?;
-
-         Ok(next_state)
-     }
+        Ok(next_state)
+    }
 }
 
 #[cfg(test)]

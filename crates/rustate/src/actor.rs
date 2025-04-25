@@ -1,13 +1,13 @@
 use crate::error::StateError;
+use crate::error::{Result, StateError};
 use crate::event::EventTrait;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use uuid::Uuid;
-use crate::error::{Result, StateError};
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 // --- Snapshot ---
 
@@ -226,10 +226,7 @@ where
     }
 }
 
-pub fn spawn<A>(
-    mut actor: A,
-    options: ActorOptions,
-) -> ActorRef<A::Event, A::Query, A::Response>
+pub fn spawn<A>(mut actor: A, options: ActorOptions) -> ActorRef<A::Event, A::Query, A::Response>
 where
     A: Actor + Send + 'static,
     A::Event: Send,

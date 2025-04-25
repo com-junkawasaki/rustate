@@ -6,12 +6,12 @@ use crate::{
     state::{State, StateTrait},
     IntoGuard,
 };
-use thiserror::Error;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
+use thiserror::Error;
 
 /// Represents a transition between states
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,13 +148,13 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
-         .field("source", &self.source)
-         .field("event", &self.event)
-         .field("target", &self.target)
-         .field("guard", &self.guard)
-         .field("actions", &self.actions)
-         .field("transition_type", &self.transition_type)
-         .finish()
+            .field("source", &self.source)
+            .field("event", &self.event)
+            .field("target", &self.target)
+            .field("guard", &self.guard)
+            .field("actions", &self.actions)
+            .field("transition_type", &self.transition_type)
+            .finish()
     }
 }
 
