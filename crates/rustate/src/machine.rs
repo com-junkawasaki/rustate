@@ -774,7 +774,7 @@ where
         active_states: &HashSet<String>,
         context: &C,
         event: &E,
-    ) -> Result<Option<(Transition<S>, String)>> {
+    ) -> Result<Option<(Transition<S, C, E>, String)>> {
         let mut candidates = Vec::new();
 
         for state_id in active_states {
@@ -817,7 +817,7 @@ where
     fn calculate_transition_sets(
         &self,
         source_id: &str,
-        transition: &Transition<S>,
+        transition: &Transition<S, C, E>,
     ) -> (HashSet<String>, HashSet<String>, Option<String>) {
         if transition.target.is_none() {
             // Internal transition

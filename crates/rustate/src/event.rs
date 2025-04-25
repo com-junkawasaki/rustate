@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Trait for event objects in a state machine
-pub trait EventTrait {
+pub trait EventTrait: Clone + fmt::Debug + PartialEq + Eq + Send + Sync + 'static {
     /// Get the event type
     fn event_type(&self) -> &str;
 
@@ -11,9 +11,12 @@ pub trait EventTrait {
 }
 
 /// Represents an event that can trigger state transitions
-#[derive(Clone, Debug, Serialize, Deserialize)]
+///
+/// Events are identified by their type and can optionally carry a payload.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Event {
     /// The event type
+    #[serde(rename = "type")]
     pub event_type: String,
     /// Optional payload data
     pub payload: Option<serde_json::Value>,
@@ -21,22 +24,24 @@ pub struct Event {
 
 impl Event {
     /// Create a new event
-    pub fn new(event_type: impl Into<String>) -> Self {
+    pub fn new(event_type: &str) -> Self {
         Self {
-            event_type: event_type.into(),
+            event_type: event_type.to_string(),
             payload: None,
         }
     }
 
     /// Create a new event with payload
-    pub fn with_payload(
-        event_type: impl Into<String>,
-        payload: impl Into<serde_json::Value>,
-    ) -> Self {
+    pub fn with_payload(event_type: &str, payload: serde_json::Value) -> Self {
         Self {
-            event_type: event_type.into(),
-            payload: Some(payload.into()),
+            event_type: event_type.to_string(),
+            payload: Some(payload),
         }
+    }
+
+    // Expose payload_mut if mutable access is needed
+    pub fn payload_mut(&mut self) -> Option<&mut serde_json::Value> {
+        self.payload.as_mut()
     }
 }
 

@@ -69,8 +69,12 @@ pub trait ActorLogic<TSnapshot, TEvent: EventTrait, TInput = ()>: Send + Sync {
 /// Generic Parameters:
 /// - TEvent: The type of event the actor accepts.
 /// - TSnapshot: The type of snapshot the actor emits.
-pub trait ActorRef<TEvent: EventTrait, TSnapshot>: Send + Sync + fmt::Debug {
-    /// Sends an event to the actor.
+pub trait ActorRef<TEvent: EventTrait, TSnapshot>: Send + Sync + fmt::Debug
+where
+    TEvent: EventTrait + Send + fmt::Debug,       // Added Send + Debug bound
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug, // Added Debug bound
+{
+    /// Sends an event to the actor asynchronously.
     fn send(&self, event: TEvent) -> Result<(), StateError>;
 
     /// Returns the unique identifier of this actor instance.
@@ -87,75 +91,197 @@ pub trait ActorRef<TEvent: EventTrait, TSnapshot>: Send + Sync + fmt::Debug {
     // fn to_json(&self) -> serde_json::Value; // For inspection/serialization
 }
 
-// Minimal EventObject trait (adapt as needed)
-// pub trait EventObject: Clone + Send + Sync + fmt::Debug + Any {
-//     fn event_type(&self) -> &str;
-//     // Potentially add methods for payload access
-// }
-// Using the existing one from event.rs for now.
-
-// --- Actor Options ---
-#[derive(Debug, Default)]
-pub struct ActorOptions<TInput> {
-    /// Optional input data for the actor logic's initial snapshot.
-    pub input: Option<TInput>,
-    /// Optional custom ID for the actor.
-    pub id: Option<String>,
-    // TODO: Add options for parent actor, system, etc.
+// Enum for commands sent to the actor
+#[derive(Debug)] // Add Debug derive
+pub enum ActorCommand<E: EventTrait, Q, R> {
+    Event(E),
+    Query { query: Q, responder: oneshot::Sender<R> },
+    Stop,
 }
 
-// --- Concrete Actor Reference Implementation ---
-#[derive(Debug)]
-pub struct ActorRefImpl<TEvent: EventTrait, TSnapshot> {
-    id: String,
-    // Channel sender to send events *to* the actor task
-    event_sender: mpsc::Sender<TEvent>,
-    // Shared snapshot state, updated by the actor task
-    snapshot: Arc<Mutex<TSnapshot>>,
-    // TODO: Add a way to signal stop
-    // stop_sender: Option<oneshot::Sender<()>>,
+/// Trait defining the behavior of an actor (state machine processor).
+pub trait Actor<TEvent: EventTrait, TSnapshot> {
+    /// Returns a reference to the actor's mailbox sender.
+    fn actor_ref(&self) -> &ActorRef<TEvent, TSnapshot>;
+
+    /// Handles an incoming event, potentially transitioning the state.
+    async fn handle_event(&mut self, event: TEvent) -> Result<(), StateError>;
+
+    /// Returns the current state snapshot of the actor.
+    fn get_snapshot(&self) -> TSnapshot;
+
+    /// Optional: Handle a query message (can be used for synchronous requests).
+    async fn handle_query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
+    where
+        TEvent: QueryableEvent, // Only if the event type supports queries
+    {
+        Err(StateError::UnsupportedOperation("Query not supported".to_string()))
+    }
 }
 
-// Implement Clone manually if needed (usually Arc::clone is sufficient for refs)
-impl<TEvent: EventTrait, TSnapshot> Clone for ActorRefImpl<TEvent, TSnapshot> {
+/// Trait for events that support a query/response pattern.
+pub trait QueryableEvent: EventTrait {
+    type Query: Send;
+    type Response: Send;
+}
+
+/// Represents a reference to an actor, allowing messages to be sent.
+pub trait ActorRef<TEvent, TSnapshot>: Send + Sync + fmt::Debug
+where
+    TEvent: EventTrait + Send + fmt::Debug,       // Added Send + Debug bound
+    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug, // Added Debug bound
+{
+    /// Sends an event to the actor asynchronously.
+    fn send(&self, event: TEvent) -> Result<(), StateError>;
+
+    /// Stops the actor.
+    fn stop(&self) -> Result<(), StateError>;
+
+    /// Optional: Sends a query and waits for a response.
+    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
+    where
+        TEvent: QueryableEvent,
+        TEvent::Query: fmt::Debug,
+        TEvent::Response: fmt::Debug;
+
+    // Clones the ActorRef (typically involves cloning an Arc or channel sender).
+    fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>>;
+}
+
+/// Implementation of ActorRef using a Tokio MPSC channel.
+#[derive(Debug)] // Added Debug derive
+pub struct ActorRefImpl<TEvent, TSnapshot, Q = (), R = ()> // Added generics for Query/Response if needed
+where
+    TEvent: EventTrait + Send + Debug + 'static,       // Added Send + Debug bound
+    TSnapshot: Clone + Send + Sync + 'static + Debug, // Added Debug bound
+    Q: Send + Debug + 'static, // Bound for Query type
+    R: Send + Debug + 'static, // Bound for Response type
+{
+    sender: mpsc::Sender<ActorCommand<TEvent, Q, R>>, // Use ActorCommand with generics
+    _snapshot_marker: std::marker::PhantomData<TSnapshot>,
+}
+
+impl<TEvent, TSnapshot, Q, R> Clone for ActorRefImpl<TEvent, TSnapshot, Q, R>
+where
+    TEvent: EventTrait + Send + Debug + 'static,
+    TSnapshot: Clone + Send + Sync + 'static + Debug,
+    Q: Send + Debug + 'static,
+    R: Send + Debug + 'static,
+{
     fn clone(&self) -> Self {
         Self {
-            id: self.id.clone(),
-            event_sender: self.event_sender.clone(),
-            snapshot: Arc::clone(&self.snapshot),
-            // stop_sender: self.stop_sender.clone(), // Needs careful handling if used
+            sender: self.sender.clone(),
+            _snapshot_marker: std::marker::PhantomData,
         }
     }
 }
 
-impl<TEvent: EventTrait, TSnapshot: Clone + Send + Sync + 'static> ActorRef<TEvent, TSnapshot>
-    for ActorRefImpl<TEvent, TSnapshot>
+impl<TEvent, TSnapshot, Q, R> ActorRef<TEvent, TSnapshot> for ActorRefImpl<TEvent, TSnapshot, Q, R>
+where
+    TEvent: EventTrait + Send + Debug + 'static,
+    TSnapshot: Clone + Send + Sync + 'static + Debug,
+    Q: Send + Debug + 'static,
+    R: Send + Debug + 'static,
 {
     fn send(&self, event: TEvent) -> Result<(), StateError> {
-        // Try to send the event, handle potential channel closed error
-        self.event_sender.try_send(event).map_err(|e| match e {
-            mpsc::error::TrySendError::Full(_) => StateError::ActorMailboxFull(self.id.clone()),
-            mpsc::error::TrySendError::Closed(_) => StateError::ActorStopped(self.id.clone()),
-        })
-        // Or use blocking send if acceptable:
-        // self.event_sender.blocking_send(event).map_err(|_| StateError::ActorStopped(self.id.clone()))
-        // Or make ActorRef::send async
+        self.sender
+            .try_send(ActorCommand::Event(event))
+            .map_err(|e| StateError::ActorSendError(e.to_string()))
     }
 
-    fn id(&self) -> &str {
-        &self.id
+    fn stop(&self) -> Result<(), StateError> {
+        self.sender
+            .try_send(ActorCommand::Stop)
+            .map_err(|e| StateError::ActorSendError(e.to_string()))
     }
 
-    fn get_snapshot(&self) -> TSnapshot {
-        // Lock the mutex to access the snapshot.
-        // This blocks if the actor task is currently updating it.
-        // Consider using RwLock for better read performance if updates are less frequent.
-        self.snapshot.lock().unwrap().clone() // Unwraps are generally discouraged in library code
-                                              // TODO: Handle potential poison errors gracefully
+    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
+    where
+        TEvent: QueryableEvent<Query = Q, Response = R>, // Ensure Query/Response match Q/R
+        TEvent::Query: Debug,
+        TEvent::Response: Debug,
+    {
+        let (responder, receiver) = oneshot::channel();
+        self.sender
+            .send(ActorCommand::Query { query, responder })
+            .await
+            .map_err(|e| StateError::ActorSendError(e.to_string()))?;
+        receiver.await.map_err(|e| StateError::ActorReceiveError(e.to_string()))
     }
 
-    // TODO: Implement stop method
-    // fn stop(&self) -> Result<(), StateError> { ... }
+    fn clone_ref(&self) -> Box<dyn ActorRef<TEvent, TSnapshot>> {
+        Box::new(self.clone())
+    }
+}
+
+// Actor lifecycle management function
+pub async fn run_actor<
+A: Actor<TEvent, TSnapshot> + Send + 'static,
+TEvent: EventTrait + Send + Debug + 'static,
+TSnapshot: Clone + Send + Sync + 'static + Debug,
+Q: Send + Debug + 'static, // Add Q/R generics if Actor/ActorCommand use them
+R: Send + Debug + 'static,
+>(
+    mut actor: A,
+    mut receiver: mpsc::Receiver<ActorCommand<TEvent, Q, R>>,
+) {
+    while let Some(command) = receiver.recv().await {
+        match command {
+            ActorCommand::Event(event) => {
+                if let Err(e) = actor.handle_event(event).await {
+                    // Log error, potentially stop actor or implement retry logic
+                    eprintln!("Actor error handling event: {}", e);
+                    // Example: Stop on error
+                    // break;
+                }
+            }
+            ActorCommand::Query { query, responder } => {
+                 // Requires Actor to implement handle_query
+                 // And Event to implement QueryableEvent
+                /*
+                 if let Ok(response) = actor.handle_query(query).await {
+                     let _ = responder.send(response);
+                 } else {
+                     // Log error, responder dropped implicitly
+                     eprintln!("Actor failed to handle query");
+                 }
+                 */
+                 // If Actor doesn't handle queries, drop responder
+                  let _ = responder.send(Err(StateError::UnsupportedOperation("Query not supported by this actor".to_string()))); // Example: Send error back
+                  eprintln!("Actor received unsupported query");
+            }
+            ActorCommand::Stop => {
+                println!("Actor stopping...");
+                break;
+            }
+        }
+    }
+    println!("Actor finished.");
+}
+
+// Helper to spawn an actor and return its reference
+pub fn spawn_actor<
+A: Actor<TEvent, TSnapshot> + Send + 'static,
+TEvent: EventTrait + Send + Debug + 'static,
+TSnapshot: Clone + Send + Sync + 'static + Debug,
+Q: Send + Debug + 'static,
+R: Send + Debug + 'static,
+>(
+    actor: A,
+    buffer_size: usize,
+) -> Box<dyn ActorRef<TEvent, TSnapshot>>
+where
+    TEvent: QueryableEvent<Query=Q, Response=R>, // Add bound if query is used
+{
+    let (sender, receiver) = mpsc::channel::<ActorCommand<TEvent, Q, R>>(buffer_size);
+    let actor_ref = ActorRefImpl {
+        sender,
+        _snapshot_marker: std::marker::PhantomData::<TSnapshot>,
+    };
+
+    tokio::spawn(run_actor(actor, receiver));
+
+    Box::new(actor_ref)
 }
 
 // --- create_actor function ---

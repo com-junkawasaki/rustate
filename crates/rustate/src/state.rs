@@ -25,6 +25,34 @@ pub trait StateTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync +
 
     /// Get data associated with this state
     fn data(&self) -> Option<&Value>;
+
+    /// Get the history type, if this is a history state
+    fn history(&self) -> Option<HistoryType>;
+
+    /// Check if the state is a final state
+    fn is_final(&self) -> bool {
+        *self.state_type() == StateType::Final
+    }
+
+    /// Check if the state is atomic (has no children)
+    fn is_atomic(&self) -> bool {
+        self.children().is_empty()
+    }
+
+    /// Check if the state is a compound state
+    fn is_compound(&self) -> bool {
+        *self.state_type() == StateType::Compound
+    }
+
+    /// Check if the state is a parallel state
+    fn is_parallel(&self) -> bool {
+        *self.state_type() == StateType::Parallel
+    }
+
+    /// Check if the state is a history state
+    fn is_history(&self) -> bool {
+        *self.state_type() == StateType::History || *self.state_type() == StateType::DeepHistory
+    }
 }
 
 /// Represents a type of state
@@ -44,8 +72,17 @@ pub enum StateType {
     DeepHistory,
 }
 
+/// Represents the history mechanism for history states
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum HistoryType {
+    /// A shallow history state
+    Shallow,
+    /// A deep history state
+    Deep,
+}
+
 /// Represents a state in a state machine
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub struct State<S = String>
 where
     S: StateTrait + Send + Sync + 'static,
@@ -55,11 +92,11 @@ where
     /// Type of state
     pub state_type: StateType,
     /// Optional parent state id
-    pub parent: Option<String>,
+    pub parent: Option<S>,
     /// Child states (for compound and parallel states)
-    pub children: Vec<String>,
+    pub children: Vec<S>,
     /// Initial state (for compound states)
-    pub initial: Option<String>,
+    pub initial: Option<S>,
     /// Data associated with this state
     pub data: Option<Value>,
     /// Internal unique identifier
@@ -67,6 +104,8 @@ where
     pub(crate) uuid: Uuid,
     /// Optional meta information for the state
     pub meta: Option<Value>,
+    /// History type for History states
+    pub history: Option<HistoryType>,
 }
 
 impl<S> State<S>
@@ -84,6 +123,7 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
+            history: None,
         }
     }
 
@@ -101,6 +141,7 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
+            history: None,
         }
     }
 
@@ -115,6 +156,7 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
+            history: None,
         }
     }
 
@@ -129,6 +171,7 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
+            history: None,
         }
     }
 
@@ -143,6 +186,7 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
+            history: None,
         }
     }
 
@@ -157,6 +201,7 @@ where
             data: None,
             uuid: Uuid::new_v4(),
             meta: None,
+            history: None,
         }
     }
 
@@ -196,14 +241,10 @@ where
         self
     }
 
-    /// Check if the state is a final state
-    pub fn is_final(&self) -> bool {
-        self.state_type == StateType::Final
-    }
-
-    /// Check if the state is atomic (has no children)
-    pub fn is_atomic(&self) -> bool {
-        self.children.is_empty()
+    /// Set the history type
+    pub fn with_history(mut self, history_type: HistoryType) -> Self {
+        self.history = Some(history_type);
+        self
     }
 }
 
@@ -220,19 +261,23 @@ where
     }
 
     fn parent(&self) -> Option<&str> {
-        self.parent.as_deref()
+        self.parent.as_deref().map(|s| s.to_string().as_str())
     }
 
     fn children(&self) -> &[String] {
-        &self.children
+        &self.children.iter().map(|s| s.to_string()).collect::<Vec<_>>()
     }
 
     fn initial(&self) -> Option<&str> {
-        self.initial.as_deref()
+        self.initial.as_deref().map(|s| s.to_string().as_str())
     }
 
     fn data(&self) -> Option<&Value> {
         self.data.as_ref()
+    }
+
+    fn history(&self) -> Option<HistoryType> {
+        self.history.clone()
     }
 }
 
@@ -294,6 +339,9 @@ impl StateTrait for String {
         None
     }
     fn data(&self) -> Option<&Value> {
+        None
+    }
+    fn history(&self) -> Option<HistoryType> {
         None
     }
 }

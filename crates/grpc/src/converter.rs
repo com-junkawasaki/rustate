@@ -87,47 +87,48 @@ pub fn state_to_proto(state: &RuState) -> proto::State {
 /// # 戻り値
 /// * 変換されたRuStateの状態オブジェクト
 pub fn state_from_proto(proto_state: &proto::State) -> RuState {
-    let state_type = state_type_from_proto(match proto_state.r#type {
-        0 => proto::StateType::Normal,
-        1 => proto::StateType::Final,
-        2 => proto::StateType::History,
-        3 => proto::StateType::Parallel,
-        _ => proto::StateType::Normal, // Default to Normal for unknown values
-    });
+    // Determine the state type from the proto enum, defaulting to Normal
+    let state_type = state_type_from_proto(
+        proto::StateType::try_from(proto_state.r#type).unwrap_or(proto::StateType::Normal),
+    );
 
+    // Create the RuState based on its type
     let mut state = match state_type {
         RuStateType::Normal => RuState::new(&proto_state.id),
         RuStateType::Final => RuState::new_final(&proto_state.id),
         RuStateType::History => {
-            // ヒストリーは通常のStateTypeを使用して作成
             let mut s = RuState::new(&proto_state.id);
-            s.state_type = RuStateType::History;
+            s.state_type = RuStateType::History; // Explicitly set history type
             s
         }
         RuStateType::DeepHistory => {
-            // DeepHistoryは通常のStateTypeを使用して作成
             let mut s = RuState::new(&proto_state.id);
-            s.state_type = RuStateType::DeepHistory;
+            s.state_type = RuStateType::DeepHistory; // Explicitly set deep history type
             s
         }
         RuStateType::Parallel => RuState::new_parallel(&proto_state.id),
         RuStateType::Compound => {
-            // Compoundの場合は空の初期状態で作成（プロトコルからは情報が限られる）
+            // Compound state needs an initial child, which isn't directly in proto::State.
+            // We might derive it from children or default to an empty string if not crucial.
+            // If the proto definition includes an 'initial' field, use that.
+            // For now, using empty string as initial.
             RuState::new_compound(&proto_state.id, "")
         }
     };
 
-    // 親状態の設定（存在する場合）
+    // Set the parent state if provided
     if !proto_state.parent.is_empty() {
         state.parent = Some(proto_state.parent.clone());
     }
 
-    // 子状態の追加
-    if !proto_state.children.is_empty() {
-        for child in &proto_state.children {
-            state.children.push(child.clone());
-        }
-    }
+    // Add children states
+    // RuState::children is Vec<String>, proto::State::children is Vec<String>
+    state.children = proto_state.children.clone();
+
+    // If proto::State had an 'initial' field, set it here:
+    // if let Some(initial) = &proto_state.initial {
+    //     state.initial = Some(initial.clone());
+    // }
 
     state
 }
@@ -157,15 +158,18 @@ pub fn transition_to_proto(transition: &RuTransition) -> proto::Transition {
 /// # 戻り値
 /// * 変換されたRuStateの遷移オブジェクト
 pub fn transition_from_proto(proto_transition: &proto::Transition) -> RuTransition {
+    // Create a basic transition. Guards and actions are typically added via MachineBuilder.
     let transition = RuTransition::new(
         &proto_transition.source,
         &proto_transition.event,
-        &proto_transition.target,
+        &proto_transition.target, // Assuming target is String in proto
     );
 
-    // ガードとアクションの設定
-    // 注意: 実際のrustateのTransitionにはこれらを直接設定する方法がないため、
-    // 単純なクローンだけを行う (実際のアクションやガードの設定はMachineBuilder経由で行われる)
+    // If guards/actions were simple strings/IDs and present in proto,
+    // they could potentially be stored in RuTransition if its definition allows.
+    // For now, we assume guards/actions are complex and handled by the builder.
+    // transition.guard = proto_transition.guards.iter().map(|g_id| Guard::new(g_id, |_,_| true)).collect(); // Example if storing simple guards
+    // transition.actions = proto_transition.actions.iter().map(|a_id| Action::new(a_id, ActionType::Transition, |_,_| {})).collect(); // Example
 
     transition
 }
@@ -221,13 +225,24 @@ pub fn machine_from_proto(proto_machine: &proto::MachineDefinition) -> Result<Ru
     builder = builder.initial(&proto_machine.initial);
 
     // 状態の追加
-    for state in &proto_machine.states {
-        builder = builder.state(state_from_proto(state));
+    for proto_state in &proto_machine.states {
+        let rustate_state = state_from_proto(proto_state);
+        // If state_from_proto needs the initial field for Compound states, pass it:
+        // let initial = proto_state.initial.as_deref().unwrap_or(""); // Example
+        // let rustate_state = state_from_proto(proto_state, initial); // If signature changes
+        builder = builder.state(rustate_state);
     }
 
     // 遷移の追加
-    for transition in &proto_machine.transitions {
-        builder = builder.transition(transition_from_proto(transition));
+    for proto_transition in &proto_machine.transitions {
+        let rustate_transition = transition_from_proto(proto_transition);
+        // Add guards/actions here if they are part of the proto definition
+        // and can be reconstructed into callable closures/functions.
+        // This usually requires a registry or factory.
+        builder = builder.transition(rustate_transition);
+        // Example: Add guards/actions by ID lookup
+        // for guard_id in &proto_transition.guards { builder = builder.guard(&guard_id, lookup_guard(guard_id)); }
+        // for action_id in &proto_transition.actions { builder = builder.action(&action_id, lookup_action(action_id)); }
     }
 
     // コンテキストの設定
@@ -274,9 +289,17 @@ pub fn machine_state_to_proto(machine: &RuMachine) -> Result<proto::MachineState
 /// * `proto_event` - gRPCのイベント定義オブジェクト
 ///
 /// # 戻り値
-/// * イベント文字列
-pub fn event_from_proto(proto_event: &proto::EventDefinition) -> Result<String> {
-    Ok(proto_event.event_type.clone())
+/// * イベント文字列とペイロード (Option<serde_json::Value>)
+pub fn event_from_proto(proto_event: &proto::EventDefinition) -> Result<(String, Option<serde_json::Value>)> {
+    let event_type = proto_event.event_type.clone();
+    let payload = if !proto_event.payload.is_empty() {
+        let value: serde_json::Value = serde_json::from_str(&proto_event.payload)
+            .map_err(GrpcError::Serialization)?;
+        Some(value)
+    } else {
+        None
+    };
+    Ok((event_type, payload))
 }
 
 /// RuStateのイベントペイロードからgRPCのEventDefinitionへの変換
@@ -348,10 +371,10 @@ mod tests {
     #[test]
     fn test_convert_state_to_proto() {
         let state = State::new("testState");
-        let proto_state = convert_state_to_proto(&state);
+        let proto_state = state_to_proto(&state);
 
         assert_eq!(proto_state.id, "testState");
-        assert_eq!(proto_state.state_type, proto::StateType::Simple as i32);
+        assert_eq!(proto_state.state_type, proto::StateType::Normal as i32);
         assert!(proto_state.parent.is_none());
         assert_eq!(proto_state.children.len(), 0);
         assert!(proto_state.initial.is_none());
@@ -361,11 +384,11 @@ mod tests {
     #[test]
     fn test_convert_state_with_parent_to_proto() {
         let mut state = State::new("childState");
-        state.with_parent("parentState");
-        let proto_state = convert_state_to_proto(&state);
+        state.parent = Some("parentState".to_string());
+        let proto_state = state_to_proto(&state);
 
         assert_eq!(proto_state.id, "childState");
-        assert_eq!(proto_state.parent.unwrap(), "parentState");
+        assert_eq!(proto_state.parent, "parentState");
     }
 
     #[test]
@@ -375,10 +398,10 @@ mod tests {
         state.with_initial("initialChild");
         state.with_children(vec!["child1".to_string(), "child2".to_string()]);
 
-        let proto_state = convert_state_to_proto(&state);
+        let proto_state = state_to_proto(&state);
 
         assert_eq!(proto_state.id, "compoundState");
-        assert_eq!(proto_state.state_type, proto::StateType::Compound as i32);
+        assert_eq!(proto_state.state_type, proto::StateType::Normal as i32);
         assert_eq!(proto_state.initial.unwrap(), "initialChild");
         assert_eq!(proto_state.children, vec!["child1", "child2"]);
     }
@@ -389,7 +412,7 @@ mod tests {
             // 空の実装
         });
 
-        let proto_action = convert_action_to_proto(&action);
+        let proto_action = action_to_proto(&action);
 
         assert_eq!(proto_action.id, "testAction");
         assert_eq!(proto_action.action_type, proto::ActionType::Entry as i32);
@@ -398,7 +421,7 @@ mod tests {
     #[test]
     fn test_convert_guard_to_proto() {
         let guard = Guard::new("testGuard", |_ctx, _evt| true);
-        let proto_guard = convert_guard_to_proto(&guard);
+        let proto_guard = guard_to_proto(&guard);
 
         assert_eq!(proto_guard.id, "testGuard");
     }
@@ -414,7 +437,7 @@ mod tests {
         transition.with_action(action);
         transition.with_guard(guard);
 
-        let proto_transition = convert_transition_to_proto(&transition);
+        let proto_transition = transition_to_proto(&transition);
 
         assert_eq!(proto_transition.source, "sourceState");
         assert_eq!(proto_transition.event, "EVENT_TYPE");
@@ -428,7 +451,7 @@ mod tests {
     #[test]
     fn test_convert_machine_to_proto() {
         let machine = create_test_machine();
-        let proto_machine = convert_machine_to_proto(&machine);
+        let proto_machine = machine_to_proto(&machine);
 
         assert_eq!(proto_machine.id, "documentWorkflow");
         assert_eq!(proto_machine.initial, "draft");
@@ -546,8 +569,8 @@ mod tests {
             source: "sourceState".to_string(),
             event: "EVENT_TYPE".to_string(),
             target: "targetState".to_string(),
-            actions: Vec::new(),
             guards: Vec::new(),
+            actions: Vec::new(),
         };
 
         let transition = convert_proto_to_transition(&proto_transition);

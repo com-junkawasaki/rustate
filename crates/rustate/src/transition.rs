@@ -1,37 +1,36 @@
 use crate::{
     action::{Action, ActionType, IntoAction},
     context::Context,
-    error::{Error, Result},
+    error::Result,
     event::{Event, EventTrait},
+    guard::{Guard, IntoGuard},
     state::{State, StateTrait},
     IntoGuard,
 };
+use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::sync::Arc;
+use std::fmt::{self, Debug};
 use thiserror::Error;
 
 /// Represents a transition between states
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Transition<S = String, C = (), E = Event>
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Transition<S, C = Context, E = Event>
 where
     S: StateTrait + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     /// Source state id
-    pub source: String,
+    pub source: S,
     /// Target state id
-    pub target: Option<String>,
+    pub target: Option<S>,
     /// Event type that triggers this transition
-    pub event: String,
+    pub event: E,
     /// Optional guard condition
-    #[serde(skip)]
     pub guard: Option<Guard<C, E>>,
     /// Actions to execute during the transition
-    #[serde(skip)]
     pub actions: Vec<Action<C, E>>,
     /// Internal id for this transition
     #[serde(default = "uuid::Uuid::new_v4")]
@@ -49,17 +48,13 @@ where
     E: EventTrait + Send + Sync + 'static,
 {
     /// Create a new transition
-    pub fn new(
-        source: impl Into<String>,
-        event: impl Into<String>,
-        target: impl Into<String>,
-    ) -> Self {
+    pub fn new(source: S, event: E, target: Option<S>) -> Self {
         Self {
-            source: source.into(),
-            target: Some(target.into()),
-            event: event.into(),
-            guard: None,
+            source,
+            event,
+            target,
             actions: Vec::new(),
+            guard: None,
             id: uuid::Uuid::new_v4(),
             transition_type: TransitionType::External,
             _phantom_s: std::marker::PhantomData,
@@ -69,12 +64,11 @@ where
     }
 
     /// Create a new self-transition (target is the same as source)
-    pub fn self_transition(state: impl Into<String>, event: impl Into<String>) -> Self {
-        let state = state.into();
+    pub fn self_transition(state: S, event: E) -> Self {
         Self {
-            source: state.clone(),
+            source: state,
             target: Some(state),
-            event: event.into(),
+            event,
             guard: None,
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
@@ -86,11 +80,11 @@ where
     }
 
     /// Create a new internal transition (no exit/entry actions, just the transition actions)
-    pub fn internal_transition(state: impl Into<String>, event: impl Into<String>) -> Self {
+    pub fn internal_transition(state: S, event: E) -> Self {
         Self {
-            source: state.into(),
+            source: state,
             target: None,
-            event: event.into(),
+            event,
             guard: None,
             actions: Vec::new(),
             id: uuid::Uuid::new_v4(),
@@ -102,20 +96,20 @@ where
     }
 
     /// Add a guard condition to this transition
-    pub fn with_guard<G: IntoGuard<C, E>>(mut self, guard: G) -> Self {
+    pub fn with_guard(mut self, guard: impl IntoGuard<C, E>) -> Self {
         self.guard = Some(guard.into_guard());
         self
     }
 
     /// Add an action to this transition
-    pub fn with_action<A: IntoAction<C, E>>(mut self, action: A) -> Self {
+    pub fn with_action(mut self, action: impl IntoAction<C, E>) -> Self {
         self.actions.push(action.into_action());
         self
     }
 
     /// Check if this transition is triggered by the given event
     pub fn matches_event(&self, event: &E) -> bool {
-        self.event == event.event_type() || self.event == crate::event::WILDCARD_EVENT
+        self.event == event || self.event == crate::event::WILDCARD_EVENT
     }
 
     /// Check if this transition is enabled given the context and event
@@ -130,13 +124,16 @@ where
     }
 
     /// Execute this transition's actions
+    #[async_recursion]
     pub async fn execute_actions(&self, context: &mut C, event: &E) {
-        let futures: Vec<_> = self
+        let futures = self
             .actions
             .iter()
-            .map(|action| action.execute(context, event))
-            .collect();
-        let _ = try_join_all(futures).await;
+            .map(|action| action.execute(context, event));
+        let results = try_join_all(futures).await;
+        if let Err(e) = results {
+            eprintln!("Error executing transition action: {:?}", e);
+        }
     }
 }
 
@@ -148,15 +145,36 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")
-            .field("source", &self.source)
-            .field("event", &self.event)
-            .field("target", &self.target)
-            .field("guard", &self.guard)
-            .field("actions", &self.actions)
-            .field("transition_type", &self.transition_type)
+            .field("source", &self.source.id())
+            .field("event", &self.event.event_type())
+            .field("target", &self.target.as_ref().map(|t| t.id()))
+            .field("actions_count", &self.actions.len())
+            .field("has_guard", &self.guard.is_some())
             .finish()
     }
 }
+
+impl<S, C, E> PartialEq for Transition<S, C, E>
+where
+    S: StateTrait + Send + Sync + 'static,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source &&
+        self.event == other.event &&
+        self.target == other.target &&
+        self.actions.len() == other.actions.len() &&
+        self.guard.is_some() == other.guard.is_some()
+    }
+}
+
+impl<S, C, E> Eq for Transition<S, C, E>
+where
+    S: StateTrait + Send + Sync + 'static,
+    C: Clone + Send + Sync + Default + 'static,
+    E: EventTrait + Send + Sync + 'static,
+{}
 
 /// Represents the type of transition
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
