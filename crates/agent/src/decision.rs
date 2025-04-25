@@ -5,7 +5,6 @@ use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::time::SystemTime;
-use uuid::Uuid;
 
 /// エージェントが行う決定
 #[derive(Debug, Clone, Serialize, Deserialize)]

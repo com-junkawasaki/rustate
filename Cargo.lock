@@ -1475,6 +1475,7 @@ dependencies = [
  "futures",
  "log",
  "proptest",
+ "rustate_macros",
  "serde",
  "serde_json",
  "thiserror",

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// Trait for event objects in a state machine
 pub trait EventTrait: Clone + fmt::Debug + PartialEq + Eq + Send + Sync + 'static {
@@ -16,7 +18,7 @@ pub trait EventTrait: Clone + fmt::Debug + PartialEq + Eq + Send + Sync + 'stati
 /// Represents an event that can trigger state transitions
 ///
 /// Events are identified by their type and can optionally carry a payload.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct Event {
     /// The event type
     #[serde(rename = "type")]

@@ -63,16 +63,16 @@ pub trait ActorLogic: Send + Sync + 'static {
 
     // --- Potential Future Enhancements ---
 
-    /// Executes actions upon entering a state.
+    // /// Executes actions upon entering a state.
     // async fn on_entry(&self, state: &Self::State, context: &mut Self::Context) -> Result<(), ActorError> { Ok(()) }
 
-    /// Executes actions upon exiting a state.
+    // /// Executes actions upon exiting a state.
     // async fn on_exit(&self, state: &Self::State, context: &mut Self::Context) -> Result<(), ActorError> { Ok(()) }
 
-    /// Evaluates guard conditions before executing a transition.
+    // /// Evaluates guard conditions before executing a transition.
     // async fn check_guard(&self, state: &Self::State, context: &Self::Context, event: &Self::Event) -> bool { true }
 
-    /// Executes actions associated with a specific transition.
+    // /// Executes actions associated with a specific transition.
     // async fn execute_action(&self, state: &Self::State, context: &mut Self::Context, event: &Self::Event) -> Result<(), ActorError> { Ok(()) }
 }
 

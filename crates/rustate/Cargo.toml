@@ -30,6 +30,8 @@ console_error_panic_hook = { version = "0.1", optional = true }
 
 log = "0.4"
 
+rustate_macros = { path = "../rustate_macros" }
+
 [features]
 default = []
 wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook"]

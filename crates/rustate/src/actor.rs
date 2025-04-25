@@ -355,8 +355,36 @@ where
                             log::debug!("Processed query actor_id={}", actor_id);
                         }
                          ActorCommand::GetSnapshot(responder) => {
-                           // ... GetSnapshot logic remains the same ...
-                        }
+                            let state_clone = actor_state.state.clone();
+                            let context_clone = actor_state.context.read().await.clone();
+                            let status_clone = *actor_state.status.read().await;
+
+                            // TODO: Determine how to represent state value and final output (R)
+                            // For now, using state debug representation for value and None for output.
+                            let state_value = match serde_json::to_value(&state_clone) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    log::error!("Failed to serialize state for snapshot: {} actor_id={}", e, actor_id);
+                                    // Attempt to send error back if responder is still valid
+                                    let _ = responder.send(Err(StateError::SerializationError(format!("Failed to serialize state: {}", e))));
+                                    continue; // Skip sending Ok below
+                                }
+                            };
+                            
+                            // R is the *final* output type of the machine/actor, default it for non-final states
+                            let output: Option<R> = None; // Assuming R: Default
+
+                            let snapshot = Snapshot {
+                                value: state_value,
+                                context: context_clone,
+                                output, // Use the R type default
+                                status: status_clone,
+                            };
+
+                            if responder.send(Ok(snapshot)).is_err() {
+                                log::warn!("Snapshot receiver dropped before response could be sent. actor_id={}", actor_id);
+                            }
+                         }
                         ActorCommand::Stop => {
                              log::info!("Stop command received actor_id={}", actor_id);
                             *actor_state.status.write().await = ActorStatus::Stopped;

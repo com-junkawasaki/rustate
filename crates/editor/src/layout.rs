@@ -1,6 +1,10 @@
 use rustate::machine::Machine;
 use serde_json::json;
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use wasm_bindgen::prelude::*;
+use web_sys::{Element, Node};
 
 // ステートマシンのレイアウトを自動生成するためのユーティリティ
 #[allow(dead_code)]
@@ -78,6 +82,125 @@ pub fn auto_layout(machine: &mut Machine) {
                 y += padding;
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RegionType {
+    Sidebar,
+    Content,
+    Toolbar,
+    Properties, // Add other types as needed
+}
+
+impl fmt::Display for RegionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegionType::Sidebar => write!(f, "sidebar"),
+            RegionType::Content => write!(f, "content"),
+            RegionType::Toolbar => write!(f, "toolbar"),
+            RegionType::Properties => write!(f, "properties"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Region {
+    pub id: String,
+    pub region_type: RegionType,
+    pub size: f32, // Use f32 or f64 based on precision needs
+    #[serde(skip)] // Don't serialize the DOM element reference
+    element: Option<Element>, // Optional DOM element associated with the region
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Layout {
+    pub id: String,
+    pub regions: HashMap<String, Region>,
+    #[serde(skip)] // Don't serialize the container element reference
+    container: Option<Element>, // Optional reference to the container element
+}
+
+impl Layout {
+    pub fn new(id: impl Into<String>) -> Self {
+        Layout {
+            id: id.into(),
+            regions: HashMap::new(),
+            container: None,
+        }
+    }
+
+    pub fn add_region(&mut self, id: impl Into<String>, region_type: RegionType, size: f32) {
+        let id_str = id.into();
+        let region = Region {
+            id: id_str.clone(),
+            region_type,
+            size,
+            element: None,
+        };
+        self.regions.insert(id_str, region);
+        // TODO: If container exists, maybe re-render?
+    }
+
+    pub fn remove_region(&mut self, id: &str) {
+        if let Some(region) = self.regions.remove(id) {
+            if let Some(element) = region.element {
+                if let Some(parent) = element.parent_node() {
+                    let _ = parent.remove_child(&element); // Ignore result in this context
+                }
+            }
+        }
+        // TODO: If container exists, maybe re-render?
+    }
+
+    pub fn update_region_size(&mut self, id: &str, new_size: f32) {
+        if let Some(region) = self.regions.get_mut(id) {
+            region.size = new_size;
+            // TODO: If region.element exists, update its style
+        }
+        // TODO: If container exists, maybe re-render?
+    }
+
+    // Simplified render logic - creates divs, doesn't handle complex CSS yet
+    pub fn render(&mut self, container: &Element) -> Result<(), JsValue> {
+        self.container = Some(container.clone());
+        container.set_inner_html(""); // Clear previous content
+
+        let window = web_sys::window().ok_or_else(|| JsValue::from_str("no global window exists"))?;
+        let document = window
+            .document()
+            .ok_or_else(|| JsValue::from_str("should have a document on window"))?;
+
+        // Basic flex container setup (adjust as needed)
+        container.set_attribute("style", "display: flex;")?;
+
+        for (id, region) in &mut self.regions {
+            let div = document.create_element("div")?;
+            div.set_attribute("id", id)?;
+            div.set_attribute("data-region-type", &region.region_type.to_string())?;
+
+            // Basic styling based on type/size (very simplistic)
+            let style = match region.region_type {
+                RegionType::Sidebar | RegionType::Properties => {
+                    format!("width: {}%; border: 1px solid blue;", region.size)
+                }
+                RegionType::Content => {
+                    format!("flex-grow: 1; width: {}%; border: 1px solid green;", region.size)
+                }
+                RegionType::Toolbar => format!("height: {}px; border: 1px solid red;", region.size), // Assuming size is pixels for toolbar
+            };
+            div.set_attribute("style", &style)?;
+            div.set_text_content(Some(id)); // Add ID as text for now
+
+            container.append_child(&div)?;
+            region.element = Some(div); // Store element reference
+        }
+
+        Ok(())
+    }
+
+    pub fn get_region_element(&self, id: &str) -> Option<&Element> {
+        self.regions.get(id).and_then(|r| r.element.as_ref())
     }
 }
 

@@ -5,22 +5,18 @@ use crate::{
     feedback::Feedback,
     goal::Goal,
     insight::Insight,
-    observation::Observation,
     policy::Policy,
     storage::Storage,
 };
-use async_trait::async_trait;
 use rustate::{
     machine::{Machine, MachineBuilder},
     state::{StateTrait as RuStateTrait, StateType as RuStateType},
     Context, EventTrait as RuEventTrait, IntoEvent as RuIntoEvent, SharedMachineRef,
-    State as RuState, Transition,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -527,55 +523,20 @@ mod tests {
     use serde_json::Value;
     use std::fmt::Debug;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestState {
-        #[default]
         Idle,
-        Processing,
-        Completed,
-        Error,
+        Running,
+        Stopped,
     }
 
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
-            match self {
-                TestState::Idle => "Idle",
-                TestState::Processing => "Processing",
-                TestState::Completed => "Completed",
-                TestState::Error => "Error",
-            }
-        }
-
-        fn state_type(&self) -> &RuStateType {
-            match self {
-                TestState::Completed => &RuStateType::Final,
-                _ => &RuStateType::Normal,
-            }
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            &[]
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     enum TestEvent {
         Start,
-        Complete,
-        Abort,
-        Retry,
+        Stop,
+        Pause,
+        Resume,
+        Custom(String),
     }
 
     impl RuIntoEvent for TestEvent {
@@ -588,9 +549,10 @@ mod tests {
         fn event_type(&self) -> &str {
             match self {
                 TestEvent::Start => "START",
-                TestEvent::Complete => "COMPLETE",
-                TestEvent::Abort => "ABORT",
-                TestEvent::Retry => "RETRY",
+                TestEvent::Stop => "STOP",
+                TestEvent::Pause => "PAUSE",
+                TestEvent::Resume => "RESUME",
+                TestEvent::Custom(s) => s.as_str(),
             }
         }
 
@@ -610,8 +572,8 @@ mod tests {
         ) -> Result<Decision<TestEvent>> {
             let event = match current_state {
                 TestState::Idle => TestEvent::Start,
-                TestState::Processing => TestEvent::Complete,
-                _ => TestEvent::Abort,
+                TestState::Running => TestEvent::Stop,
+                TestState::Stopped => TestEvent::Pause,
             };
             Ok(Decision::simple(event, 1.0))
         }
@@ -620,20 +582,12 @@ mod tests {
     fn create_test_machine_builder() -> MachineBuilder<TestState, TestEvent> {
         MachineBuilder::<TestState, TestEvent>::new("test_machine")
             .state(TestState::Idle, |s| {
-                s.on(TestEvent::Start, TestState::Processing, |_ctx, _payload| {})
+                s.on(TestEvent::Start, TestState::Running, |_ctx, _payload| {})
             })
-            .state(TestState::Processing, |s| {
-                s.on(
-                    TestEvent::Complete,
-                    TestState::Completed,
-                    |_ctx, _payload| {},
-                )
-                .on(TestEvent::Abort, TestState::Error, |_ctx, _payload| {})
+            .state(TestState::Running, |s| {
+                s.on(TestEvent::Stop, TestState::Stopped, |_ctx, _payload| {})
             })
-            .state(TestState::Completed, |s| s.r#type(RuStateType::Final)) // Mark as final
-            .state(TestState::Error, |s| {
-                s.on(TestEvent::Retry, TestState::Idle, |_ctx, _payload| {})
-            })
+            .state(TestState::Stopped, |s| s.r#type(RuStateType::Final)) // Mark as final
             .initial(TestState::Idle)
             .build()
             .unwrap() // Assuming the build is infallible for tests
@@ -693,7 +647,7 @@ mod tests {
 
         // Start an episode first
         agent
-            .start_episode("ep1", TestState::Idle, TestState::Completed)
+            .start_episode("ep1", TestState::Idle, TestState::Stopped)
             .await
             .unwrap();
         assert_eq!(agent.current_state().unwrap(), TestState::Idle);
@@ -708,8 +662,8 @@ mod tests {
         let step_result = agent.step().await;
         assert!(step_result.is_ok());
         let next_state = step_result.unwrap();
-        assert_eq!(next_state, TestState::Processing); // Check state returned by step
-        assert_eq!(agent.current_state().unwrap(), TestState::Processing); // Verify internal state update
+        assert_eq!(next_state, TestState::Running); // Check state returned by step
+        assert_eq!(agent.current_state().unwrap(), TestState::Running); // Verify internal state update
     }
 
     #[tokio::test]
@@ -732,8 +686,8 @@ mod tests {
 
         assert!(next_state_result.is_ok());
         let next_state = next_state_result.unwrap();
-        assert_eq!(next_state, TestState::Processing);
-        assert_eq!(agent.current_state().unwrap(), TestState::Processing); // Verify internal state
+        assert_eq!(next_state, TestState::Running);
+        assert_eq!(agent.current_state().unwrap(), TestState::Running); // Verify internal state
     }
 
     #[tokio::test]
@@ -746,7 +700,7 @@ mod tests {
 
         // Start an episode
         agent
-            .start_episode("ep1", TestState::Idle, TestState::Completed)
+            .start_episode("ep1", TestState::Idle, TestState::Stopped)
             .await
             .unwrap();
         assert_eq!(agent.current_state().unwrap(), TestState::Idle); // Verify initial state
@@ -757,7 +711,7 @@ mod tests {
         let reached_goal = reached_goal_result.unwrap();
 
         assert!(reached_goal); // Should reach goal
-        assert_eq!(agent.current_state().unwrap(), TestState::Completed); // Verify final state
+        assert_eq!(agent.current_state().unwrap(), TestState::Stopped); // Verify final state
 
         // Check episode status
         assert!(agent.current_episode.is_none()); // Episode should be completed and removed
@@ -773,17 +727,17 @@ mod tests {
             Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
 
         agent
-            .start_episode("ep_max_steps", TestState::Idle, TestState::Completed)
+            .start_episode("ep_max_steps", TestState::Idle, TestState::Stopped)
             .await
             .unwrap();
 
-        // Set max_steps lower than required to reach goal (Idle -> Processing -> Completed needs 2 steps)
+        // Set max_steps lower than required to reach goal (Idle -> Running -> Stopped needs 2 steps)
         let reached_goal_result = agent.run_until_goal(Some(1)).await;
         assert!(reached_goal_result.is_ok());
         let reached_goal = reached_goal_result.unwrap();
 
         assert!(!reached_goal); // Should not reach goal due to max_steps
-        assert_eq!(agent.current_state().unwrap(), TestState::Processing); // Should be in Processing state after 1 step
+        assert_eq!(agent.current_state().unwrap(), TestState::Running); // Should be in Running state after 1 step
         assert!(agent.current_episode.is_none()); // Episode should be completed (unsuccessfully)
                                                   // TODO: Check storage for unsuccessful episode completion
     }
@@ -799,7 +753,7 @@ mod tests {
         // Start an episode
         let episode_name = "ep_mgmt";
         let start_result = agent
-            .start_episode(episode_name, TestState::Idle, TestState::Completed)
+            .start_episode(episode_name, TestState::Idle, TestState::Stopped)
             .await;
         assert!(start_result.is_ok());
         assert!(agent.current_episode.is_some());
