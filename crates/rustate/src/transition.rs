@@ -185,7 +185,7 @@ where
 impl<S, C, E> PartialEq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
-    C: Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static + PartialEq,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + Serialize + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -221,7 +221,7 @@ trait TransitionTrait<C, E> {
 impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
 where
     S: StateTrait + Send + Sync + 'static,
-    C: ContextTrait + Send + Sync + 'static,
+    C: Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
 {
     /// Check if the transition guard allows the transition

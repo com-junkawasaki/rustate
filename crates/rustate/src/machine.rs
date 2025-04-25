@@ -3,7 +3,6 @@ use crate::event::IntoEvent;
 use crate::{
     action::ActionType,
     actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
-    context::ContextTrait,
     error::StateError,
     state::{HistoryType, State, StateCollection, StateType},
     transition::TransitionType,
@@ -35,7 +34,6 @@ where
         + Sync
         + 'static
         + Clone
-        + Default
         + Eq
         + Serialize
         + DeserializeOwned
@@ -48,8 +46,8 @@ where
     /// Collection of states (Use StateCollection for better management)
     #[serde(flatten)]
     pub states: StateCollection<S>,
-    /// Collection of transitions
-    pub transitions: Vec<Transition<S, C, E>>,
+    /// Collection of transitions (Grouped by source state ID)
+    pub transitions: HashMap<S, Vec<Transition<S, C, E>>>,
     /// Initial state id
     pub initial: S,
     /// Current active state IDs
@@ -84,7 +82,6 @@ where
         + Sync
         + 'static
         + Clone
-        + Default
         + Eq
         + Serialize
         + DeserializeOwned
@@ -106,17 +103,10 @@ where
             _phantom_o: _,
         } = builder;
 
-        if states.states.is_empty() {
-            return Err(Error::InvalidConfiguration("No states defined".into()));
-        }
-
-        if !states.contains(&initial) {
-            return Err(Error::StateNotFound(initial.to_string()));
-        }
-
-        let initial_context = context.unwrap_or_default();
-
-        for t in &transitions {
+        // --- Group Transitions by Source State --- Start
+        let mut grouped_transitions: HashMap<S, Vec<Transition<S, C, E>>> = HashMap::new();
+        for t in transitions {
+            // Validate source and target states
             if !states.contains(&t.source) {
                 return Err(Error::StateNotFound(format!(
                     "Transition source '{}' not found",
@@ -131,11 +121,25 @@ where
                     )));
                 }
             }
+            // Group the transition
+            grouped_transitions.entry(t.source.clone()).or_default().push(t);
         }
+        // --- Group Transitions by Source State --- End
+
+        if states.is_empty() {
+            return Err(Error::InvalidConfiguration("No states defined".into()));
+        }
+
+        if !states.contains(&initial) {
+            return Err(Error::StateNotFound(initial.to_string()));
+        }
+
+        let initial_context = context.unwrap_or_default();
 
         let mut final_entry_actions = entry_actions;
         let mut final_exit_actions = exit_actions;
-        for (id_str, state) in states.states.iter() {
+        for state in states.all() {
+            let id_str = state.id.to_string();
             if !state.entry.is_empty() {
                 final_entry_actions
                     .entry(id_str.clone())
@@ -144,7 +148,7 @@ where
             }
             if !state.exit.is_empty() {
                 final_exit_actions
-                    .entry(id_str.clone())
+                    .entry(id_str)
                     .or_default()
                     .extend(state.exit.iter().map(|ia| ia.into_action()));
             }
@@ -153,7 +157,7 @@ where
         let mut machine = Self {
             name,
             states,
-            transitions,
+            transitions: grouped_transitions,
             initial: initial.clone(),
             entry_actions: final_entry_actions,
             exit_actions: final_exit_actions,
@@ -187,9 +191,9 @@ where
         let mut enabled_transition: Option<(&Transition<S, C, E>, &S)> = None;
 
         // Find transitions that match the current state and event
-        for state_id in current_state_ids {
-            if let Some(transitions) = self.transitions.get(&state_id) {
-                for t in transitions {
+        for state_id in &current_state_ids {
+            if let Some(state_transitions) = self.transitions.get(state_id) {
+                for t in state_transitions {
                     // Check event match first
                     let event_matches = t
                         .event
@@ -198,7 +202,7 @@ where
                     if event_matches {
                         // Check guard condition if event matches
                         if t.is_enabled(&self.context, event_ref).await {
-                            enabled_transition = Some((t, &state_id));
+                            enabled_transition = Some((t, state_id));
                             break; // Found the highest priority transition for this state
                         }
                     }
@@ -212,19 +216,24 @@ where
         // Also check for transitions without a specific event (always triggers)
         if enabled_transition.is_none() {
             for current_state_id in &self.current_states {
-                if let Some(transitions) = self.transitions.get(current_state_id) {
-                    for t in transitions {
-                        if t.event.is_none() {
-                            // Check for transitions with no event specified
-                            if t.is_enabled(&self.context, event_ref).await {
-                                enabled_transition = Some((t, current_state_id));
-                                break;
+                let mut current_check_id = current_state_id.clone();
+                loop {
+                    if let Some(state_transitions) = self.transitions.get(&current_check_id) {
+                        for t in state_transitions {
+                            if t.event.is_none() {
+                                // Check for transitions with no event specified
+                                if t.is_enabled(&self.context, event_ref).await {
+                                    enabled_transition = Some((t, current_state_id));
+                                    break;
+                                }
                             }
                         }
                     }
-                }
-                if enabled_transition.is_some() {
-                    break;
+                    if let Some(parent_id) = self.states.get(current_check_id).and_then(|s| s.parent.clone()) {
+                        current_check_id = parent_id;
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -481,7 +490,10 @@ where
 
         for ancestor_id_str in ancestors2.iter() {
             if ancestors1_set.contains(ancestor_id_str) {
-                if let Some(state) = self.states.states.get(ancestor_id_str) {
+                // Convert String back to S (since S: From<String>)
+                // and then borrow to pass &S to states.get()
+                let ancestor_id_s = S::from(ancestor_id_str.clone());
+                if let Some(state) = self.states.get(&ancestor_id_s) {
                     if state.is_compound() || state.is_parallel() {
                         return Some(ancestor_id_str.clone());
                     }
@@ -577,7 +589,7 @@ where
     pub name: String,
     /// Collection of states (Use StateCollection for better management)
     pub states: StateCollection<S>,
-    /// Collection of transitions
+    /// Collection of transitions (Will be grouped in Machine::new)
     pub transitions: Vec<Transition<S, C, E>>,
     /// Initial state id (Use S directly)
     pub initial: S,
@@ -667,7 +679,7 @@ pub struct MachineSnapshot<C, S, O> {
 
 impl<C, S, O> MachineSnapshot<C, S, O>
 where
-    S: StateTrait + Send + Sync + 'static + Serialize + DeserializeOwned,
+    S: StateTrait + Eq + Hash + Send + Sync + 'static + Serialize + DeserializeOwned,
     C: Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
     O: Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
 {
@@ -694,7 +706,7 @@ where
 #[async_trait]
 impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E, O> for Machine<C, E, S, O>
 where
-    S: StateTrait + 'static + Send + Sync,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + 'static,
     E: EventTrait
         + Send
@@ -708,10 +720,6 @@ where
         + IntoEvent,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default,
 {
-    type Input = Option<O>;
-    type Query = String;
-    type Response = Result<MachineSnapshot<C, S, O>, StateError>;
-
     fn get_initial_snapshot(&self, input: Option<O>) -> MachineSnapshot<C, S, O> {
         let initial_state_id = self.initial.clone();
         let mut initial_states = HashSet::new();
@@ -772,15 +780,5 @@ where
         }
 
         Ok(current_snapshot)
-    }
-
-    fn on_error(
-        &self,
-        error: StateError,
-        mut snapshot: MachineSnapshot<C, S, O>,
-    ) -> MachineSnapshot<C, S, O> {
-        eprintln!("Actor state machine error: {:?}", error);
-        snapshot.inner.status = ActorStatus::Error;
-        snapshot
     }
 }

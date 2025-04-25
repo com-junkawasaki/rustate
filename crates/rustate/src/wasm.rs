@@ -14,6 +14,7 @@ use crate::{
     Machine, // Use crate::Machine
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use web_sys::console;

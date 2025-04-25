@@ -8,6 +8,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::marker::PhantomData;
 
 /// Type alias for the action executor function
 pub type ActionExecutor =
@@ -25,7 +26,7 @@ pub enum ActionType {
 }
 
 /// Define Action as generic over C, E
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, PartialEq)]
 pub struct Action<C = Context, E = Event>
 where
     C: Clone + Send + Sync + 'static,
@@ -38,8 +39,8 @@ where
     #[allow(clippy::type_complexity)]
     /// Function pointer to execute the action
     pub(crate) execute_fn: Arc<dyn Fn(&mut C, &E) -> BoxFuture<'static, ()> + Send + Sync>,
-    _phantom_c: std::marker::PhantomData<C>,
-    _phantom_e: std::marker::PhantomData<E>,
+    _phantom_c: PhantomData<C>,
+    _phantom_e: PhantomData<E>,
 }
 
 // Need to manually implement Debug because BoxFuture is not Debug
@@ -71,8 +72,8 @@ where
             name: name.into(),
             action_type,
             execute_fn: Arc::new(execute_fn),
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 
@@ -89,8 +90,8 @@ where
             name: name.into(),
             action_type,
             execute_fn: Arc::new(async_fn),
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 
@@ -137,8 +138,8 @@ where
             name: name.into(),
             action_type,
             execute_fn: Arc::new(|_ctx, _evt| Box::pin(async {})),
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 
@@ -148,8 +149,8 @@ where
             name: self.name.clone(),
             action_type: self.action_type,
             execute_fn: Arc::new(|_ctx, _evt| Box::pin(async {})),
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 }
@@ -187,8 +188,8 @@ where
             name: "closure_action".to_string(), // Consider a way to name these?
             action_type: ActionType::Transition, // Default type, might need adjustment
             execute_fn: Arc::new(move |ctx, evt| Box::pin(self(ctx, evt)) as _),
-            _phantom_c: std::marker::PhantomData,
-            _phantom_e: std::marker::PhantomData,
+            _phantom_c: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 }

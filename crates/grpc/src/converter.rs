@@ -9,9 +9,7 @@ use crate::proto;
 use rustate::state::{State as RuState, StateType as RuStateType};
 use rustate::transition::Transition as RuTransition;
 use rustate::ActionType as RuActionType;
-use rustate::{
-    Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder,
-};
+use rustate::{Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
 ///

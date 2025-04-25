@@ -63,9 +63,7 @@ where
         + Send
         + Sync
         + 'static
-        + Default
         + Eq
-        + From<Event>
         + Clone
         + Serialize
         + DeserializeOwned, // Add E bounds
@@ -120,9 +118,7 @@ where
         + Send
         + Sync
         + 'static
-        + Default
         + Eq
-        + From<Event>
         + Clone
         + Serialize
         + DeserializeOwned,
@@ -367,9 +363,7 @@ where
         + Send
         + Sync
         + 'static
-        + Default
         + Eq
-        + From<Event>
         + Clone
         + Serialize
         + DeserializeOwned,
@@ -392,9 +386,7 @@ where
         + Send
         + Sync
         + 'static
-        + Default
         + Eq
-        + From<Event>
         + Clone
         + Serialize
         + DeserializeOwned,

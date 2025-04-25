@@ -1,5 +1,5 @@
-use crate::{decision::Decision, feedback::Feedback, insight::Insight, observation::Observation};
 use crate::goal::Goal;
+use crate::{decision::Decision, feedback::Feedback, insight::Insight, observation::Observation};
 use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -293,7 +293,8 @@ mod tests {
         let initial = TestState::Initial;
         let goal_state = TestState::Final;
         let goal: Goal<TestState> = Goal::new(goal_state.clone());
-        let episode: Episode<TestState, TestEvent> = Episode::new("Test Episode", initial.clone(), goal.clone());
+        let episode: Episode<TestState, TestEvent> =
+            Episode::new("Test Episode", initial.clone(), goal.clone());
 
         assert_eq!(episode.name, "Test Episode");
         assert_eq!(episode.initial_state, initial);
@@ -310,13 +311,10 @@ mod tests {
     fn test_episode_with_observations_and_decisions() {
         let initial = TestState::Initial;
         let goal: Goal<TestState> = Goal::new(TestState::Final);
-        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 2", initial.clone(), goal.clone());
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("Test Episode 2", initial.clone(), goal.clone());
 
-        let obs = Observation::new(
-            initial,
-            TestEvent::Start,
-            TestState::Processing
-        );
+        let obs = Observation::new(initial, TestEvent::Start, TestState::Processing);
 
         let insight = Insight::new("Test Insight", "This is a test insight", 0.9);
 
@@ -335,7 +333,8 @@ mod tests {
     fn test_episode_completion() {
         let initial = TestState::Initial;
         let goal: Goal<TestState> = Goal::new(TestState::Final);
-        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 3", initial, goal.clone());
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("Test Episode 3", initial, goal.clone());
 
         assert!(!episode.is_completed());
         assert!(episode.end_time.is_none());
@@ -351,9 +350,11 @@ mod tests {
     fn test_episode_feedback() {
         let initial = TestState::Initial;
         let goal: Goal<TestState> = Goal::new(TestState::Final);
-        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 4", initial, goal.clone());
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("Test Episode 4", initial, goal.clone());
 
-        let feedback: Feedback<TestEvent> = Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
+        let feedback: Feedback<TestEvent> =
+            Feedback::new("良い選択", crate::feedback::FeedbackType::Positive, "user");
         episode.add_feedback(feedback);
 
         assert!(episode.feedback.is_some());
@@ -368,7 +369,8 @@ mod tests {
     fn test_add_metadata() {
         let initial = TestState::Initial;
         let goal: Goal<TestState> = Goal::new(TestState::Final);
-        let mut episode: Episode<TestState, TestEvent> = Episode::new("Test Episode 5", initial, goal.clone());
+        let mut episode: Episode<TestState, TestEvent> =
+            Episode::new("Test Episode 5", initial, goal.clone());
 
         episode.add_metadata("priority", "high").unwrap();
         episode

@@ -12,8 +12,8 @@ pub type GuardPredicate =
     Box<dyn Fn(&Context, &Event) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
 /// Represents a guard condition for a transition
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct Guard<C, E>
+#[derive(Clone, Serialize, PartialEq, Debug)]
+pub struct Guard<C = Context, E = Event>
 where
     C: Clone + Send + Sync + 'static,
     E: EventTrait + Send + Sync + 'static,
