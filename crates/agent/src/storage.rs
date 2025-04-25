@@ -249,22 +249,8 @@ where
 #[async_trait]
 impl<S, E> Storage<S, E> for MemoryStorage<S, E>
 where
-    S: StateTrait
-        + Clone
-        + Debug
-        + Send
-        + Sync
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + 'static,
-    E: EventTrait
-        + Clone
-        + Debug
-        + Send
-        + Sync
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    E: EventTrait + Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 {
     async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()> {
         let mut observations = self

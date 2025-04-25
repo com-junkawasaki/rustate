@@ -4,7 +4,11 @@
 //! Guards are functions that evaluate based on the current context and triggering event,
 //! returning `true` if the associated transition is allowed, and `false` otherwise.
 
-use crate::{context::Context, event::{Event, EventTrait}, error::StateError};
+use crate::{
+    context::Context,
+    error::StateError,
+    event::{Event, EventTrait},
+};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::future::Future;
@@ -19,8 +23,11 @@ use tokio::sync::RwLock;
 /// implementation below uses a *synchronous* function signature (`Fn(&C, &E) -> bool`).
 /// This suggests a potential future refactoring towards async guards, or a mismatch.
 /// For now, `Guard` uses the synchronous version.
-pub type AsyncGuardPredicate<C, E> =
-    Arc<dyn Fn(Arc<RwLock<C>>, &E) -> Pin<Box<dyn Future<Output = Result<bool, StateError>> + Send>> + Send + Sync>;
+pub type AsyncGuardPredicate<C, E> = Arc<
+    dyn Fn(Arc<RwLock<C>>, &E) -> Pin<Box<dyn Future<Output = Result<bool, StateError>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Represents a guard condition that can be attached to a transition.
 ///

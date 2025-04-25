@@ -33,14 +33,14 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "integration")]
-//! # { 
+//! # {
 //! use rustate::prelude::*;
 //! use rustate::integration::SharedMachineRef;
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
-//! 
+//!
 //! // Define state, event, context (can be simple String/()) or custom types
-//! 
+//!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
 //!     // Child machine that activates
@@ -48,11 +48,11 @@
 //!         .state("idle".to_string(), |s| s.on("ACTIVATE".to_string(), |t| t.target("active".to_string())))
 //!         .state("active".to_string(), |_| {})
 //!         .build()?;
-//! 
+//!
 //!     // Create a shareable reference to the child
 //!     let shared_child = SharedMachineRef::new(child_machine);
 //!     let child_ref_for_action = shared_child.clone();
-//! 
+//!
 //!     // Parent machine with an action to forward an event
 //!     let mut parent_machine = MachineBuilder::<String, String, ()>::new("ready".to_string())
 //!         .state("ready".to_string(), |s| s
@@ -72,16 +72,16 @@
 //!             )
 //!         )
 //!         .build()?;
-//! 
+//!
 //!     println!("Child state before: {:?}", shared_child.get_snapshot().await?.value);
 //!     // Entering the parent's "ready" state triggers the on_entry action
 //!     parent_machine.start().await?; // Ensure machine starts and executes entry actions
-//! 
+//!
 //!     tokio::time::sleep(std::time::Duration::from_millis(10)).await; // Allow time for event processing
-//! 
+//!
 //!     println!("Child state after: {:?}", shared_child.get_snapshot().await?.value);
 //!     assert_eq!(shared_child.get_snapshot().await?.value, serde_json::json!("active"));
-//! 
+//!
 //!     Ok(())
 //! }
 //! # }

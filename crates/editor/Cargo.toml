@@ -15,7 +15,7 @@ categories = ["gui", "visualization", "wasm", "web-programming"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustate = { version = "0.2.4" }
+rustate = { version = "0.2.6" }
 wasm-bindgen.workspace = true
 js-sys.workspace = true
 web-sys.workspace = true

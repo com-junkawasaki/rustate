@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Allow dead code for now during refactoring
+
 /// Provides a concrete actor implementation based on Tokio MPSC channels.
 ///
 /// This module defines the traits, structs, and functions necessary to create,
@@ -7,9 +9,6 @@
 ///
 /// Compare this with `rustate_core` which provides more foundational, abstract
 /// actor concepts. This module offers a ready-to-use implementation.
-
-#![allow(dead_code)] // Allow dead code for now during refactoring
-
 use crate::error::{Result, StateError};
 use crate::event::EventTrait;
 use crate::state::StateTrait;
@@ -107,7 +106,7 @@ where
     E: EventTrait + Send + Sync + 'static,
     I: Send + Sync + 'static, // Input type for actor initialization (optional)
     Q: Send + Sync + 'static, // Query type
-    Resp: Send + Sync + 'static, // Response type for queries
+    Resp: Send + Sync + 'static,
 {
     /// Returns the initial state and context when the actor starts.
     /// Potentially use the `input: I` here in future versions.
@@ -321,16 +320,13 @@ where
             // If already closed, it's effectively stopped.
             return Ok(());
         }
-        self.sender
-            .send(ActorCommand::Stop)
-            .await
-            .map_err(|e| {
-                error!(actor_id = %self.id, error = %e, "Failed to send stop command");
-                StateError::SendError(format!(
-                    "Failed to send stop command to actor {}: {}",
-                    self.id, e
-                ))
-            })
+        self.sender.send(ActorCommand::Stop).await.map_err(|e| {
+            error!(actor_id = %self.id, error = %e, "Failed to send stop command");
+            StateError::SendError(format!(
+                "Failed to send stop command to actor {}: {}",
+                self.id, e
+            ))
+        })
     }
 
     /// Asynchronously requests a snapshot of the actor's current state and context.
@@ -441,7 +437,6 @@ where
     status: Arc<RwLock<ActorStatus>>,
     // /// Stores the latest snapshot (optional).
     // snapshot: Option<Snapshot<C, R>>, // Maybe move snapshot logic elsewhere?
-
     /// Phantom data for unused generic types.
     _phantom_l: PhantomData<L>,
     _phantom_e: PhantomData<E>,
@@ -651,10 +646,8 @@ where
     Resp: Send + Sync + Debug + 'static,
 {
     let id = Uuid::new_v4();
-    let full_id_str = actor_id_prefix.map_or_else(
-        || id.to_string(),
-        |prefix| format!("{}-{}", prefix, id),
-    ); // Use full_id_str for logging if needed, keep UUID for ref ID
+    let full_id_str =
+        actor_id_prefix.map_or_else(|| id.to_string(), |prefix| format!("{}-{}", prefix, id)); // Use full_id_str for logging if needed, keep UUID for ref ID
     info!(actor_id = %id, prefix = actor_id_prefix, buffer = buffer_size, "Creating actor");
 
     let (sender, receiver) = mpsc::channel::<ActorCommand<E, Q, Resp, C, R>>(buffer_size);
@@ -675,7 +668,7 @@ where
         // context: initial_context,
         // actor_id: Some(id), // Pass the generated ID if needed internally
         buffer_size,
-        sender, // Move original sender
+        sender,                // Move original sender
         inbox: Some(receiver), // Pass receiver wrapped in Option
         status,
         // snapshot: None,
@@ -852,7 +845,10 @@ mod tests {
         let snapshot = snapshot_res.unwrap();
 
         // Assert initial state via snapshot
-        let expected_state = TestState { count: 0, name: "Initial".to_string() };
+        let expected_state = TestState {
+            count: 0,
+            name: "Initial".to_string(),
+        };
         let expected_state_value = serde_json::to_value(&expected_state).unwrap();
 
         assert_eq!(snapshot.value, expected_state_value);
@@ -910,17 +906,16 @@ mod tests {
         // Stop the actor
         let stop_res = actor_ref.stop().await;
         assert!(stop_res.is_ok());
-         sleep(Duration::from_millis(10)).await;
+        sleep(Duration::from_millis(10)).await;
         assert_eq!(actor_ref.get_status().await, ActorStatus::Stopped);
         // let _ = _join_handle.await;
     }
 
-     #[tokio::test]
+    #[tokio::test]
     async fn test_actor_stop() {
         let logic = TestActorLogic::default();
         let initial_context = Context::default();
-        let (actor_ref, join_handle) =
-            create_actor(logic, initial_context, Some("test-stop"), 32);
+        let (actor_ref, join_handle) = create_actor(logic, initial_context, Some("test-stop"), 32);
 
         sleep(Duration::from_millis(10)).await; // Allow start
 
@@ -935,31 +930,31 @@ mod tests {
 
         // Check status via ref
         let status_after_stop = actor_ref.get_status().await;
-         // Status becomes Stopped *after* the loop finishes, check might race.
+        // Status becomes Stopped *after* the loop finishes, check might race.
         // assert_eq!(status_after_stop, ActorStatus::Stopped);
 
         // Attempting to send after stop should fail (or indicate closed channel)
         let send_after_stop_res = actor_ref.send_event(TestEvent::Increment).await;
         assert!(send_after_stop_res.is_err());
         if let Err(StateError::SendError(msg)) = send_after_stop_res {
-             println!("Send after stop failed as expected: {}", msg);
-             assert!(msg.contains("channel closed") || msg.contains("actor") && msg.contains("stopped"));
+            println!("Send after stop failed as expected: {}", msg);
+            assert!(
+                msg.contains("channel closed") || msg.contains("actor") && msg.contains("stopped")
+            );
         } else {
-             panic!("Expected SendError after stop");
+            panic!("Expected SendError after stop");
         }
-
 
         // Join the handle to ensure the task actually finished
         // This might take a moment if the actor was busy
         let join_result = tokio::time::timeout(Duration::from_millis(100), join_handle).await;
         assert!(join_result.is_ok(), "Actor task did not finish after stop");
         if let Ok(task_result) = join_result {
-             assert!(task_result.is_ok(), "Actor task panicked");
+            assert!(task_result.is_ok(), "Actor task panicked");
         }
 
         // Final status check after join should reliably be Stopped
-         assert_eq!(actor_ref.get_status().await, ActorStatus::Stopped);
-
+        assert_eq!(actor_ref.get_status().await, ActorStatus::Stopped);
     }
 
     // TODO: Add tests for:

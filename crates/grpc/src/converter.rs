@@ -6,12 +6,12 @@
 
 use crate::error::{GrpcError, Result};
 use crate::proto;
+use prost_types::Any;
 use rustate::state::{State as RuState, StateType as RuStateType};
 use rustate::transition::Transition as RuTransition;
 use rustate::ActionType as RuActionType;
 use rustate::{Context as RuContext, Machine as RuMachine, MachineBuilder as RuMachineBuilder};
 use serde_json::{from_value, json, to_value, Value};
-use prost_types::Any;
 use std::collections::HashMap;
 
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
@@ -334,17 +334,15 @@ pub fn event_to_proto<T: serde::Serialize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::EventType;
+    use prost_types::Value as ProstValue;
     use rustate::{Action, ActionType as RuActionType, Guard, MachineBuilder, Transition};
+    use rustate::{Context, Event, GuardType, State, StateType, TransitionType};
+    use serde_json::json;
     use serde_json::Value;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use crate::grpc::EventType;
-    use prost_types::Value as ProstValue;
-    use rustate::{
-        Context, Event, GuardType, State, StateType, TransitionType,
-    };
     use tokio::sync::RwLock;
-    use serde_json::json;
 
     // Helper function to create a simple state for testing
     fn create_test_state(id: &str) -> RuState {
@@ -875,7 +873,9 @@ mod tests {
             Box::pin(async move {
                 let mut ctx_lock = ctx.write().await;
                 let count = ctx_lock.get::<i32>("count").map_or(0, |&c| c + 1);
-                ctx_lock.set("count", count).map_err(|e| StateError::ActionFailed(e.to_string()))
+                ctx_lock
+                    .set("count", count)
+                    .map_err(|e| StateError::ActionFailed(e.to_string()))
             })
         };
         let original_action = Action::from_fn(action_fn);
@@ -884,9 +884,9 @@ mod tests {
             source: "StateA".to_string(),
             target: Some("StateB".to_string()),
             event: Some(Event::new("EVENT_X")),
-            guard: Some(original_guard), // Include guard
+            guard: Some(original_guard),    // Include guard
             actions: vec![original_action], // Include action
-            id: Default::default(),       // Assuming Uuid default
+            id: Default::default(),         // Assuming Uuid default
             transition_type: TransitionType::External,
             _phantom_s: Default::default(),
             _phantom_c: Default::default(),
@@ -912,7 +912,10 @@ mod tests {
         assert_eq!(converted_t.transition_type, original_t.transition_type);
 
         // Assert guard presence (logic cannot be compared directly)
-        assert!(converted_t.guard.is_some(), "Guard should exist after conversion");
+        assert!(
+            converted_t.guard.is_some(),
+            "Guard should exist after conversion"
+        );
         assert!(original_t.guard.is_some(), "Original guard should exist");
         // Cannot compare guard logic, check presence only
         // assert_eq!(converted_t.guard.is_some(), original_t.guard.is_some()); // Use is_some()

@@ -516,9 +516,7 @@ mod tests {
         storage::{MemoryStorage, Storage},
     };
     use async_trait::async_trait;
-    use rustate::{
-        Event, EventTrait, MachineBuilder, State, StateTrait, StateType, Transition,
-    };
+    use rustate::{Event, EventTrait, MachineBuilder, State, StateTrait, StateType, Transition};
     use serde_json::Value;
     use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
     use std::sync::Arc;
@@ -547,9 +545,9 @@ mod tests {
                 TestState::Stopped => "Stopped",
             }
         }
-        
+
         fn state_type(&self) -> &StateType {
-            // Return a reference to a static StateType 
+            // Return a reference to a static StateType
             match self {
                 TestState::Stopped => &StateType::Final,
                 _ => &StateType::Normal, // Assume Normal for others
@@ -557,32 +555,40 @@ mod tests {
         }
 
         // Provide dummy implementations for other required methods
-        fn parent(&self) -> Option<&str> { None }
-        fn children(&self) -> &[String] { &[] }
-        fn initial(&self) -> Option<&str> { None }
-        fn data(&self) -> Option<&Value> { None } // Assuming no specific data for test states
+        fn parent(&self) -> Option<&str> {
+            None
+        }
+        fn children(&self) -> &[String] {
+            &[]
+        }
+        fn initial(&self) -> Option<&str> {
+            None
+        }
+        fn data(&self) -> Option<&Value> {
+            None
+        } // Assuming no specific data for test states
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Stop,
-        Pause, 
+        Pause,
         Resume,
         Custom(String),
     }
 
     impl Display for TestEvent {
-       fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-           match self {
-               TestEvent::Start => write!(f, "START"),
-               TestEvent::Stop => write!(f, "STOP"),
-               TestEvent::Pause => write!(f, "PAUSE"),
-               TestEvent::Resume => write!(f, "RESUME"),
-               TestEvent::Custom(s) => write!(f, "CUSTOM_{}", s),
-           }
-       }
-   }
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            match self {
+                TestEvent::Start => write!(f, "START"),
+                TestEvent::Stop => write!(f, "STOP"),
+                TestEvent::Pause => write!(f, "PAUSE"),
+                TestEvent::Resume => write!(f, "RESUME"),
+                TestEvent::Custom(s) => write!(f, "CUSTOM_{}", s),
+            }
+        }
+    }
 
     // Implement EventTrait for TestEvent (Remove name method if not in v0.2.4)
     impl EventTrait for TestEvent {
@@ -602,21 +608,21 @@ mod tests {
                 _ => None,
             }
         }
-        
+
         // Removed name method - likely not in v0.2.4 EventTrait
     }
 
     impl RuIntoEvent for TestEvent {
         fn into_event(self) -> Event {
-             match self {
-                 TestEvent::Start => Event::new("START"),
-                 TestEvent::Stop => Event::new("STOP"),
-                 TestEvent::Pause => Event::new("PAUSE"),
-                 TestEvent::Resume => Event::new("RESUME"),
-                 TestEvent::Custom(s) => {
-                     Event::with_payload("CUSTOM", json!(s)) // Use json! macro
-                 }
-             }
+            match self {
+                TestEvent::Start => Event::new("START"),
+                TestEvent::Stop => Event::new("STOP"),
+                TestEvent::Pause => Event::new("PAUSE"),
+                TestEvent::Resume => Event::new("RESUME"),
+                TestEvent::Custom(s) => {
+                    Event::with_payload("CUSTOM", json!(s)) // Use json! macro
+                }
+            }
         }
     }
 
@@ -624,43 +630,51 @@ mod tests {
 
     #[async_trait]
     impl Policy<TestState, TestEvent> for TestPolicy {
-         async fn decide(
-             &self,
-             current_state: TestState,
-             _goal_state: Option<Goal<TestState>>,
-         ) -> Result<Decision<TestEvent>> {
-             let event = match current_state {
-                 TestState::Idle => TestEvent::Start,
-                 TestState::Running => TestEvent::Stop,
-                 TestState::Stopped => TestEvent::Stop, // Or maybe a different event like Reset?
-             };
-             Ok(Decision::simple(event, 1.0))
-         }
-     }
+        async fn decide(
+            &self,
+            current_state: TestState,
+            _goal_state: Option<Goal<TestState>>,
+        ) -> Result<Decision<TestEvent>> {
+            let event = match current_state {
+                TestState::Idle => TestEvent::Start,
+                TestState::Running => TestEvent::Stop,
+                TestState::Stopped => TestEvent::Stop, // Or maybe a different event like Reset?
+            };
+            Ok(Decision::simple(event, 1.0))
+        }
+    }
 
-    // --- Corrected create_test_machine_builder for v0.2.4 API --- 
+    // --- Corrected create_test_machine_builder for v0.2.4 API ---
     // MachineBuilder likely takes <S = State, E = Event> generics
-    fn create_test_machine_builder() -> MachineBuilder<TestState, TestEvent> { 
+    fn create_test_machine_builder() -> MachineBuilder<TestState, TestEvent> {
         // State::new expects impl Into<String>
-        let idle_state = State::new(TestState::Idle.id()); 
+        let idle_state = State::new(TestState::Idle.id());
         let running_state = State::new(TestState::Running.id());
         // State needs a `type` method or similar in v0.2.4, check API.
         // Let's assume State::new creates a Normal state by default.
         // We need a way to mark 'Stopped' as Final.
         // Maybe MachineBuilder has a method for state types?
         // For now, create as Normal and hope Machine handles Final logic based on trait impl.
-        let stopped_state = State::new(TestState::Stopped.id()); 
-        
+        let stopped_state = State::new(TestState::Stopped.id());
+
         // MachineBuilder::new likely takes name: Into<String> only.
-        MachineBuilder::<TestState, TestEvent>::new("test_machine") 
+        MachineBuilder::<TestState, TestEvent>::new("test_machine")
             .state(idle_state)
             .state(running_state)
             .state(stopped_state) // How to mark as Final?
             .initial(TestState::Idle.id()) // initial takes Into<String>
             // Transition::new(source: Into<String>, event: Into<String>, target: Into<String>)
-            .transition(Transition::new(TestState::Idle.id(), TestEvent::Start.event_type(), TestState::Running.id()))
-            .transition(Transition::new(TestState::Running.id(), TestEvent::Stop.event_type(), TestState::Stopped.id()))
-            // Missing methods like .guard(), .action() based on v0.2.4 API? Let's assume base transition for now.
+            .transition(Transition::new(
+                TestState::Idle.id(),
+                TestEvent::Start.event_type(),
+                TestState::Running.id(),
+            ))
+            .transition(Transition::new(
+                TestState::Running.id(),
+                TestEvent::Stop.event_type(),
+                TestState::Stopped.id(),
+            ))
+        // Missing methods like .guard(), .action() based on v0.2.4 API? Let's assume base transition for now.
     }
 
     #[tokio::test]
@@ -686,80 +700,82 @@ mod tests {
         let builder = create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let mut agent = 
+        let mut agent =
             Agent::new("test-agent-step", builder, policy, storage, None, None).unwrap();
 
-        let goal = Goal::new(TestState::Stopped); 
+        let goal = Goal::new(TestState::Stopped);
         agent
-            .start_episode("ep1", TestState::Idle, goal) 
+            .start_episode("ep1", TestState::Idle, goal)
             .await
             .unwrap();
         // ... rest of test ...
     }
 
-     #[tokio::test]
-     async fn test_agent_process_event() {
-         let builder = create_test_machine_builder();
-         let policy = TestPolicy;
-         let storage = MemoryStorage::<TestState, TestEvent>::new();
-         let mut agent =
-             Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
-         // ... rest of test ...
-     }
- 
-     #[tokio::test]
-     async fn test_agent_run_until_goal() {
-         let builder = create_test_machine_builder();
-         let policy = TestPolicy;
-         let storage = MemoryStorage::<TestState, TestEvent>::new();
-         let mut agent = Agent::new("test-agent-run", builder, policy, storage, None, None).unwrap();
- 
-         let goal = Goal::new(TestState::Stopped);
-         agent
-             .start_episode("ep1", TestState::Idle, goal)
-             .await
-             .unwrap();
-         // ... rest of test ...
-     }
- 
-     #[tokio::test]
-     async fn test_agent_run_max_steps() {
-         let builder = create_test_machine_builder();
-         let policy = TestPolicy;
-         let storage = MemoryStorage::<TestState, TestEvent>::new();
-         let mut agent =
-             Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
- 
-         let goal = Goal::new(TestState::Stopped); 
-         agent
-             .start_episode("ep_max_steps", TestState::Idle, goal)
-             .await
-             .unwrap();
-         // ... rest of test ...
-     }
- 
-     #[tokio::test]
-     async fn test_agent_episode_management() {
-         let builder = create_test_machine_builder();
-         let policy = TestPolicy;
-         let storage = MemoryStorage::<TestState, TestEvent>::new();
-         let mut agent =
-             Agent::new("test-agent-episode", builder, policy, storage, None, None).unwrap();
- 
-         let episode_name = "ep_manage";
-         let goal = Goal::new(TestState::Stopped); 
- 
-         let start_result = agent
-             .start_episode(episode_name, TestState::Idle, goal.clone()) 
-             .await;
-         // ... rest of test ...
- 
-         // Manually set current_states using the state ID string
-         agent.current_states = [TestState::Stopped.id().to_string()].iter().cloned().collect();
-         // Set current_state within the episode
-         agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped;
-         
-         // ... rest of test ...
-     }
- 
+    #[tokio::test]
+    async fn test_agent_process_event() {
+        let builder = create_test_machine_builder();
+        let policy = TestPolicy;
+        let storage = MemoryStorage::<TestState, TestEvent>::new();
+        let mut agent =
+            Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
+        // ... rest of test ...
+    }
+
+    #[tokio::test]
+    async fn test_agent_run_until_goal() {
+        let builder = create_test_machine_builder();
+        let policy = TestPolicy;
+        let storage = MemoryStorage::<TestState, TestEvent>::new();
+        let mut agent = Agent::new("test-agent-run", builder, policy, storage, None, None).unwrap();
+
+        let goal = Goal::new(TestState::Stopped);
+        agent
+            .start_episode("ep1", TestState::Idle, goal)
+            .await
+            .unwrap();
+        // ... rest of test ...
+    }
+
+    #[tokio::test]
+    async fn test_agent_run_max_steps() {
+        let builder = create_test_machine_builder();
+        let policy = TestPolicy;
+        let storage = MemoryStorage::<TestState, TestEvent>::new();
+        let mut agent =
+            Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
+
+        let goal = Goal::new(TestState::Stopped);
+        agent
+            .start_episode("ep_max_steps", TestState::Idle, goal)
+            .await
+            .unwrap();
+        // ... rest of test ...
+    }
+
+    #[tokio::test]
+    async fn test_agent_episode_management() {
+        let builder = create_test_machine_builder();
+        let policy = TestPolicy;
+        let storage = MemoryStorage::<TestState, TestEvent>::new();
+        let mut agent =
+            Agent::new("test-agent-episode", builder, policy, storage, None, None).unwrap();
+
+        let episode_name = "ep_manage";
+        let goal = Goal::new(TestState::Stopped);
+
+        let start_result = agent
+            .start_episode(episode_name, TestState::Idle, goal.clone())
+            .await;
+        // ... rest of test ...
+
+        // Manually set current_states using the state ID string
+        agent.current_states = [TestState::Stopped.id().to_string()]
+            .iter()
+            .cloned()
+            .collect();
+        // Set current_state within the episode
+        agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped;
+
+        // ... rest of test ...
+    }
 }

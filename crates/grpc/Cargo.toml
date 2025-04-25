@@ -12,7 +12,7 @@ keywords = ["statecharts", "statemachine", "grpc", "network", "remote"]
 categories = ["network-programming", "web-programming", "api-bindings"]
 
 [dependencies]
-rustate = { version = "0.2.4", features = ["mbt", "property-testing"] }
+rustate = { version = "0.2.6", features = ["mbt", "property-testing"] }
 tonic = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true }

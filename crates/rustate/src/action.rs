@@ -2,7 +2,7 @@
 //! Defines actions (side effects) that can be executed during state transitions
 //! or upon entering/exiting states within the RuState framework.
 
-use crate::{context::Context, event::EventTrait, error::StateError};
+use crate::{context::Context, error::StateError, event::EventTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::future::Future;
@@ -17,9 +17,12 @@ use tokio::sync::RwLock;
 /// They return a pinned, boxed future (`Pin<Box<dyn Future<Output = ()> + Send>>`)
 /// allowing them to perform asynchronous operations.
 /// The function itself must be `Send + Sync` to be shared across threads.
-pub type ActionFn<C, E> =
-    Arc<dyn Fn(Arc<RwLock<C>>, &E) -> Pin<Box<dyn Future<Output = Result<(), StateError>> + Send>> + Send + Sync>;
-    // Changed Output to Result<(), StateError> to allow actions to fail
+pub type ActionFn<C, E> = Arc<
+    dyn Fn(Arc<RwLock<C>>, &E) -> Pin<Box<dyn Future<Output = Result<(), StateError>> + Send>>
+        + Send
+        + Sync,
+>;
+// Changed Output to Result<(), StateError> to allow actions to fail
 
 /// Represents an action to be executed within the state machine.
 ///

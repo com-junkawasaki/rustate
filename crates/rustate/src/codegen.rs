@@ -6,7 +6,10 @@
 //! Requires the `codegen` feature flag. Protocol Buffers export specifically
 //! requires the `proto` feature flag in addition to `codegen`.
 
-use crate::{error::{Error, Result}, machine::Machine}; // Removed unused imports Action, State, Transition
+use crate::{
+    error::{Error, Result},
+    machine::Machine,
+}; // Removed unused imports Action, State, Transition
 use std::fs::File;
 use std::io::Write;
 
@@ -16,7 +19,7 @@ use {
     // proc_macro2::TokenStream, // Currently unused
     // quote::quote, // Currently unused
     syn::parse_file, // Used in parse_from_rust_file
-    // syn::Item, // Currently unused
+                     // syn::Item, // Currently unused
 };
 
 // #[cfg(feature = "proto")] // Removed unused import
@@ -109,7 +112,10 @@ pub trait CodegenExt {
 impl CodegenExt for Machine {
     fn export_to_json(&self, options: Option<JsonExportOptions>) -> Result<()> {
         let options = options.unwrap_or_default();
-        println!("Exporting machine '{}' to JSON at: {}", self.name, options.output_path);
+        println!(
+            "Exporting machine '{}' to JSON at: {}",
+            self.name, options.output_path
+        );
 
         // TODO: Factor in options.include_metadata if needed by modifying
         // the Machine's Serialize implementation or creating a specific export struct.
@@ -121,11 +127,17 @@ impl CodegenExt for Machine {
         };
 
         let mut file = File::create(&options.output_path).map_err(|e| {
-            Error::IoError(format!("Failed to create JSON output file '{}': {}", options.output_path, e))
+            Error::IoError(format!(
+                "Failed to create JSON output file '{}': {}",
+                options.output_path, e
+            ))
         })?;
 
         file.write_all(json_str.as_bytes()).map_err(|e| {
-            Error::IoError(format!("Failed to write to JSON output file '{}': {}", options.output_path, e))
+            Error::IoError(format!(
+                "Failed to write to JSON output file '{}': {}",
+                options.output_path, e
+            ))
         })?;
         println!("JSON export successful.");
         Ok(())
@@ -134,18 +146,27 @@ impl CodegenExt for Machine {
     #[cfg(feature = "proto")]
     fn export_to_proto(&self, options: Option<ProtoExportOptions>) -> Result<()> {
         let options = options.unwrap_or_default();
-        println!("Exporting machine '{}' to Protobuf schema at: {}", self.name, options.output_path);
+        println!(
+            "Exporting machine '{}' to Protobuf schema at: {}",
+            self.name, options.output_path
+        );
 
         // Generate the Protocol Buffers schema definition string.
         // Note: This currently generates a static schema structure.
         let proto_schema = generate_proto_schema(&options)?;
 
         let mut file = File::create(&options.output_path).map_err(|e| {
-            Error::IoError(format!("Failed to create proto output file '{}': {}", options.output_path, e))
+            Error::IoError(format!(
+                "Failed to create proto output file '{}': {}",
+                options.output_path, e
+            ))
         })?;
 
         file.write_all(proto_schema.as_bytes()).map_err(|e| {
-            Error::IoError(format!("Failed to write to proto output file '{}': {}", options.output_path, e))
+            Error::IoError(format!(
+                "Failed to write to proto output file '{}': {}",
+                options.output_path, e
+            ))
         })?;
         println!("Protobuf schema export successful.");
         Ok(())
@@ -153,7 +174,10 @@ impl CodegenExt for Machine {
 
     #[cfg(feature = "codegen")]
     fn parse_from_rust_file(file_path: &str) -> Result<Self> {
-        println!("Parsing Rust file for machine definition (Placeholder): {}", file_path);
+        println!(
+            "Parsing Rust file for machine definition (Placeholder): {}",
+            file_path
+        );
         let source_code = std::fs::read_to_string(file_path).map_err(|e| {
             Error::IoError(format!("Failed to read source file '{}': {}", file_path, e))
         })?;
@@ -162,14 +186,18 @@ impl CodegenExt for Machine {
             Error::InvalidConfiguration(format!("Failed to parse Rust file '{}': {}", file_path, e))
         })?;
 
-        // --- Placeholder Implementation --- 
+        // --- Placeholder Implementation ---
         // This section needs to traverse the AST (_syntax_tree) and extract the
         // state machine definition (e.g., from MachineBuilder calls).
         eprintln!("Warning: parse_from_rust_file currently returns a hardcoded machine.");
         // Returning a simple hardcoded machine for now.
         let machine = crate::MachineBuilder::<String, String, ()>::new("idle".to_string())
-            .state("idle".to_string(), |s| s.on("START".to_string(), |t| t.target("active".to_string())))
-            .state("active".to_string(), |s| s.on("STOP".to_string(), |t| t.target("idle".to_string())))
+            .state("idle".to_string(), |s| {
+                s.on("START".to_string(), |t| t.target("active".to_string()))
+            })
+            .state("active".to_string(), |s| {
+                s.on("STOP".to_string(), |t| t.target("idle".to_string()))
+            })
             // .initial("idle".to_string()) // Assuming new sets initial
             .build()?;
 
@@ -183,7 +211,8 @@ fn generate_proto_schema(options: &ProtoExportOptions) -> Result<String> {
     // This generates a fixed schema structure. It doesn't inspect the actual Machine.
     // Future improvements could involve reflecting on the Machine structure
     // (if possible and practical) or taking a more detailed definition format as input.
-    let schema = format!(r#"
+    let schema = format!(
+        r#"
 // Generated by RuState codegen (basic schema)
 
 syntax = "proto3";
@@ -231,11 +260,13 @@ message {message_name} {{
 /// Builds the machine internally before serializing.
 /// Requires the `codegen` feature.
 #[cfg(feature = "codegen")]
-pub fn machine_builder_to_json<S, E, C>(builder: &mut crate::MachineBuilder<S, E, C>) -> Result<String>
+pub fn machine_builder_to_json<S, E, C>(
+    builder: &mut crate::MachineBuilder<S, E, C>,
+) -> Result<String>
 where
     S: crate::StateTrait + Send + Sync + Clone + 'static + Serialize, // Need Serialize
     E: crate::EventTrait + Send + Sync + Clone + 'static + Serialize, // Need Serialize
-    C: crate::Context + Send + Sync + Clone + 'static + Serialize,   // Need Serialize
+    C: crate::Context + Send + Sync + Clone + 'static + Serialize,    // Need Serialize
 {
     // Clone the builder to avoid consuming the original, then build.
     let machine = builder.clone().build()?;
@@ -254,8 +285,7 @@ pub fn machine_builder_to_proto<
 >(
     _builder: &mut crate::MachineBuilder<S, E, C>, // Builder isn't actually used yet
     options: Option<ProtoExportOptions>,
-) -> Result<String>
-{
+) -> Result<String> {
     // let _machine = builder.clone().build()?; // Build machine if needed for future inspection
     println!("Warning: machine_builder_to_proto currently generates a static schema.");
     let opts = options.unwrap_or_default();

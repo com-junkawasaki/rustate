@@ -30,14 +30,14 @@
 //! use rustate::integration::SharedContext;
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
-//! 
+//!
 //! // 1. Create the shared context
 //! let shared_context = SharedContext::new();
-//! 
+//!
 //! // 2. Clone the context handle for each machine/action that needs access
 //! let context_for_writer = shared_context.clone();
 //! let context_for_reader = shared_context.clone();
-//! 
+//!
 //! // 3. Define actions that interact with the shared context
 //! let write_action = Action::from_fn(
 //!     move |_ctx: Arc<RwLock<()>>, _evt: &String| { // Machine context type is (), Event is String
@@ -50,7 +50,7 @@
 //!         }
 //!     }
 //! );
-//! 
+//!
 //! let read_action = Action::from_fn(
 //!     move |local_ctx: Arc<RwLock<Context>>, _evt: &String| { // Machine context type is rustate::Context
 //!         let ctx_reader = context_for_reader.clone();
@@ -67,7 +67,7 @@
 //!         }
 //!     }
 //! );
-//! 
+//!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
 //!     // 4. Create machines using the actions
@@ -81,17 +81,17 @@
 //!         .state("waiting".to_string(), |s| s.on("READ".to_string(), |t| t.target("finished".to_string()).actions([read_action])))
 //!         .state("finished".to_string(), |_| {})
 //!         .build()?;
-//! 
+//!
 //!     // 5. Run the machines
 //!     println!("Shared context before: {:?}", shared_context.dump().await?);
 //!     machine_writer.send("WRITE".to_string()).await?;
 //!     println!("Shared context after write: {:?}", shared_context.dump().await?);
 //!     machine_reader.send("READ".to_string()).await?;
 //!     println!("Reader local context after read: {:?}", machine_reader.context().await);
-//! 
+//!
 //!     assert_eq!(shared_context.get::<String>("status").await?, Some("active".to_string()));
 //!     assert_eq!(machine_reader.context().await.get::<String>("local_status_copy")?, Some(Ok("active".to_string())));
-//! 
+//!
 //!     Ok(())
 //! }
 //! # }
@@ -235,7 +235,7 @@ impl SharedContext {
             _ => Ok(None),
         }
     }
-    
+
     /// Returns a clone of the underlying `serde_json::Value`.
     /// Useful for inspecting the entire shared state.
     /// Acquires a read lock.
@@ -259,44 +259,51 @@ mod tests {
     // Helper function to create simple machines for testing context sharing
     fn create_machines(
         shared_context: SharedContext,
-    ) -> (Machine<String, String, ()>, Machine<String, String, Context>) {
+    ) -> (
+        Machine<String, String, ()>,
+        Machine<String, String, Context>,
+    ) {
         let ctx_writer = shared_context.clone();
         let ctx_reader = shared_context;
 
         // Machine A writes to shared context
-        let write_action = Action::from_fn(
-            move |_ctx: Arc<RwLock<()>>, _evt: &String| {
-                let writer = ctx_writer.clone();
-                async move {
-                    writer.set("status", "active_from_a")?;
-                    writer.set("counter", 10)?; // Add another value
-                    Ok(())
-                }
+        let write_action = Action::from_fn(move |_ctx: Arc<RwLock<()>>, _evt: &String| {
+            let writer = ctx_writer.clone();
+            async move {
+                writer.set("status", "active_from_a")?;
+                writer.set("counter", 10)?; // Add another value
+                Ok(())
             }
-        );
+        });
         let machine_a = MachineBuilder::<String, String, ()>::new("idle".to_string())
-            .state("idle".to_string(), |s| s.on("WRITE".to_string(), |t| t.target("done".to_string()).actions([write_action])))
+            .state("idle".to_string(), |s| {
+                s.on("WRITE".to_string(), |t| {
+                    t.target("done".to_string()).actions([write_action])
+                })
+            })
             .state("done".to_string(), |_| {})
             .build()
             .expect("Failed to build machine A");
 
         // Machine B reads from shared context and writes to its *local* context
-        let read_action = Action::from_fn(
-            move |local_ctx: Arc<RwLock<Context>>, _evt: &String| {
-                let reader = ctx_reader.clone();
-                async move {
-                    if let Some(status) = reader.get::<String>("status")? {
-                        local_ctx.write().await.set("local_copy", status)?;
-                    }
-                    if let Some(counter) = reader.get::<i32>("counter")? {
-                         local_ctx.write().await.set("local_count", counter)?;
-                    }
-                    Ok(())
+        let read_action = Action::from_fn(move |local_ctx: Arc<RwLock<Context>>, _evt: &String| {
+            let reader = ctx_reader.clone();
+            async move {
+                if let Some(status) = reader.get::<String>("status")? {
+                    local_ctx.write().await.set("local_copy", status)?;
                 }
+                if let Some(counter) = reader.get::<i32>("counter")? {
+                    local_ctx.write().await.set("local_count", counter)?;
+                }
+                Ok(())
             }
-        );
+        });
         let machine_b = MachineBuilder::<String, String, Context>::new("waiting".to_string())
-            .state("waiting".to_string(), |s| s.on("READ".to_string(), |t| t.target("finished".to_string()).actions([read_action])))
+            .state("waiting".to_string(), |s| {
+                s.on("READ".to_string(), |t| {
+                    t.target("finished".to_string()).actions([read_action])
+                })
+            })
             .state("finished".to_string(), |_| {})
             .build()
             .expect("Failed to build machine B");
@@ -323,21 +330,36 @@ mod tests {
         assert_eq!(machine_a.current_state().value, serde_json::json!("done"));
 
         // Check shared context after A writes
-        println!("Shared context after A wrote: {:?}", shared_context.dump().await?);
-        assert_eq!(shared_context.get::<String>("status").await?, Some("active_from_a".to_string()));
+        println!(
+            "Shared context after A wrote: {:?}",
+            shared_context.dump().await?
+        );
+        assert_eq!(
+            shared_context.get::<String>("status").await?,
+            Some("active_from_a".to_string())
+        );
         assert_eq!(shared_context.get::<i32>("counter").await?, Some(10));
 
         // 4. Trigger Machine B to read
         println!("Sending READ to Machine B...");
-        assert_eq!(machine_b.current_state().value, serde_json::json!("waiting"));
+        assert_eq!(
+            machine_b.current_state().value,
+            serde_json::json!("waiting")
+        );
         machine_b.send("READ".to_string()).await?;
         println!("Machine B state: {:?}", machine_b.current_state());
-        assert_eq!(machine_b.current_state().value, serde_json::json!("finished"));
+        assert_eq!(
+            machine_b.current_state().value,
+            serde_json::json!("finished")
+        );
 
         // Check Machine B's *local* context after reading
         let b_local_ctx = machine_b.context().await;
         println!("Machine B local context after read: {:?}", b_local_ctx);
-        assert_eq!(b_local_ctx.get::<String>("local_copy")?, Some(Ok("active_from_a".to_string())));
+        assert_eq!(
+            b_local_ctx.get::<String>("local_copy")?,
+            Some(Ok("active_from_a".to_string()))
+        );
         assert_eq!(b_local_ctx.get::<i32>("local_count")?, Some(Ok(10)));
 
         println!("--- Finished test_context_sharing_flow ---");

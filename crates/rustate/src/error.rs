@@ -2,11 +2,11 @@
 //! Defines the error types used throughout the RuState library.
 
 // Removed use std::fmt;
-use thiserror::Error;
-use std::io; // Added for IoError variant
-// StateId is likely String or a similar type based on StateTrait
-// Remove the direct import if StateId is not a distinct exported type
-// use crate::state::StateId;
+use std::io;
+use thiserror::Error; // Added for IoError variant
+                      // StateId is likely String or a similar type based on StateTrait
+                      // Remove the direct import if StateId is not a distinct exported type
+                      // use crate::state::StateId;
 
 /// The primary error type for RuState operations.
 ///
