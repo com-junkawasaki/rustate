@@ -242,6 +242,10 @@ pub type PolicyBox<S, E> = Arc<dyn Policy<S, E>>;
 mod tests {
     use super::*;
 
+    use crate::decision_context::DecisionContext;
+    use crate::error::AgentError;
+    use crate::feedback::Feedback;
+    use crate::types::{Insight, Observation};
     use rustate::{EventTrait, StateTrait, StateType};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
@@ -290,6 +294,7 @@ mod tests {
         Start,
         Process,
         Finish,
+        Mock,
     }
 
     impl EventTrait for TestEvent {
@@ -298,6 +303,7 @@ mod tests {
                 TestEvent::Start => "start",
                 TestEvent::Process => "process",
                 TestEvent::Finish => "finish",
+                TestEvent::Mock => "mock",
             }
         }
 
@@ -329,6 +335,50 @@ mod tests {
             TestEvent::Start | TestEvent::Process | TestEvent::Finish
         ));
         assert!(decision.confidence >= 0.5 && decision.confidence <= 1.0);
+    }
+
+    struct MockPolicy;
+
+    #[async_trait::async_trait]
+    impl Policy<TestState, TestEvent> for MockPolicy {
+        async fn decide(
+            &self,
+            context: DecisionContext<TestState, TestEvent>,
+        ) -> Result<Decision<TestEvent>, AgentError> {
+            // Simple mock: always decide to send a "MOCK_EVENT"
+            Ok(Decision::new(
+                uuid::Uuid::new_v4().to_string(),
+                TestEvent::Mock,
+                1.0,
+                Some(context.current_state.clone()),
+                Some(context.goal_state.clone()),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_simple_policy_decide() {
+        let policy = MockPolicy;
+        let current_state = TestState::Initial;
+        let goal_state = TestState::Final;
+        let observations = vec![];
+        let feedbacks = vec![];
+        let insights = vec![];
+
+        // Provide all 5 arguments to DecisionContext::new
+        let context = DecisionContext::new(
+            current_state,
+            goal_state,
+            &observations,
+            &feedbacks,
+            &insights,
+        );
+
+        let decision_result = policy.decide(context).await;
+
+        assert!(decision_result.is_ok());
+        let decision = decision_result.unwrap();
+        assert_eq!(decision.event, TestEvent::Mock);
     }
 
     // ... other tests ...

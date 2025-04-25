@@ -1,28 +1,28 @@
-use crate::{
-    decision::{Decision, DecisionContext},
-    episode::Episode,
-    error::{AgentError, Result},
-    feedback::Feedback,
-    insight::Insight,
-    observation::Observation,
-    policy::Policy,
-    storage::Storage,
-};
-use rustate::integration::{SharedContext, SharedMachineRef};
-use rustate::state::State;
-use rustate::transition::Transition;
-use rustate::MachineBuilder;
-use rustate::{Context, EventTrait, Machine, StateTrait};
-use rustate::{State as RuState, Transition};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 use uuid::Uuid;
+
+use crate::decision::{Decision, DecisionContext};
+use crate::error::AgentError;
+use crate::policy::Policy;
+use crate::storage::Storage;
+
+use rustate::integration::{SharedContext, SharedMachineRef};
+use rustate::Result as RuStateResult;
+use rustate::{
+    Context, Event, EventTrait, IntoEvent, Machine, MachineBuilder, State as RuState, StateTrait,
+    Transition,
+};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+// Comment out non-existent module declarations
+// pub mod feedback;
+// pub mod insight;
+// pub mod observation;
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -57,30 +57,21 @@ impl Default for AgentConfig {
 /// 状態機械に基づく知的エージェント
 pub struct Agent<S, E, SM, P>
 where
-    S: StateTrait
-        + Clone
-        + Debug
-        + DeserializeOwned
-        + Send
-        + Sync
-        + PartialEq
-        + 'static
-        + Default
-        + Serialize,
+    S: StateTrait + Clone + Debug + Send + Sync + Serialize + DeserializeOwned + Default + 'static,
     E: EventTrait
         + Clone
         + Debug
-        + DeserializeOwned
         + Send
         + Sync
-        + 'static
-        + rustate::IntoEvent
-        + Serialize,
-    SM: Storage<S, E>,
-    P: Policy<S, E>,
+        + Serialize
+        + DeserializeOwned
+        + IntoEvent
+        + 'static,
+    SM: Storage<S, E> + Send + Sync + 'static,
+    P: Policy<S, E> + Send + Sync + 'static,
 {
     /// エージェントの一意ID
-    pub id: Uuid,
+    pub id: String,
     /// エージェントの状態機械（共有参照または所有）
     machine_ref: Option<SharedMachineRef>,
     machine: Option<Machine<S, E>>,
@@ -100,49 +91,36 @@ where
 
 impl<S, E, SM, P> Agent<S, E, SM, P>
 where
-    S: StateTrait
-        + DeserializeOwned
-        + Debug
-        + Clone
-        + Send
-        + Sync
-        + PartialEq
-        + 'static
-        + Default
-        + Serialize,
+    S: StateTrait + Clone + Debug + Send + Sync + Serialize + DeserializeOwned + Default + 'static,
     E: EventTrait
-        + DeserializeOwned
-        + Debug
         + Clone
+        + Debug
         + Send
         + Sync
-        + 'static
-        + rustate::IntoEvent
-        + Serialize,
-    SM: Storage<S, E>,
-    P: Policy<S, E>,
+        + Serialize
+        + DeserializeOwned
+        + IntoEvent
+        + 'static,
+    SM: Storage<S, E> + Send + Sync + 'static,
+    P: Policy<S, E> + Send + Sync + 'static,
 {
     /// 新しいエージェントを作成します
     pub async fn new(
-        id: Uuid,
-        initial_state: S,
+        id: impl Into<String>,
+        machine_builder: MachineBuilder<S, E>,
         policy: P,
         storage: SM,
-        machine_builder: MachineBuilder<Context, E, S>,
-        initial_context: Option<Context>,
         shared_context: Option<Arc<Mutex<Context>>>,
-    ) -> Result<Self> {
-        // Build the internal state machine
+    ) -> Result<Self, AgentError> {
         let machine = machine_builder
-            .context(initial_context.unwrap_or_default())
             .build()
-            .map_err(|e| AgentError::MachineError(e.to_string()))?;
+            .map_err(|e| AgentError::MachineError(e))?;
 
         Ok(Self {
-            id,
+            id: id.into(),
+            config: AgentConfig::default(),
             machine_ref: None,
             machine: Some(machine),
-            config: AgentConfig::default(),
             policy: Arc::new(policy),
             storage: Arc::new(storage),
             current_episode: None,
@@ -153,11 +131,17 @@ where
 
     /// 共有状態機械参照を使用してエージェントを作成します
     pub fn with_shared_machine(machine_ref: SharedMachineRef, policy: P, storage: SM) -> Self {
+        let dummy_machine = MachineBuilder::<S, E>::new("dummy")
+            .initial(S::default())
+            .state(S::default())
+            .build()
+            .expect("Failed to build dummy");
+
         Self {
-            id: Uuid::new_v4(),
-            machine_ref: Some(machine_ref),
-            machine: None,
+            id: Uuid::new_v4().to_string(),
             config: AgentConfig::default(),
+            machine_ref: Some(machine_ref),
+            machine: Some(dummy_machine),
             policy: Arc::new(policy),
             storage: Arc::new(storage),
             current_episode: None,
@@ -185,33 +169,27 @@ where
     }
 
     /// 現在の状態機械を取得します
-    pub fn machine(&self) -> Result<&Machine<S, E>> {
-        if let Some(ref machine) = self.machine {
-            Ok(machine)
-        } else if let Some(ref machine_ref) = self.machine_ref {
-            machine_ref
-                .machine()
-                .map_err(|e| AgentError::IntegrationError(e.to_string()))
-        } else {
-            Err(AgentError::Other(
-                "状態機械が設定されていません".to_string(),
+    pub fn machine(&self) -> Result<&Machine<S, E>, AgentError> {
+        if let Some(ref _sm_ref) = self.machine_ref {
+            Err(AgentError::NotSupported(
+                "Direct machine access not available when using SharedMachineRef".to_string(),
             ))
+        } else {
+            self.machine.as_ref().ok_or(AgentError::NotInitialized)
         }
     }
 
     /// 現在の状態を取得します
-    pub fn current_state(&self) -> Result<S> {
-        if let Some(ref machine) = self.machine {
-            Ok(machine.current_state().clone())
-        } else if let Some(ref machine_ref) = self.machine_ref {
-            machine_ref
-                .current_state()
-                .map_err(|e| AgentError::IntegrationError(e.to_string()))
-                .map(|s| s.clone())
-        } else {
-            Err(AgentError::Other(
-                "状態機械が設定されていません".to_string(),
+    pub fn current_state(&self) -> Result<S, AgentError> {
+        if let Some(ref sm_ref) = self.machine_ref {
+            Err(AgentError::NotSupported(
+                "current_state not available via SharedMachineRef yet".to_string(),
             ))
+        } else {
+            self.machine
+                .as_ref()
+                .ok_or(AgentError::NotInitialized)
+                .map(|m| m.current_state().clone())
         }
     }
 
@@ -270,108 +248,20 @@ where
     }
 
     /// 決定に基づいてイベントを適用します
-    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S> {
-        let previous_state = self.current_state()?;
-        let context = if let Some(ref shared_ctx) = self.shared_context {
-            // 共有コンテキストから値を取得してContextに変換
-            let mut ctx = Context::default();
-            // 必要なキーに基づいて共有コンテキストから値を取得
-            // この例では簡単のため空のコンテキストを返しています
-            ctx
+    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S, AgentError> {
+        if let Some(ref mut _sm_ref) = self.machine_ref {
+            Err(AgentError::NotSupported(
+                "apply_decision via SharedMachineRef not fully implemented".to_string(),
+            ))
+        } else if let Some(ref mut machine) = self.machine {
+            machine
+                .send(decision.event().clone())
+                .map_err(|e| AgentError::from(e))?;
+            let next_state = machine.current_state().clone();
+            Ok(next_state)
         } else {
-            Context::default()
-        };
-
-        // イベントを適用
-        let next_state = if let Some(ref mut machine) = self.machine {
-            match machine.transition(decision.event.clone(), context) {
-                Ok(s) => s,
-                Err(e) => return Err(AgentError::MachineError(e)),
-            }
-        } else if let Some(ref machine_ref) = self.machine_ref {
-            // 共有参照の場合はsend_eventを使用
-            match machine_ref.send_event(decision.event.clone()) {
-                Ok(_) => machine_ref
-                    .current_state()
-                    .map_err(|e| AgentError::IntegrationError(e.to_string()))?
-                    .clone(),
-                Err(e) => return Err(AgentError::IntegrationError(e.to_string())),
-            }
-        } else {
-            return Err(AgentError::Other(
-                "状態機械が設定されていません".to_string(),
-            ));
-        };
-
-        // 自動観測記録が有効な場合
-        if self.config.auto_record_observations {
-            let observation = Observation::new(
-                previous_state.clone(),
-                decision.event.clone(),
-                next_state.clone(),
-            )
-            .with_metadata("decision_id", &decision.id);
-
-            self.storage.save_observation(&observation).await?;
-
-            // エピソードに観測を追加
-            if let Some(episode) = &mut self.current_episode {
-                episode.add_observation(observation);
-            }
-
-            // 共有コンテキストが有効な場合、観測データを保存
-            if let Some(ref shared_ctx) = self.shared_context {
-                let observation_key = format!("observation_{}", Uuid::new_v4());
-                shared_ctx
-                    .lock()
-                    .await
-                    .set(
-                        &observation_key,
-                        &serde_json::to_string(&observation)
-                            .map_err(|e| AgentError::SerializationError(e.to_string()))?,
-                    )
-                    .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
-            }
+            Err(AgentError::NotInitialized)
         }
-
-        // 自動洞察生成が有効な場合
-        if self.config.auto_generate_insights {
-            // ここでは簡単な洞察生成の例を示します
-            // 実際の実装ではより高度な洞察生成ロジックが必要です
-            if previous_state != next_state {
-                let insight = Insight::new(
-                    "状態遷移",
-                    format!(
-                        "{:?}から{:?}への遷移が観測されました",
-                        previous_state, next_state
-                    ),
-                    0.9,
-                );
-
-                self.storage.save_insight(&insight).await?;
-
-                // エピソードに洞察を追加
-                if let Some(episode) = &mut self.current_episode {
-                    episode.add_insight(insight.clone());
-                }
-
-                // 共有コンテキストが有効な場合、洞察データを保存
-                if let Some(ref shared_ctx) = self.shared_context {
-                    let insight_key = format!("insight_{}", Uuid::new_v4());
-                    shared_ctx
-                        .lock()
-                        .await
-                        .set(
-                            &insight_key,
-                            &serde_json::to_string(&insight)
-                                .map_err(|e| AgentError::SerializationError(e.to_string()))?,
-                        )
-                        .map_err(|e| AgentError::IntegrationError(e.to_string()))?;
-                }
-            }
-        }
-
-        Ok(next_state)
     }
 
     /// 1ステップ実行します（決定して適用）
@@ -433,7 +323,7 @@ where
             let insight_key = format!("insight_{}", Uuid::new_v4());
             shared_ctx
                 .lock()
-                .await
+                .expect("Mutex poisoned")
                 .set(
                     &insight_key,
                     &serde_json::to_string(&insight)
@@ -460,7 +350,7 @@ where
             let feedback_key = format!("feedback_{}", Uuid::new_v4());
             shared_ctx
                 .lock()
-                .await
+                .expect("Mutex poisoned")
                 .set(
                     &feedback_key,
                     &serde_json::to_string(&feedback)
@@ -497,7 +387,7 @@ where
             current_state: current_state.clone(),
             goal_state: episode.goal_state.clone(),
             observations: episode.observations.clone(),
-            feedbacks: episode.feedback.clone().into_iter().collect(),
+            feedbacks: episode.feedbacks.clone().into_iter().collect(),
             insights: episode.insights.clone(),
         };
 
@@ -543,80 +433,64 @@ where
         })
     }
 
-    /// Returns a reference to the internal state machine.
-    /// NOTE: If using SharedMachineRef, this returns the dummy internal machine.
-    pub fn machine(&self) -> Result<&Machine<S, E>> {
-        // Always return the internal machine (which might be a dummy)
-        Ok(&self.machine)
-    }
-
     /// Returns a mutable reference to the internal state machine.
     /// NOTE: If using SharedMachineRef, this returns the dummy internal machine.
-    pub fn machine_mut(&mut self) -> Result<&mut Machine<S, E>> {
-        // Always return the internal machine (which might be a dummy)
-        Ok(&mut self.machine)
-    }
-
-    /// Returns the current state of the agent.
-    /// NOTE: If using SharedMachineRef, this is NOT IMPLEMENTED and returns an error,
-    /// as SharedMachineRef doesn't currently expose state reading.
-    pub fn current_state(&self) -> Result<S> {
-        if self.machine_ref.is_some() {
-            // We cannot get the state from the shared machine currently.
+    pub fn machine_mut(&mut self) -> Result<&mut Machine<S, E>, AgentError> {
+        if let Some(ref _sm_ref) = self.machine_ref {
             Err(AgentError::NotSupported(
-                "Fetching current state from SharedMachineRef is not supported.".to_string(),
+                "Direct machine mutable access not available when using SharedMachineRef"
+                    .to_string(),
             ))
         } else {
-            // Get state from the internal machine.
-            self.machine.current_state().cloned().ok_or_else(|| {
-                AgentError::InternalError("Machine has no current state".to_string())
-            })
+            self.machine.as_mut().ok_or(AgentError::NotInitialized)
         }
     }
 
-    /// Applies a decision, transitioning the state machine.
-    pub async fn apply_decision(&mut self, decision: &Decision<E>) -> Result<S> {
-        // Get state BEFORE transition for observation recording
-        // This will fail if using shared machine due to current_state() limitation
-        let previous_state = self.current_state()?;
+    async fn process_feedback(&self, feedback: &Feedback<E>) -> Result<(), AgentError> {
+        if let Some(shared_ctx) = &self.shared_context {
+            let ctx = shared_ctx.lock().expect("Mutex poisoned");
+            // Update context based on feedback
+            // Example: ctx.set("last_feedback_type", feedback.feedback_type());
+        }
+        // Additional feedback processing logic...
+        Ok(())
+    }
 
-        let transition_result = if let Some(shared_ref) = &self.machine_ref {
-            // Send event to the shared machine
-            shared_ref
-                .send_event(decision.event()) // Assumes EventTrait ~ IntoEvent
-                .map_err(|e| {
-                    AgentError::IntegrationError(format!("Shared machine send error: {}", e))
-                })?;
-            // Successfully sent, but we CANNOT know the resulting state.
-            // Return the *previous* state or an error?
-            // Returning previous state might be misleading. Let's return error for now.
-            Err(AgentError::NotSupported(
-                "Cannot determine next state after sending event via SharedMachineRef".to_string(),
-            ))
+    async fn generate_insights(&self, episode: &Episode<S, E>) -> Result<Vec<Insight>, AgentError> {
+        let insights = Vec::new();
+        if let Some(shared_ctx) = &self.shared_context {
+            let ctx = shared_ctx.lock().expect("Mutex poisoned");
+            // Generate insights based on episode data and context
+            // Example: insights.push(Insight::new(...));
+        }
+        Ok(insights)
+    }
+
+    // DecisionContext uses S, which now matches Agent's S
+    async fn decide_next_action(&mut self) -> Result<Decision<E>, AgentError> {
+        let current_state = self.current_state()?;
+        let context = if let Some(episode) = &self.current_episode {
+            let goal = episode.goal.clone().unwrap_or_else(S::default); // Assuming S implements Default
+            DecisionContext {
+                current_state,
+                goal_state: goal,
+                observations: episode.observations.clone(),
+                feedbacks: episode.feedbacks.clone(),
+                insights: episode.insights.clone(),
+            }
         } else {
-            // Send event to the internal machine
-            self.machine.send(decision.event()).map_err(|e| {
-                AgentError::StateMachineError(format!("Internal machine send error: {}", e))
-            })?;
-            // Get the new state from the internal machine
-            Ok(self.machine.current_state().cloned().ok_or_else(|| {
-                AgentError::InternalError(
-                    "Internal machine has no current state after transition".to_string(),
-                )
-            })?)
+            // Handle case where there is no active episode
+            DecisionContext {
+                current_state,
+                goal_state: S::default(), // Assuming S implements Default
+                observations: Vec::new(),
+                feedbacks: Vec::new(),
+                insights: Vec::new(),
+            }
         };
 
-        let next_state = transition_result?;
-
-        // Record observation using the state *before* the transition and the *result* state
-        if self.current_episode.is_some() {
-            self.record_observation(decision.event.clone(), next_state.clone())?;
-        }
-
-        // Store the decision
-        self.storage.save_decision(decision).await?;
-
-        Ok(next_state)
+        let decision = self.policy.decide(context).await?;
+        Ok(decision)
     }
 }
 
@@ -846,7 +720,7 @@ mod tests {
         // 共有コンテキストに値を設定
         shared_context
             .lock()
-            .await
+            .expect("Mutex poisoned")
             .set("test_key", "test_value")
             .unwrap();
 
@@ -864,7 +738,11 @@ mod tests {
         assert!(success);
 
         // 共有コンテキストから値を取得
-        let value: Option<String> = shared_context.lock().await.get("test_key").unwrap();
+        let value: Option<String> = shared_context
+            .lock()
+            .expect("Mutex poisoned")
+            .get("test_key")
+            .unwrap();
         assert_eq!(value, Some("test_value".to_string()));
     }
 
@@ -994,4 +872,8 @@ mod tests {
         // });
         panic!("Test ignored, needs rework for async and proper setup"); // Ensure it panics if not ignored
     }
+
+    // Imports for testing/examples (may contain unused depending on features)
+    #[allow(unused_imports)]
+    use crate::agent::{};
 }

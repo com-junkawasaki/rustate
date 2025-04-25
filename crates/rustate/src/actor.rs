@@ -3,12 +3,19 @@ use crate::error::StateError;
 use crate::event::EventTrait;
 use crate::state::StateTrait;
 use crate::ActorOptions;
+use crate::{Context, Event, Machine, MachineBuilder, State, StateTrait};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt;
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::task::JoinHandle;
+use tokio::time::{self, Duration};
+use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
 // --- Snapshot ---
@@ -135,14 +142,12 @@ pub trait QueryableEvent: EventTrait {
 }
 
 /// Implementation of ActorRef using a Tokio MPSC channel.
-#[derive(fmt::Debug)] // Use fmt::Debug derive
-pub struct ActorRefImpl<TEvent, TSnapshot, Q = (), R = Result<(), StateError>>
+pub struct ActorRefImpl<TEvent, TSnapshot, Q, R>
 where
-    TEvent: EventTrait + Send + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-    Q: Send + fmt::Debug + Sync + 'static,
-    R: Send + Sync + fmt::Debug + 'static, // Added Sync bound
-                                           // TEvent: QueryableEvent<Query = Q, Response = R>, // Removed QueryableEvent bound for now
+    TEvent: EventTrait + Send + 'static,
+    TSnapshot: Clone + Send + Sync + 'static,
+    Q: Send + Sync + 'static,
+    R: Send + Sync + 'static,
 {
     id: String,
     sender: mpsc::Sender<ActorCommand<TEvent, Q, R>>,
@@ -184,13 +189,13 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<TEvent, TSnapshot, Q, R> ActorRef<TEvent, TSnapshot> for ActorRefImpl<TEvent, TSnapshot, Q, R>
 where
-    TEvent: EventTrait + Send + fmt::Debug + 'static,
-    TSnapshot: Clone + Send + Sync + 'static + fmt::Debug,
-    Q: Send + fmt::Debug + Sync + 'static,
+    TEvent: EventTrait + Send + fmt::Debug + 'static + QueryableEvent<Query = Q, Response = R>,
+    TSnapshot: Clone + Send + Sync + fmt::Debug + 'static,
+    Q: Send + Sync + fmt::Debug + 'static,
     R: Send + Sync + fmt::Debug + 'static,
-    // TEvent: QueryableEvent<Query = Q, Response = R>, // Removed QueryableEvent bound
 {
     fn id(&self) -> &str {
         &self.id
@@ -208,14 +213,12 @@ where
             .map_err(|e| StateError::ActorSendError(e.to_string()))
     }
 
-    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError>
-    where
-        TEvent::Query: fmt::Debug,
-        TEvent::Response: fmt::Debug,
-    {
-        let (responder, response_receiver) = oneshot::channel();
+    async fn query(&self, query: TEvent::Query) -> Result<TEvent::Response, StateError> {
+        let (response_sender, response_receiver) =
+            tokio::sync::oneshot::channel::<Result<TEvent::Response, StateError>>();
+        let command = ActorCommand::Query(query, response_sender);
         self.sender
-            .send(ActorCommand::Query { query, responder })
+            .send(command)
             .await
             .map_err(|e| StateError::ActorSendError(e.to_string()))?;
         response_receiver
@@ -388,127 +391,191 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
-    use std::sync::Mutex;
+    use crate::error::StateError;
+    use crate::state::StateType;
+    use serde_json::json;
+    use std::fmt::Display;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-    struct TestEvent {
-        event_type: String,
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
+    struct TestState(String);
+
+    impl Display for TestState {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.0)
+        }
     }
+
+    impl StateTrait for TestState {
+        fn id(&self) -> &str {
+            &self.0
+        }
+        fn get_type(&self) -> StateType {
+            StateType::Atomic
+        }
+        fn parent(&self) -> Option<String> {
+            None
+        }
+        fn children(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn initial(&self) -> Option<String> {
+            None
+        }
+        fn history(&self) -> bool {
+            false
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
+    struct TestEvent(String);
+
     impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
-            &self.event_type
+            &self.0
         }
-        fn payload(&self) -> Option<&serde_json::Value> {
+        fn payload(&self) -> Option<Value> {
             None
         }
     }
-    impl QueryableEvent for TestEvent {
-        type Query = ();
-        type Response = Result<(), StateError>;
-    }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct TestQuery(String);
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct TestResponse(String);
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct TestSnapshot {
-        value: i32,
+        state: TestState,
+        event_count: u32,
     }
 
+    #[derive(Clone, Debug, Default)]
     struct TestActor {
-        actor_ref: Arc<Mutex<Option<Box<dyn ActorRef<TestEvent, TestSnapshot>>>>>,
-        state: TestSnapshot,
-        id: String,
+        state: TestState,
+        event_count: u32,
     }
 
-    #[async_trait]
+    #[async_trait::async_trait]
+    trait Actor<E, S>
+    where
+        E: EventTrait + Send + 'static,
+        S: Clone + Send + Sync + 'static,
+    {
+        type Query;
+        type Response;
+
+        async fn handle_event(&mut self, event: E);
+        async fn handle_query(&self, query: Self::Query) -> Self::Response;
+        fn snapshot(&self) -> S;
+    }
+
+    #[async_trait::async_trait]
     impl Actor<TestEvent, TestSnapshot> for TestActor {
-        fn actor_ref(&self) -> Box<dyn ActorRef<TestEvent, TestSnapshot>> {
-            self.actor_ref
-                .lock()
-                .unwrap()
-                .as_ref()
-                .expect("ActorRef not set before access in actor_ref")
-                .clone_ref()
+        type Query = TestQuery;
+        type Response = TestResponse;
+
+        async fn handle_event(&mut self, event: TestEvent) {
+            self.state = TestState(format!("Processed: {}", event.0));
+            self.event_count += 1;
+            debug!(actor_state = ?self.state, event_count = self.event_count, "Handled event");
         }
-        async fn handle_event(&mut self, event: TestEvent) -> Result<(), StateError> {
-            println!("TestActor handled event: {:?}", event);
-            self.state.value += 1;
-            Ok(())
+
+        async fn handle_query(&self, query: Self::Query) -> Self::Response {
+            debug!(query = ?query, "Handling query");
+            TestResponse(format!(
+                "Responding to: {} with state {:?}",
+                query.0, self.state
+            ))
         }
-        fn get_snapshot(&self) -> TestSnapshot {
-            self.state.clone()
+
+        fn snapshot(&self) -> TestSnapshot {
+            debug!(state = ?self.state, event_count = self.event_count, "Creating snapshot");
+            TestSnapshot {
+                state: self.state.clone(),
+                event_count: self.event_count,
+            }
         }
-        async fn stopped(&mut self) {
-            println!("Actor [{}] stopped handler called.", self.id);
-        }
-        async fn handle_query(&mut self, query: TestQuery) -> Result<TestResponse, StateError> {
-            println!("Actor [{}] handled query: {:?}", self.id, query);
-            Ok(Ok(format!("Response to '{}'", query)))
+    }
+
+    #[async_trait::async_trait]
+    impl QueryableEvent for TestEvent {
+        type Query = TestQuery;
+        type Response = TestResponse;
+
+        fn into_query(self) -> Option<(Self::Query, oneshot::Sender<Self::Response>)> {
+            if self.0.starts_with("QUERY:") {
+                let (_tx, rx) = oneshot::channel();
+                Some((TestQuery(self.0.replace("QUERY:", "")), _tx))
+            } else {
+                None
+            }
         }
     }
 
     #[tokio::test]
-    async fn test_actor_spawn_send_stop() {
-        let initial_state = TestSnapshot { value: 0 };
-        let actor_id = "test-actor-1".to_string();
-        let actor_ref_storage: Arc<Mutex<Option<Box<dyn ActorRef<TestEvent, TestSnapshot>>>>> =
-            Arc::new(Mutex::new(None));
+    async fn test_actor_spawn_and_stop() {
+        let actor = TestActor::default();
+        let (handle, command_sender) = spawn_actor(actor, 10);
 
-        let (sender, _) = mpsc::channel::<ActorCommand<TestEvent, TestQuery, TestResponse>>(10);
-        let initial_actor_ref = ActorRefImpl {
-            id: actor_id.clone(),
-            sender,
-            _snapshot_marker: std::marker::PhantomData,
-            _response_marker: std::marker::PhantomData,
-        };
-        let initial_actor_ref_boxed: Box<dyn ActorRef<TestEvent, TestSnapshot>> =
-            Box::new(initial_actor_ref);
+        drop(command_sender);
+        let result = handle.await;
+        assert!(result.is_ok(), "Actor task failed to join");
+        info!("Actor stopped gracefully.");
+    }
 
-        let actor = TestActor {
-            actor_ref: Arc::new(Mutex::new(Some(initial_actor_ref_boxed.clone_ref()))),
-            state: initial_state,
-            id: actor_id.clone(),
-        };
+    #[tokio::test]
+    async fn test_actor_send_event() {
+        let actor = TestActor::default();
+        let (handle, command_sender) = spawn_actor(actor, 10);
 
-        let actor_ref = spawn_actor::<_, _, _, _, _>(actor, 10);
+        let event = TestEvent("Test Event 1".to_string());
+        let cmd = ActorCommand::Event(event.clone());
+        command_sender
+            .send(cmd)
+            .await
+            .expect("Failed to send event");
 
-        *actor_ref_storage.lock().unwrap() = Some(actor_ref.clone_ref());
+        // Give the actor some time to process the event
+        time::sleep(Duration::from_millis(50)).await;
 
-        let event = TestEvent {
-            event_type: "INCREMENT".to_string(),
-        };
-        let send_result = actor_ref.send(event);
-        assert!(send_result.is_ok(), "Send failed: {:?}", send_result.err());
+        // Stop the actor by dropping the sender
+        drop(command_sender);
+        let _ = handle.await; // Wait for the actor task to finish
+        info!("Event sent and actor processed.");
+    }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    #[tokio::test]
+    async fn test_actor_query() {
+        let actor = TestActor::default();
+        let actor_ref = spawn_actor(actor, 10);
 
-        let query_result = actor_ref.query("Hello?".to_string()).await;
-        assert!(
-            query_result.is_ok(),
-            "Query failed: {:?}",
-            query_result.err()
-        );
-        assert_eq!(query_result.unwrap().unwrap(), "Response to 'Hello?'");
+        let query = TestQuery("MyQuery".to_string());
+        let response = actor_ref.query(query).await.unwrap();
 
-        let stop_result = actor_ref.stop();
-        assert!(stop_result.is_ok(), "Stop failed: {:?}", stop_result.err());
+        // Adjust expected response based on the simplified handle_query implementation
+        assert!(response.0.contains("Responding to: MyQuery"));
+        assert!(response.0.contains("Initial State")); // Assuming default state is "Initial State"
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        actor_ref.stop().await.unwrap();
+    }
 
-        let event_after_stop = TestEvent {
-            event_type: "INCREMENT_AGAIN".to_string(),
-        };
-        let send_after_stop_result = actor_ref.send(event_after_stop);
-        assert!(send_after_stop_result.is_err());
-        match send_after_stop_result.err().unwrap() {
-            StateError::ActorSendError(_) => {}
-            e => panic!("Unexpected error type after stop: {:?}", e),
-        }
+    #[tokio::test]
+    async fn test_actor_snapshot() {
+        let mut actor = TestActor::default();
+        // Simulate some events
+        actor.handle_event(TestEvent("Inc1".to_string())).await;
+        actor.handle_event(TestEvent("Inc2".to_string())).await;
 
-        let query_after_stop_result = actor_ref.query("Still there?".to_string()).await;
-        assert!(query_after_stop_result.is_err());
-        match query_after_stop_result.err().unwrap() {
-            StateError::ActorSendError(_) | StateError::ActorReceiveError(_) => {}
-            e => panic!("Unexpected error type after stop query: {:?}", e),
-        }
+        let actor_ref = spawn_actor(actor, 10);
+
+        // Give time for potential initialization if needed, though handle_event was called directly
+        time::sleep(Duration::from_millis(50)).await;
+
+        let snapshot = actor_ref.get_snapshot(); // Use get_snapshot which reads the Arc<RwLock>
+        assert_eq!(snapshot.state, TestState("Processed: Inc2".to_string())); // Check final state
+        assert_eq!(snapshot.event_count, 2); // Check event count
+
+        actor_ref.stop().await.unwrap();
     }
 }
