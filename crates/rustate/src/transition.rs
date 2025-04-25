@@ -165,7 +165,16 @@ impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + From<Event> + Serialize + DeserializeOwned + fmt::Debug,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + From<Event>
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transition")

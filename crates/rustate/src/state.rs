@@ -1,3 +1,5 @@
+use crate::action::{Action, ActionExecutor, ActionType};
+use crate::transition::Transition;
 use crate::{Context, Error, Event, EventTrait, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -6,8 +8,6 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
 use uuid::Uuid;
-use crate::action::{Action, ActionExecutor, ActionType};
-use crate::transition::Transition;
 
 /// Trait defining requirements for a state identifier
 pub trait StateTrait:
@@ -59,7 +59,16 @@ pub struct State<S, C = Context, E = Event>
 where
     S: StateTrait, // S is the identifier type
     C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned, // Add C bounds
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned, // Add E bounds
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned, // Add E bounds
 {
     /// Unique identifier for the state
     pub id: S,
@@ -107,7 +116,16 @@ impl<S, C, E> State<S, C, E>
 where
     S: StateTrait,
     C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
 {
     /// Create a new normal state
     pub fn new(id: S) -> Self {
@@ -345,7 +363,16 @@ pub struct StateCollection<S, C = Context, E = Event>
 where
     S: StateTrait,
     C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
 {
     // Use String as key for simplicity, derived from S::Display
     states: HashMap<String, State<S, C, E>>,
@@ -361,7 +388,16 @@ impl<S, C, E> StateCollection<S, C, E>
 where
     S: StateTrait,
     C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
 {
     /// Create a new empty state collection
     pub fn new() -> Self {
@@ -410,7 +446,16 @@ pub struct Transition<S, C = Context, E = Event>
 where
     S: StateTrait,
     C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
 {
     pub target: S,
     // ... other fields like actions, guards ...
@@ -424,7 +469,16 @@ impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait,
     C: Clone + Send + Sync + Default + 'static + Serialize + DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
 {
     pub fn new(target: S) -> Self {
         Self {

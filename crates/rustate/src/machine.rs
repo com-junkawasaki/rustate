@@ -1,6 +1,6 @@
 use crate::event::IntoEvent;
 use crate::{
-    action::{ActionType},
+    action::ActionType,
     actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
     error::StateError,
     state::{HistoryType, State, StateCollection, StateType},
@@ -28,7 +28,16 @@ use std::str::FromStr;
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
     S: StateTrait
         + Display
         + Eq
@@ -78,7 +87,16 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
     S: StateTrait
         + Display
         + Eq
@@ -539,7 +557,16 @@ where
 pub struct MachineBuilder<C = Context, E = Event, S = String, O = ()>
 where
     C: Clone + Send + Sync + Default + 'static,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String>,
     O: Clone + Send + Sync + 'static,
 {
@@ -565,7 +592,16 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
     S: StateTrait
         + Display
         + Eq
@@ -607,11 +643,7 @@ where
     }
 
     /// Add an entry action for a specific state
-    pub fn on_entry<A: Into<Action<C, E>> + 'static>(
-        mut self,
-        state_id: &S,
-        action: A,
-    ) -> Self {
+    pub fn on_entry<A: Into<Action<C, E>> + 'static>(mut self, state_id: &S, action: A) -> Self {
         self.entry_actions
             .entry(state_id.to_string())
             .or_default()
@@ -691,7 +723,16 @@ where
 impl<C, E, S, O> ActorLogic<MachineSnapshot<C, S, O>, E> for Machine<C, E, S, O>
 where
     C: Clone + Send + Sync + Default + 'static + Serialize + for<'de> DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Default + Eq + From<Event> + Clone + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + Eq
+        + From<Event>
+        + Clone
+        + Serialize
+        + DeserializeOwned,
     S: StateTrait
         + Display
         + Eq
