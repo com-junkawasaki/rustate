@@ -120,17 +120,20 @@
 //! - 深い階層構造を作成すると、デバッグや理解が難しくなる場合があります
 //! - マルチスレッド環境では、子ステートマシンへのアクセスに対する同期処理が必要です
 
-use crate::integration::error::Result as IntegrationResult;
 use crate::{
     Action, Context, Error as StateError, Event, EventTrait, IntoEvent, Machine, MachineBuilder,
     State, Transition, TransitionType,
 };
-use futures::future::BoxFuture;
+use crate::error::AgentError;
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
+use tracing::{debug, error, info, warn};
+use thiserror::Error;
 
 /// 子ステートマシンのインターフェース
 ///
@@ -269,31 +272,42 @@ pub mod coordination {
         let child_complete = State::new("childComplete".to_string());
         let done = State::new_final("done".to_string());
 
-        // Closure for monitoring action
+        let child_arc_for_monitor = Arc::clone(&child);
+        let child_arc_for_forward = Arc::clone(&child);
+
         let monitor_closure = move |ctx: Arc<RwLock<Context>>, _evt: &Event| {
-            let child_lock = child.clone();
-            async move {
-                let child_guard = child_lock.lock().await;
-                if child_guard.is_in_final_state() {
-                    let mut context = ctx.write().await;
-                    context.set("childComplete", true)?;
-                    println!("Debug: Child detected as complete, setting parent context.");
+            let child_lock = Arc::clone(&child_arc_for_monitor);
+            Box::pin(async move {
+                let mut child = child_lock.lock().await;
+                if let Some(status) = child.get_status().await {
+                    debug!("Child status observed by parent: {}", status);
+                    let mut ctx_guard = ctx.write().await;
+                    ctx_guard.insert("child_status".to_string(), status.into());
                 }
                 Ok(())
-            }
+            })
         };
 
-        // Closure for forwarding action
-        let forward_closure = move |_ctx: Arc<RwLock<Context>>, _evt: &Event| {
-            let child_lock = child.clone();
-            async move {
-                println!("Debug: Forwarding START event to child");
-                let mut child_guard = child_lock.lock().await;
-                let result = child_guard.handle_parent_event(Event::from("START")).await;
-                println!("Debug: Child START event result: {:?}", result);
-                result?;
-                Ok(())
-            }
+        let forward_closure = move |_ctx: Arc<RwLock<Context>>, evt: &Event| {
+            let child_lock = Arc::clone(&child_arc_for_forward);
+            let event_to_forward = evt.clone();
+            Box::pin(async move {
+                debug!(
+                    "Parent forwarding event '{}' to child",
+                    event_to_forward.event_type()
+                );
+                let mut child = child_lock.lock().await;
+                match child.send_event(event_to_forward).await {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!("Error forwarding event to child: {:?}", e);
+                        Err(StateError::ActionFailed(format!(
+                            "Failed to forward event to child: {:?}",
+                            e
+                        )))
+                    }
+                }
+            })
         };
 
         // Guard to check parent context for child completion
@@ -408,4 +422,18 @@ pub mod coordination {
 
         Ok(())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum HierarchicalError {
+    #[error("Child machine lock poisoned")]
+    LockPoisoned,
+    #[error("State machine error: {0}")]
+    StateMachine(#[from] StateError),
+    #[error("Integration error: {0}")]
+    Integration(#[from] AgentError),
+    #[error("Send error: {0}")]
+    SendError(String),
+    #[error("Child machine error: {0}")]
+    ChildError(String),
 }

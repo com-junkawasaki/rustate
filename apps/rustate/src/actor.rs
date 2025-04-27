@@ -1,12 +1,9 @@
-use crate::error::{Result as StateResult, StateError};
-use crate::state::StateTrait;
-use crate::Machine as StateMachine;
+use crate::context::Context;
+use crate::event::Event;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug}; // Import fmt and Debug trait
 use thiserror::Error;
-// use crate::event::{Event, EventTrait}; // Use Actor::Event
-use crate::actor_ref::ActorRef as CoreActorRefTrait; // Use the trait from core
 use crate::MachineBuilder;
 use serde_json::Value;
 use std::any::Any;

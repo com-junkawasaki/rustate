@@ -3,11 +3,11 @@
 //!
 //! Events are occurrences that can trigger state transitions within a state machine.
 
-use crate::error::{Result, StateError};
+use crate::context::Context;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::fmt::{self, Debug, Display, Formatter};
+use std::hash::Hash;
 
 /// A trait defining the common behavior for all event types used in RuState.
 ///
@@ -15,7 +15,7 @@ use std::hash::{Hash, Hasher};
 /// It ensures events can be identified, potentially carry data, and satisfy
 /// necessary bounds for use in the framework (cloning, debugging, equality,
 /// thread-safety).
-pub trait EventTrait: Clone + fmt::Debug + PartialEq + Eq + Hash + Send + Sync + 'static {
+pub trait EventTrait: Clone + Debug + PartialEq + Eq + Hash + Send + Sync + 'static {
     /// Returns a string slice representing the type or category of the event.
     /// Used for matching transitions defined with string identifiers.
     ///
@@ -101,10 +101,10 @@ impl EventTrait for Event {
     }
 }
 
-impl fmt::Display for Event {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Event {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.payload {
-            Some(payload) => write!(f, "{}(...)", self.event_type), // Avoid printing potentially large payload
+            Some(_payload) => write!(f, "{}(...)", self.event_type),
             None => write!(f, "{}", self.event_type),
         }
     }

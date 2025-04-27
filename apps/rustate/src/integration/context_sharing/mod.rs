@@ -116,8 +116,7 @@ use crate::integration::error::{
     Error as IntegrationError, LockResultExt, Result as IntegrationResult,
 };
 use crate::Result as RuStateResult;
-use crate::{Context, Event, Machine, MachineBuilder, State, Transition, TransitionType};
-use futures::FutureExt;
+use thiserror::Error;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 use tracing::{trace, warn};
@@ -283,15 +282,14 @@ mod tests {
 
         // Specify the Output type O as () for MachineBuilder
         let mut idle_state_a = State::new("idle".to_string());
-        idle_state_a = idle_state_a.add_transition(
+        idle_state_a.add_transition(
             "EVENT_A",
             Transition::new(
                 "idle".to_string(),
-                Some("done".to_string()),
-                Some(Event::from("EVENT_A")),
+                TransitionType::Internal,
                 None,
-                vec![write_action.clone()], // Clone action
-                TransitionType::External,
+                vec![write_action.into()],
+                None,
             ),
         );
         let done_state_a = State::new("done".to_string());
@@ -334,15 +332,14 @@ mod tests {
 
         // Introduce let bindings for states to fix E0716
         let mut waiting_state_b = State::new("waiting".to_string());
-        waiting_state_b = waiting_state_b.add_transition(
+        waiting_state_b.add_transition(
             "EVENT_B",
             Transition::new(
                 "waiting".to_string(),
-                Some("processed".to_string()),
-                Some(Event::from("EVENT_B")),
+                TransitionType::Internal,
                 None,
-                vec![read_action.clone()], // Clone action
-                TransitionType::External,
+                vec![read_action.into()],
+                None,
             ),
         );
         let processed_state_b = State::new("processed".to_string());
@@ -397,17 +394,21 @@ mod tests {
         assert_eq!(
             ctx_b
                 .get::<String>("local_status")
-                .ok_or_else(|| StateError::Unknown("Missing local_status".into()))?? // Use StateError::Unknown
-                .unwrap(),
-            "active"
+                .ok_or_else(|| StateError::Other("Missing local_status".into()))??
+                .as_str()
+                .ok_or_else(|| StateError::Other("Failed to convert status to string".into()))?
+                == "active",
+            "local_status should be 'active'"
         );
-        assert_eq!(
+
+        let counter_b: i64 =
             ctx_b
-                .get::<i32>("local_counter")
-                .ok_or_else(|| StateError::Unknown("Missing local_counter".into()))?? // Use StateError::Unknown
-                .unwrap(),
-            1
-        );
+                .get("local_counter")
+                .ok_or_else(|| StateError::Other("Missing local_counter".into()))??
+                .as_i64()
+                .ok_or_else(|| StateError::Other("Failed to convert counter to i64".into()))?;
+
+        assert_eq!(counter_b, 1, "local_counter should be 1");
 
         Ok(())
     }
