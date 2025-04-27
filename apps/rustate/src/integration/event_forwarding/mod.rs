@@ -83,8 +83,6 @@ use crate::integration::error::Result as IntegrationResult;
 use crate::{IntoEvent, Machine};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use futures::FutureExt;
-use serde::{Deserialize, Serialize};
 
 /// 共有ステートマシン参照
 ///
@@ -145,25 +143,30 @@ impl EventForwarder for SharedMachineRef {
 mod tests {
     use super::*;
     use crate::{
-        ActionType, Context, Event, IntoEvent, Machine, MachineBuilder, State,
-        Transition, TransitionType, error::StateError,
+        Context, Event, Machine, MachineBuilder, State, Transition, TransitionType, Action,
     };
+    use crate::error::StateError;
     use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use futures::FutureExt;
 
     #[tokio::test]
     async fn test_event_forwarding() -> IntegrationResult<()> {
         // 子ステートマシンを作成
         let child = create_child_machine().await;
         let shared_child = Arc::new(Mutex::new(SharedMachineRef::new(child)));
+        let child_for_parent = shared_child.clone(); // Clone for parent machine
 
         // 親ステートマシンを作成（子マシンへのイベント転送を設定）
-        let parent = create_parent_machine(shared_child.clone()).await?;
+        let parent = create_parent_machine(child_for_parent).await?; // Pass the cloned Arc
         let shared_parent = SharedMachineRef::new(parent);
 
         // テスト用に直接子マシンへイベントを送信（本来はイベント転送経由）
         println!("Debug: Sending ACTIVATE event directly to child");
-        let direct_result = shared_child.send_event(Event::from("ACTIVATE")).await;
+        // Lock the mutex before calling methods
+        let direct_result = {
+            let child_guard = shared_child.lock().await;
+            child_guard.send_event(Event::from("ACTIVATE")).await
+        };
         println!("Debug: Direct child event result: {:?}", direct_result);
 
         // 親マシンにもイベントを送信
@@ -171,7 +174,11 @@ mod tests {
         println!("Debug: Parent event result: {:?}", result);
 
         // 子マシンの状態を確認
-        let is_activated = shared_child.is_in_state(&"activated").await?;
+        // Lock the mutex before calling methods
+        let is_activated = {
+            let child_guard = shared_child.lock().await;
+            child_guard.is_in_state(&"activated").await?
+        };
         println!("Debug: Child is in activated state: {:?}", is_activated);
         assert!(is_activated);
         Ok(())
@@ -200,23 +207,21 @@ mod tests {
     }
 
     async fn create_parent_machine(
-        child_ref: Arc<Mutex<SharedMachineRef>>,
+        child_ref: Arc<tokio::sync::Mutex<SharedMachineRef>>,
     ) -> IntegrationResult<Machine<Context, Event, String>> {
         let initial = State::new("initial".to_string());
         let processing = State::new("processing".to_string());
         let done = State::new_final("done".to_string());
 
         // Action to forward the event to the child
-        let forward_action = Action::from_fn(move |_ctx, evt: &Event| {
+        let forward_action = Action::from_fn(move |_ctx: Arc<tokio::sync::RwLock<Context>>, evt: &Event| {
             let child_clone = Arc::clone(&child_ref);
             let event_to_forward = evt.clone();
             async move {
-                let mut child_guard = child_clone.lock().await;
+                let child_guard = child_clone.lock().await;
                 match child_guard.send_event(event_to_forward).await {
                     Ok(_) => Ok(()),
-                    Err(e) => {
-                        Err(StateError::ActionFailed(format!("Forward failed: {:?}", e)))
-                    }
+                    Err(e) => Err(StateError::ActionFailed(format!("Forward failed: {:?}", e))),
                 }
             }
             .boxed()
@@ -228,7 +233,7 @@ mod tests {
             Some("processing".to_string()),
             Some(Event::from("PROCESS")),
             None,
-            vec![forward_action],
+            vec![forward_action.into()],
             TransitionType::External,
         );
 
@@ -241,16 +246,13 @@ mod tests {
             TransitionType::External,
         );
 
-        futures::executor::block_on(async {
-            MachineBuilder::new("parentMachine".to_string(), "initial".to_string())
-                .state(initial)
-                .state(processing)
-                .state(done)
-                .transition(process)
-                .transition(complete)
-                .build()
-                .await
-        })
-        .expect("Parent machine build failed")
+        Ok(MachineBuilder::new("parentMachine".to_string(), "initial".to_string())
+            .state(initial)
+            .state(processing)
+            .state(done)
+            .transition(process)
+            .transition(complete)
+            .build()
+            .await?)
     }
 }

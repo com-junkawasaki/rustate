@@ -118,7 +118,6 @@ use crate::integration::error::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 use tracing::{trace, warn};
-use futures::FutureExt;
 
 /// A thread-safe, shareable context container.
 ///
@@ -275,98 +274,97 @@ impl SharedContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Action, Event, Machine, MachineBuilder, State, Transition, TransitionType};
+    use crate::Context;
+    
     use crate::integration::error::Result as IntegrationResult;
-    use crate::{
-        action::Action,
-        event::Event,
-        machine::MachineBuilder,
-        state::State,
-        transition::{Transition, TransitionType},
-        Context,
-        Machine,
-    };
-    use futures::future::join_all;
+    use futures::FutureExt;
+    
+    
+    use tokio::sync::RwLock;
 
-    // Helper function to create machines for testing
-    fn create_machines(
+    async fn create_machines(
         shared_context: SharedContext,
-    ) -> (Machine<(), Event, String>, Machine<Context, Event, String>) {
-        // Machine A (Writer)
-        let write_action = Action::from_fn(move |_ctx, _evt: &Event| {
-            let ctx_writer_clone = shared_context.clone();
-            async move {
-                println!("Writer Action: Writing to shared context");
-                ctx_writer_clone.set("status", "updated_a")?;
-                ctx_writer_clone.increment("counter")?;
-                Ok(())
-            }
-            .boxed() // Box the future
-        });
+    ) -> (Machine<(), Event, String, ()>, Machine<Context, Event, String, ()>) {
+        // Clone context before defining closures
+        let context_for_writer = shared_context.clone();
+        let context_for_reader = shared_context.clone();
+
+        // Writer Action: Use the cloned context
+        let write_action = Action::from_fn(
+            move |_local_ctx: Arc<RwLock<()>>, _evt: &Event| {
+                // Clone again for the async block if needed inside the closure
+                let ctx_writer_clone = context_for_writer.clone();
+                async move {
+                    println!("Writer Action: Writing to shared context");
+                    ctx_writer_clone.set("status", "updated_a")?;
+                    ctx_writer_clone.increment("counter")?;
+                    Ok(())
+                }
+                .boxed()
+            },
+        );
 
         let mut idle_state_a = State::new("idle".to_string());
-        idle_state_a.add_transition(
-            "EVENT_A",
-            Transition::new(
+        let event_a_transition = Transition::new(
                 "idle".to_string(),
-                None,                         // Add target: None for internal transition
-                Some(Event::from("EVENT_A")), // Event
-                None,                         // Guard
-                vec![write_action.into()],    // Actions
-                TransitionType::Internal,     // Type
-            ),
+                None::<String>,
+                Some(Event::from("EVENT_A")),
+                None, // Guard
+                vec![write_action.into()],
+                TransitionType::Internal,
         );
+        idle_state_a.add_transition("EVENT_A".to_string(), event_a_transition);
         let done_state_a = State::new_final("done".to_string());
+        let machine_a = MachineBuilder::<(), Event, String, ()>::new(
+            "idle".to_string(),
+            "idle".to_string(),
+        )
+        .state(idle_state_a)
+        .state(done_state_a)
+        .build()
+        .await
+        .expect("Machine A async build failed");
 
-        let machine_a =
-            MachineBuilder::<(), Event, String, ()>::new("idle".to_string(), "idle".to_string())
-                .state(idle_state_a) // Use owned state
-                .state(done_state_a)
-                .build()
-                .await
-                .expect("Machine A sync build failed")
-                .unwrap();
-
-        // Machine B (Reader)
-        let read_action = Action::from_fn(move |_ctx, _evt: &Event| {
-            let ctx_reader_clone = shared_context.clone();
-            async move {
-                println!("Reader Action: Reading shared context");
-                let status = ctx_reader_clone.get::<String>("status")?;
-                let counter = ctx_reader_clone.get::<i32>("counter")?;
-                println!(
-                    "Reader Action: Read status='{}', counter={}",
-                    status.unwrap_or_default(),
-                    counter.unwrap_or_default()
-                );
-                Ok(())
-            }
-            .boxed() // Box the future
-        });
+        // Reader Action: Use the other cloned context
+        let read_action = Action::from_fn(
+            move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
+                // Clone again for the async block if needed inside the closure
+                let ctx_reader_clone = context_for_reader.clone();
+                async move {
+                    println!("Reader Action: Reading shared context");
+                    let status = ctx_reader_clone.get::<String>("status")?;
+                    let counter = ctx_reader_clone.get::<i32>("counter")?;
+                    println!("Reader: Read status: {:?}, counter: {:?}", status, counter);
+                    if let Some(s) = status {
+                        local_ctx.write().await.set("local_status_copy", s)?;
+                    }
+                    Ok(())
+                }
+                .boxed()
+            },
+        );
 
         let mut waiting_state_b = State::new("waiting".to_string());
-        waiting_state_b.add_transition(
-            "EVENT_B",
-            Transition::new(
+        let event_b_transition = Transition::new(
                 "waiting".to_string(),
-                None,                         // Add target: None for internal transition
-                Some(Event::from("EVENT_B")), // Event
-                None,                         // Guard
-                vec![read_action.into()],     // Actions
-                TransitionType::Internal,     // Type
-            ),
-        );
-        let processed_state_b = State::new_final("processed".to_string());
-
+                None::<String>,
+                Some(Event::from("EVENT_B")),
+                None, // Guard
+                vec![read_action.into()],
+                TransitionType::Internal,
+            );
+        waiting_state_b.add_transition("EVENT_B".to_string(), event_b_transition);
+        let finished_state_b = State::new_final("processed".to_string());
         let machine_b = MachineBuilder::<Context, Event, String, ()>::new(
             "waiting".to_string(),
             "waiting".to_string(),
         )
-        .state(waiting_state_b) // Use owned state
-        .state(processed_state_b)
+        .state(waiting_state_b)
+        .state(finished_state_b)
         .build()
         .await
-        .expect("Machine B sync build failed")
-        .unwrap();
+        .expect("Machine B async build failed");
 
         (machine_a, machine_b)
     }
@@ -374,7 +372,7 @@ mod tests {
     #[tokio::test]
     async fn test_context_sharing_flow() -> IntegrationResult<()> {
         let shared_context = SharedContext::new();
-        let (mut machine_a, mut machine_b) = create_machines(shared_context.clone());
+        let (mut machine_a, mut machine_b) = create_machines(shared_context.clone()).await;
 
         // Initial check (optional)
         assert_eq!(shared_context.get::<String>("status")?, None);

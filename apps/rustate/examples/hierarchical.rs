@@ -1,6 +1,6 @@
 use rustate::{
     transition::TransitionType, Action, Context, Event, EventTrait, IntoEvent, Machine,
-    MachineBuilder, State, StateTrait, Transition,
+    MachineBuilder, State, Transition,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -178,16 +178,28 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
         },
     );
     let log_power_off = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Power OFF"); Ok(()) },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Power OFF");
+            Ok(())
+        },
     );
     let log_playing = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Playing track..."); Ok(()) },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Playing track...");
+            Ok(())
+        },
     );
     let log_stopped = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Stopped"); Ok(()) },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Stopped");
+            Ok(())
+        },
     );
     let log_paused = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Paused"); Ok(()) },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
+            println!("Paused");
+            Ok(())
+        },
     );
     let log_double_speed = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {

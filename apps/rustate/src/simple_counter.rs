@@ -1,8 +1,8 @@
 use crate::actor::{Actor, ActorError};
 use crate::context::Context;
 use crate::event::{Event, EventTrait, IntoEvent};
-use crate::state::State;
 use crate::machine::Machine;
+use crate::state::State;
 use crate::MachineBuilder;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -158,4 +158,3 @@ impl Actor for CounterActor {
 
     // Removed send, get_state, handle_event as they are not part of Actor trait
 }
-

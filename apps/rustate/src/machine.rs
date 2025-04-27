@@ -6,6 +6,9 @@ use crate::{
     state::{State, StateCollection, StateTrait, StateType},
     transition::{Transition, TransitionType},
 };
+use futures::stream::{self, StreamExt};
+use futures::FutureExt;
+use log;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -13,10 +16,7 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use futures::stream::{self, StreamExt};
 use tokio::sync::RwLock;
-use futures::FutureExt;
-use log;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -336,7 +336,8 @@ where
         let context_clone_for_exit = self.context.clone(); // Clone Arc for exit states
         for id in &exit_states {
             // Execute sequentially instead of using join_all + boxed()
-            self.exit_state(id, event, context_clone_for_exit.clone()).await?;
+            self.exit_state(id, event, context_clone_for_exit.clone())
+                .await?;
             // Propagate errors immediately
         }
 
@@ -485,7 +486,12 @@ where
     }
 
     /// Exit a state and its active children recursively
-    async fn exit_state(&self, state_id: &S, event: &E, context: Arc<RwLock<C>>) -> StateResult<()> {
+    async fn exit_state(
+        &self,
+        state_id: &S,
+        event: &E,
+        context: Arc<RwLock<C>>,
+    ) -> StateResult<()> {
         log::debug!("Exiting state: {}", state_id);
         // --- Handle exiting child states first (recursion/iteration needed) --- Start
         // Find currently active states that are direct children of state_id
@@ -553,7 +559,10 @@ where
                 // If event is None (e.g., initial entry), potentially skip actions
                 // or actions should be designed to handle this possibility.
                 // For now, we skip calling execute if event is None.
-                log::debug!("Skipping entry actions for state {} due to missing event (initialization?)", state_id);
+                log::debug!(
+                    "Skipping entry actions for state {} due to missing event (initialization?)",
+                    state_id
+                );
             }
         }
         Ok(())
@@ -565,7 +574,8 @@ where
         state_id: &S,
         event: &E, // Exit actions always have an event context
         context: Arc<RwLock<C>>,
-    ) -> StateResult<()> { // Changed Result to StateResult
+    ) -> StateResult<()> {
+        // Changed Result to StateResult
         if let Some(actions) = self.exit_actions.get(&state_id.to_string()) {
             log::debug!("Executing exit actions for state: {}", state_id);
             for action in actions {
@@ -685,8 +695,10 @@ where
     }
 
     /// Serializes the machine definition to a JSON string.
-    pub fn to_json(&self) -> StateResult<String> { // Changed Result to StateResult
-        serde_json::to_string_pretty(self).map_err(|e| StateError::Serialization(e.to_string())) // Use correct variant name
+    pub fn to_json(&self) -> StateResult<String> {
+        // Changed Result to StateResult
+        serde_json::to_string_pretty(self).map_err(|e| StateError::Serialization(e.to_string()))
+        // Use correct variant name
     }
 
     /// Get the depth of a state in the hierarchy

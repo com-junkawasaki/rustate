@@ -169,7 +169,10 @@ async fn create_shopping_machine() -> rustate::Result<Machine<Context, ShoppingE
             let item_count_result = ctx_arc.read().await.get::<i32>("itemCount");
             let item_count = item_count_result.and_then(|res| res.ok()).unwrap_or(0);
             let _ = ctx_arc.write().await.set("itemCount", item_count + 1);
-            println!("ACTION: Added item to cart. Total items: {}", item_count + 1);
+            println!(
+                "ACTION: Added item to cart. Total items: {}",
+                item_count + 1
+            );
             Ok(())
         })
     });
