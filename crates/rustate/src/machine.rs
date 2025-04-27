@@ -22,10 +22,11 @@ use uuid::Uuid;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(bound = "S: DeserializeOwned, C: DeserializeOwned")]
 struct SerializableMachineState<S, C>
 where
     S: StateTrait + Serialize + DeserializeOwned + Clone + Eq + Hash,
-    C: Serialize + DeserializeOwned + Clone,
+    C: Default + Clone + Debug + Serialize + DeserializeOwned,
 {
     current_states: HashSet<S>,
     context: C,

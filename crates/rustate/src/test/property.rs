@@ -1,6 +1,12 @@
+#![cfg(feature = "property-testing")]
+
+// Add extern crate declaration guarded by feature flag
+#[cfg(feature = "property-testing")]
+extern crate proptest;
+
 use crate::{Context, EventTrait, IntoEvent, Machine, Result, StateTrait};
 use proptest::strategy::{BoxedStrategy, Strategy};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -275,20 +281,66 @@ where
 /// Property-basedテストランナー
 pub struct PropertyTestRunner<S, E>
 where
-    S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
+    S: StateTrait
+        + Clone
+        + Debug
+        + Eq
+        + Hash
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + From<String>
+        + Serialize
+        + DeserializeOwned,
+    E: EventTrait
+        + Clone
+        + Debug
+        + IntoEvent
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + DeserializeOwned,
 {
-    machine: Machine<S, E>,
+    machine: Machine<Context, E, S>,
+    config: Option<proptest::test_runner::Config>,
+    _marker: PhantomData<(S, E)>,
 }
 
 impl<S, E> PropertyTestRunner<S, E>
 where
-    S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
+    S: StateTrait
+        + Clone
+        + Debug
+        + Eq
+        + Hash
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + Default
+        + From<String>
+        + Serialize
+        + DeserializeOwned,
+    E: EventTrait
+        + Clone
+        + Debug
+        + IntoEvent
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + DeserializeOwned,
 {
     /// 新しいテストランナーを作成
-    pub fn new(machine: Machine<S, E>) -> Self {
-        Self { machine }
+    pub fn new(machine: Machine<Context, E, S>) -> Self {
+        Self {
+            machine,
+            config: None,
+            _marker: PhantomData,
+        }
     }
 
     /// プロパティを検証

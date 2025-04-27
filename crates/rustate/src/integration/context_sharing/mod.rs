@@ -113,9 +113,13 @@
 //! - **Data Structure**: Relies on a key-value structure within a JSON object.
 
 use crate::integration::error::{Error as IntegrationError, LockResultExt, Result};
+use crate::prelude::*; // Use prelude for tests
+use crate::{Context, Event, Machine, MachineBuilder, State, Transition, TransitionType};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 use tracing::{trace, warn}; // Added tracing
+                            // Add explicit Result import
+use crate::Result as RuStateResult;
 
 /// A thread-safe, shareable context container.
 ///
@@ -252,7 +256,8 @@ impl SharedContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::*; // Use prelude for tests
+    use crate::error::StateError;
+    use crate::serde_json;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -312,7 +317,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_context_sharing_flow() -> Result<()> {
+    async fn test_context_sharing_flow() -> RuStateResult<()> {
         println!("--- Starting test_context_sharing_flow ---");
         // 1. Create shared context
         let shared_context = SharedContext::new();
@@ -367,7 +372,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_contains_remove() -> Result<()> {
+    async fn test_contains_remove() -> RuStateResult<()> {
         let ctx = SharedContext::new();
 
         assert!(!ctx.contains_key("test").await?);

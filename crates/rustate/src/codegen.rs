@@ -9,10 +9,10 @@
 use crate::{
     action::Action,
     context::Context,
-    error::{Error, Result},
+    error::Result,
     event::{Event, EventTrait},
     guard::Guard,
-    machine::MachineBuilder,
+    machine::{Machine, MachineBuilder},
     state::{State, StateTrait},
     transition::Transition,
 };
@@ -298,4 +298,62 @@ pub fn machine_builder_to_proto<
     println!("Warning: machine_builder_to_proto currently generates a static schema.");
     let opts = options.unwrap_or_default();
     generate_proto_schema(&opts)
+}
+
+#[cfg(feature = "codegen")]
+fn generate_rust_actions<S, E, C>(
+    actions: &[Action<C, E>],
+    // Correct bounds for C
+) -> Result<String>
+where
+    S: StateTrait + Send + Sync + Clone + 'static + Serialize,
+    E: EventTrait + Send + Sync + Clone + 'static + Serialize,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize, // Corrected bounds for C
+{
+    // ... function body
+    Ok(String::new()) // Placeholder return
+}
+
+#[cfg(feature = "codegen")]
+fn generate_rust_guards<S, E, C>(
+    guards: &[Guard<C, E>],
+    // Correct bounds for C
+) -> Result<String>
+where
+    S: StateTrait + Send + Sync + Clone + 'static + Serialize,
+    E: EventTrait + Send + Sync + Clone + 'static + Serialize,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize, // Corrected bounds for C
+{
+    // ... function body
+    Ok(String::new()) // Placeholder return
+}
+
+#[cfg(feature = "codegen")]
+fn generate_rust_transitions<S, E, C>(
+    transitions: &[Transition<S, C, E>],
+    machine_name: &str,
+    // Correct bounds for C
+) -> Result<String>
+where
+    S: StateTrait + Send + Sync + Clone + 'static + Serialize,
+    E: EventTrait + Send + Sync + Clone + 'static + Serialize,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize, // Corrected bounds for C
+{
+    // ... function body
+    Ok(String::new()) // Placeholder return
+}
+
+#[cfg(feature = "codegen")]
+pub fn generate_rust_code<S, E, C, O>(
+    builder: &MachineBuilder<C, E, S, O>,
+    // Correct bounds for C
+) -> Result<String>
+where
+    S: StateTrait + Send + Sync + Clone + 'static + Serialize,
+    E: EventTrait + Send + Sync + Clone + 'static + Serialize,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize, // Corrected bounds for C
+    O: Clone + Debug + Default + Send + Sync + 'static + Serialize, // Assuming O needs Serialize too
+{
+    // ... function body
+    Ok(String::new()) // Placeholder return
 }

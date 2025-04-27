@@ -25,7 +25,9 @@ pub use xstate::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{error::StateError as Error, prelude::*, Context, Event, StateTrait, TransitionType};
+    use crate::{
+        error::StateError as Error, prelude::*, Context, Event, StateTrait, TransitionType,
+    };
     use futures::executor::block_on;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
@@ -55,20 +57,26 @@ mod tests {
         let increment_action = Action::from_fn(|ctx: Arc<RwLock<Context>>, _evt: &Event| {
             async move {
                 let mut context_guard = ctx.write().await;
-                let current = context_guard.get::<i32>("count").ok().flatten().unwrap_or(0);
-                context_guard.set("count", current + 1).map_err(|e| Error::Context(e.to_string()))
+                let current = context_guard
+                    .get::<i32>("count")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0);
+                context_guard
+                    .set("count", current + 1)
+                    .map_err(|e| Error::Context(e.to_string()))
                 // FIXME: Proper error handling for set
             }
         });
 
         // Define transitions using the full signature and String::from()
         let start_transition = Transition::new(
-            String::from("idle"),              // source
-            Some(String::from("running")),     // target
-            Some(Event::new("START", None)),   // event
-            None,                             // guard
-            vec![increment_action.clone()],   // actions
-            TransitionType::External,         // type
+            String::from("idle"),            // source
+            Some(String::from("running")),   // target
+            Some(Event::new("START", None)), // event
+            None,                            // guard
+            vec![increment_action.clone()],  // actions
+            TransitionType::External,        // type
         );
         let complete_transition = Transition::new(
             String::from("running"),
@@ -109,20 +117,29 @@ mod tests {
         let result = machine.send(Event::new("START", None)).await;
         assert!(result.is_ok());
         assert!(machine.is_in("running"));
-        assert_eq!(machine.context().get::<i32>("count").ok().flatten(), Some(1));
+        assert_eq!(
+            machine.context().get::<i32>("count").ok().flatten(),
+            Some(1)
+        );
 
         let result = machine.send(Event::new("COMPLETE", None)).await;
         assert!(result.is_ok());
         assert!(machine.is_in("completed"));
         assert!(machine.is_final()); // Check final state
-        assert_eq!(machine.context().get::<i32>("count").ok().flatten(), Some(2));
+        assert_eq!(
+            machine.context().get::<i32>("count").ok().flatten(),
+            Some(2)
+        );
 
         let result = machine.send(Event::new("RESET", None)).await;
         assert!(result.is_ok());
         assert!(machine.is_in("idle"));
         assert!(!machine.is_final()); // Not final anymore
-        assert_eq!(machine.context().get::<i32>("count").ok().flatten(), Some(2)); // Count persists?
-                                                                                  // Depending on reset logic
+        assert_eq!(
+            machine.context().get::<i32>("count").ok().flatten(),
+            Some(2)
+        ); // Count persists?
+           // Depending on reset logic
     }
     // --- End of simple async machine test --- (Around line 120)
 
@@ -140,7 +157,10 @@ mod tests {
             // FIXME: Proper Result handling needed
         });
         let is_maintenance_mode = Guard::new(|ctx: &Context, _evt: &Event| -> bool {
-            ctx.get::<bool>("maintenance").ok().flatten().unwrap_or(false)
+            ctx.get::<bool>("maintenance")
+                .ok()
+                .flatten()
+                .unwrap_or(false)
             // FIXME: Proper Result handling needed
         });
 
@@ -148,45 +168,60 @@ mod tests {
         let increment_timer = Action::from_fn(|ctx, _evt| {
             async move {
                 let mut context_guard = ctx.write().await;
-                let current = context_guard.get::<i32>("timer").ok().flatten().unwrap_or(0);
-                context_guard.set("timer", current + 1).map_err(|e| Error::Context(e.to_string()))
+                let current = context_guard
+                    .get::<i32>("timer")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0);
+                context_guard
+                    .set("timer", current + 1)
+                    .map_err(|e| Error::Context(e.to_string()))
                 // FIXME: Proper Result handling needed
             }
         });
         let reset_timer = Action::from_fn(|ctx, _evt| {
             async move {
-                ctx.write().await.set("timer", 0).map_err(|e| Error::Context(e.to_string()))
+                ctx.write()
+                    .await
+                    .set("timer", 0)
+                    .map_err(|e| Error::Context(e.to_string()))
                 // FIXME: Proper Result handling needed
             }
         });
         let set_maintenance = Action::from_fn(|ctx, _evt| {
             async move {
-                ctx.write().await.set("maintenance", true).map_err(|e| Error::Context(e.to_string()))
+                ctx.write()
+                    .await
+                    .set("maintenance", true)
+                    .map_err(|e| Error::Context(e.to_string()))
                 // FIXME: Proper Result handling needed
             }
         });
         let clear_maintenance = Action::from_fn(|ctx, _evt| {
             async move {
-                ctx.write().await.set("maintenance", false).map_err(|e| Error::Context(e.to_string()))
+                ctx.write()
+                    .await
+                    .set("maintenance", false)
+                    .map_err(|e| Error::Context(e.to_string()))
                 // FIXME: Proper Result handling needed
             }
         });
 
         // Define transitions with full arguments and String::from()
         let green_to_yellow = Transition::new(
-            String::from("green"),            // source
-            Some(String::from("yellow")),     // target
+            String::from("green"),           // source
+            Some(String::from("yellow")),    // target
             Some(Event::new("TIMER", None)), // event
-            Some(is_timer_expired.clone()), // guard
+            Some(is_timer_expired.clone()),  // guard
             vec![reset_timer.clone()],       // actions
-            TransitionType::External,         // type
+            TransitionType::External,        // type
         );
         let yellow_to_red = Transition::new(
             String::from("yellow"),
             Some(String::from("red")),
             Some(Event::new("TIMER", None)),
             Some(is_timer_expired.clone()), // Guard was missing
-            vec![reset_timer.clone()],      // Action should be reset_timer? increment_timer was used before
+            vec![reset_timer.clone()], // Action should be reset_timer? increment_timer was used before
             TransitionType::External,
         );
         let red_to_green = Transition::new(
@@ -202,16 +237,16 @@ mod tests {
             String::from("*"), // source
             Some(String::from("maintenance")),
             Some(Event::new("MAINTENANCE", None)),
-            None, // guard
+            None,                          // guard
             vec![set_maintenance.clone()], // actions
             TransitionType::External,
         );
         let from_maintenance = Transition::new(
             String::from("maintenance"),
-            Some(String::from("green")), // target state
+            Some(String::from("green")),       // target state
             Some(Event::new("RESTORE", None)), // Event
             Some(is_maintenance_mode.clone()), // Guard
-            vec![clear_maintenance.clone()], // Actions
+            vec![clear_maintenance.clone()],   // Actions
             TransitionType::External,
         );
 

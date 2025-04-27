@@ -16,13 +16,13 @@ The demo features:
 
 The RuState project is organized as a Cargo workspace consisting of several crates:
 
-- **`crates/rustate_core`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.). Includes basic Model-Based Testing capabilities.
-- **`crates/rustate_macros`**: Provides procedural macros (`#[derive(StateMachine)]`, etc.) to simplify state machine definition.
-- **`crates/editor`**: (Work in Progress) A web-based visual editor for creating and visualizing RuState state machines. Code exists but functionality may be incomplete.
-- **`crates/agent`**: (Work in Progress/Planned) Implements agent logic (policies, decisions, learning). Initial code exists but functionality is likely under development.
-- **`crates/demo`**: Contains the source code for the live demo showcasing RuState features.
+- **`crates/rustate_core`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.). Includes basic Model-Based Testing capabilities. (Status: Actively Developed)
+- **`crates/rustate_macros`**: Provides procedural macros (`#[derive(StateMachine)]`, etc.) to simplify state machine definition. (Status: Stable)
+- **`crates/editor`**: A web-based visual editor (WASM/Yew) for creating and visualizing RuState state machines. (Status: Work in Progress - Basic structure exists, functionality limited)
+- **`crates/agent`**: Implements agent logic (policies, decisions, learning). (Status: Planned/Early Development - Minimal code exists)
+- **`crates/demo`**: Contains the source code for the live demo showcasing RuState features. (Status: Functional - Requires updates for latest core features)
 
-*(Consider adding a diagram illustrating the interaction between these crates)*
+*(TODO: Add a diagram illustrating the interaction between these crates)*
 
 ## Overview
 
@@ -41,29 +41,27 @@ RuState provides the following features (primarily within the `crates/rustate_co
 
 ## Model-Based Testing (MBT) Integration
 
-RuState incorporates the principles of model-based testing within the `rustate_core` crate. Basic infrastructure for test generation (`TestGenerator`), test execution (`TestRunner`, `PropertyTestRunner`), and coverage reporting is implemented in `crates/rustate_core/src/mbt/`. *(Path assumed, please verify)*
+RuState incorporates the principles of model-based testing within the `rustate_core` crate. Basic infrastructure for test generation (`TestGenerator`), test execution (`TestRunner`, `PropertyTestRunner`), and coverage reporting is implemented in `crates/rustate_core/src/mbt/`. *(Path confirmed, implementation details need further review)*
 
 1.  **Model Definition**: Define explicit models using states, transitions, guards, and actions.
-2.  **Test Case Generation**: The `TestGenerator` provides capabilities to generate test cases from the model (e.g., based on transitions).
+2.  **Test Case Generation**: The `TestGenerator` provides basic capabilities to generate test cases from the model (e.g., based on transitions). *(Needs enhancement for strategies like path coverage, boundary analysis)*.
 3.  **Test Execution**: The `TestRunner` and `PropertyTestRunner` execute defined test cases or properties against the state machine.
-4.  **Coverage Verification**: Basic coverage reporting is available via `TestResults`.
+4.  **Coverage Verification**: Basic coverage reporting is available via `TestResults`. *(Needs enhancement for more detailed metrics)*.
 
-*(Consider evaluating the completeness and robustness of the current MBT implementation, especially test generation strategies and coverage metrics. Update examples and documentation accordingly.)*
+*(Current MBT implementation provides foundational elements. Robustness, advanced test generation, and detailed coverage reporting require further development.)*
 
-### Key Features (MBT - Implemented, Completeness Varies)
+### Key Features (MBT - Basic Implementation)
 
-- **Test Generator**: Basic test case generation from state machines (e.g., all transitions).
-- **Online Testing**: `TestRunner` allows direct testing of state machines.
-- **Offline Testing**: Test cases can potentially be serialized/exported, though direct support might need verification.
-- **State Coverage Report**: `TestResults` provides basic coverage information.
+- **Test Generator**: Basic test case generation (e.g., all transitions).
+- **Online Testing**: `TestRunner` for direct testing.
+- **Offline Testing**: Potential via serialization, requires verification.
+- **State Coverage Report**: Basic coverage via `TestResults`.
 
 ### Cross-Crate State Machine Integration
 
-RuState supports integrating multiple state machines across different crates using shared memory (`Arc<Mutex>`, `Arc<RwLock>`).
+*(Current approach)* RuState primarily supports integrating multiple state machines across different crates using shared memory (`Arc<Mutex>`, `Arc<RwLock>`), allowing state machines within the same process to communicate via shared context or event forwarding.
 
-*(The following design patterns use shared memory. Previous versions used gRPC via the now-removed `crates/grpc` for inter-process communication.)*
-
-#### Design Patterns for State Machine Integration
+#### Design Patterns for State Machine Integration (Shared Memory)
 
 1. **Event Forwarding Pattern**: State machines communicate by forwarding events to each other
 
@@ -259,20 +257,48 @@ fn setup_parent_machine(mut child: impl ChildMachine + 'static) -> Machine {
 
 This approach allows you to build complex applications with modular, type-safe state management across multiple crates, perfect for large Rust applications with distinct domains.
 
+## Roadmap
+
+*(Based on current assessment)*
+
+1.  **Foundation & Cleanup:**
+    *   [ ] Run `cargo fmt`, `cargo clippy`, `cargo test --workspace` and fix issues.
+2.  **Core Library (`rustate_core`) Enhancement:**
+    *   [ ] Enhance MBT: Implement advanced test generation (path coverage, etc.) and detailed coverage metrics.
+    *   [ ] Refine API: Improve ergonomics based on usage in other crates.
+    *   [ ] Documentation: Add comprehensive rustdoc comments and examples.
+3.  **Editor (`editor`) Development:**
+    *   [ ] Define MVP scope (e.g., visualize existing machine, basic node manipulation).
+    *   [ ] Implement core visualization logic (using Yew/WASM).
+    *   [ ] Implement loading/saving machines via `rustate_core` serialization.
+4.  **Agent (`agent`) Development:**
+    *   [ ] Define agent architecture and interaction model with `rustate_core`.
+    *   [ ] Implement basic agent policy execution state machine.
+5.  **Demo (`demo`) Update:**
+    *   [ ] Update demo to use the latest `rustate_core` features and API.
+    *   [ ] Refresh the live demo deployment.
+6.  **Testing & QA (`qa`):**
+    *   [ ] Increase unit test coverage in `rustate_core`.
+    *   [ ] Add integration tests between `rustate_core` and other crates (`editor`, `demo`, `agent`).
+    *   [ ] Develop formal MBT test suites using the enhanced MBT features.
+7.  **Documentation & Presentation:**
+    *   [ ] Create crate interaction diagram for README.
+    *   [ ] Update `docs/` directory with more detailed guides.
+    *   [ ] Ensure `README.md` is fully consistent with the codebase.
+
+*(Further steps depend on the resolution of foundational issues and priorities for `editor` and `agent` development.)*
+
 ## Installation
 
-Add to your Cargo.toml:
-
 ```toml
-[dependencies]
-# Choose the core library or specific features you need
-rustate_core = "..." # Replace with the actual version
-rustate_macros = { version = "...", optional = true } # If using macros
-rustate = "..." # If there's a facade crate, specify its version
-# Or potentially specify git dependency if not published
-# rustate_core = { git = "https://github.com/jun784/rustate" }
+# [dependencies]
+# # Choose the core library or specific features you need
+# rustate_core = "..." # Replace with the actual version
+# rustate_macros = { version = "...", optional = true } # If using macros
+# # Or potentially specify git dependency if not published
+# # rustate_core = { git = "https://github.com/jun784/rustate" }
 ```
-*(Please update with correct version numbers or usage instructions based on how the library is intended to be consumed)*
+*(Installation instructions commented out - please update with correct version numbers or usage instructions based on how the library is intended to be consumed)*
 
 ## Documentation
 
@@ -288,22 +314,7 @@ rustate = "..." # If there's a facade crate, specify its version
 - **TestRunner**: Executes test cases
 - **CoverageReport**: Analyzes test coverage
 
-## Roadmap
-
-- [x] Model checker integration
-- [ ] Property-based testing
-- [ ] Test visualization tools
-- [ ] QuickCheck-style testing
-- [ ] MBT with Fuzzing
-- [ ] Property specification and verification with temporal logic (LTL/CTL)
-- [ ] Performance optimization for large state machines
-- [x] State machine coordination for distributed systems
-- [ ] Enhanced WebAssembly (WASM) support
-- [ ] Integration with visual state machine editors
-- [ ] Automatic state machine model generation from real systems
-- [ ] Support for more advanced concurrency models
-- [ ] Domain-specific language (DSL) for state machine definition
-- [ ] Optimized version for microcontrollers
+## Getting Started
 
 ## License
 
@@ -321,99 +332,25 @@ MIT
 | `editor`                  | 80%               | 基本的な編集機能は実装済み、UI改善の余地あり                                        |
 | `demo`                    | 85%               | トラフィックライト、階層状態機械の例は完成                                          |
 | `agent`                   | 30%               | 基本構造は定義済み、実装は初期段階                                                    |
-| `grpc`                    | 70%               | 基本的なgRPCサーバー/クライアント実装済み、API安定化とドキュメント拡充が必要 |
-| ドキュメント (Documentation)  | 75%               | 主要機能の説明はあるが、APIドキュメントとgRPC利用ガイドの拡充が必要                     |
+| ドキュメント (Documentation)  | 75%               | 主要機能の説明はあるが、APIドキュメントの拡充が必要                                  |
 | CI/CD                     | 70%               | GitHub Actionsで基本的なワークフロー設定済み                                         |
 
 ### 次のステップ (Next Steps)
 
 1.  **Agent機能の実装完了**: LLMと統合したエージェントフレームワークの実装
-2.  **gRPC APIの安定化とドキュメント拡充**: `grpc` クレートのAPIを安定させ、利用ガイドを整備
-3.  **Editor UI/UX改善**: より直感的で使いやすいインターフェースへ
-4.  **ドキュメント拡充**: APIドキュメントの完成とxstateレベルの品質向上
-5.  **テストカバレッジ向上**: 特に `agent`, `editor`, `grpc` クレートのカバレッジ向上
-6.  **開発プロセス状態管理**: ビルド、デプロイなどの開発プロセスをrustateで制御する機能 (検討)
+2.  **Editor UI/UX改善**: より直感的で使いやすいインターフェースへ
+3.  **ドキュメント拡充**: APIドキュメントの完成とxstateレベルの品質向上
+4.  **テストカバレッジ向上**: 特に `agent`, `editor` クレートのカバレッジ向上
+5.  **開発プロセス状態管理**: ビルド、デプロイなどの開発プロセスをrustateで制御する機能 (検討)
 
 ### 優先タスク (Priority Tasks)
 
 - [ ] Agent機能の実装を加速
-- [ ] gRPCインターフェースのドキュメント作成とAPI安定化
 - [ ] Editor UI/UXの改善計画策定と実施
-- [ ] テストカバレッジ向上のためのテストケース追加 (Agent, Editor, gRPC)
+- [ ] テストカバレッジ向上のためのテストケース追加 (Agent, Editor)
 - [ ] コアライブラリ (`rustate_core`) のAPIドキュメント拡充
 - [ ] CI/CDパイプラインの強化 (リリースプロセス自動化など)
 
-最終更新: 2024-07-28 *(Updated to current date)*
+最終更新: 2024-07-29 *(Updated to current date)*
 
-## gRPC インターフェース
-
-RuStateはgRPCを通じて型安全な状態機械APIを提供します。以下の機能があります：
-
-- **型安全なステートマシン操作**: RuStateの全機能をgRPC経由で利用可能
-- **リアルタイム状態変化監視**: ストリーミングでステートマシンの状態変化をリアルタイム監視
-- **バッチ処理**: 複数イベントのトランザクション的処理
-- **自動コード生成**: クライアント側の型安全コードを動的生成
-- **クロスプラットフォーム**: 様々な言語・環境からアクセス可能
-
-### サーバー側の使用例
-
-```rust
-use rustate_grpc::run_server;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // サーバーをポート50051で起動
-    run_server("[::1]:50051").await?;
-    
-    Ok(())
-}
-```
-
-### 型安全なクライアント
-
-```rust
-use rustate_grpc::client::typesafe::TypeSafeClient;
-use std::fmt;
-
-// イベント型を定義
-#[derive(Clone)]
-enum TrafficLightEvent {
-    Timer,
-    Emergency,
-    Reset,
-}
-
-impl fmt::Display for TrafficLightEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Timer => write!(f, "TIMER"),
-            Self::Emergency => write!(f, "EMERGENCY"),
-            Self::Reset => write!(f, "RESET"),
-        }
-    }
-}
-
-// コンテキスト型を定義
-#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
-struct TrafficLightContext {
-    counter: u32,
-    is_emergency: bool,
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 型安全なクライアントを作成
-    let mut client = TypeSafeClient::<TrafficLightEvent, TrafficLightContext>::new(
-        "http://[::1]:50051",
-        "traffic_light",
-    ).await?;
-    
-    // イベント送信
-    let result = client.send_event(TrafficLightEvent::Timer).await?;
-    println!("イベント処理結果: {:?}", result);
-    
-    Ok(())
-}
-```
-
-詳細は[`crates/grpc/README.md`](./crates/grpc/README.md)を参照してください。 
+## Getting Started

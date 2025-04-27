@@ -284,7 +284,6 @@ pub mod prelude {
     #[cfg(feature = "property-testing")]
     // No need for separate `property_testing` module if items are in `test`
     // pub use crate::property_testing::*; // Assuming a separate module
-
     #[cfg(feature = "integration")]
     pub use crate::integration::{
         context_sharing::SharedContext, event_forwarding::SharedMachineRef,

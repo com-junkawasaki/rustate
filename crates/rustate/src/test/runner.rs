@@ -1,11 +1,13 @@
 use super::generator::TestCase;
-use crate::{Error, Event, IntoEvent, Machine, Result, StateTrait, Context, Error as StateError};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::collections::HashSet;
+use crate::{
+    Context, Error, Error as StateError, Event, EventTrait, IntoEvent, Machine, Result, StateTrait,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::marker::PhantomData;
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
+use std::marker::PhantomData;
 
 /// テスト実行結果を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,197 +104,105 @@ impl TestResults {
 
 /// テストを実行するランナー
 #[derive(Debug)]
-pub struct TestRunner<'a, S = String, E = Event, C = Context>
+pub struct TestRunner<S, E, C>
 where
-    S: StateTrait + Clone + Debug + Eq + Hash + Display + Send + Sync + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + Send + Sync + 'static,
-    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
+    S: StateTrait
+        + Clone
+        + Debug
+        + Eq
+        + Hash
+        + Display
+        + From<String>
+        + Default
+        + Serialize
+        + DeserializeOwned,
+    E: EventTrait + Clone + Debug + IntoEvent + Serialize + DeserializeOwned,
+    C: Default + Clone + Debug,
 {
-    machine: &'a mut Machine<C, E, S>,
-    results: TestResults,
-    coverage: HashMap<String, usize>,
-    _marker: PhantomData<(S, E, C)>,
+    machine: Machine<C, E, S>,
+    test_cases: Vec<TestCase>,
+    results: HashMap<String, Result<(), Error>>,
 }
 
-impl<'a, S, E, C> TestRunner<'a, S, E, C>
+impl<S, E, C> TestRunner<S, E, C>
 where
-    S: StateTrait + Clone + Debug + Eq + Hash + Display + Send + Sync + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + Send + Sync + 'static,
-    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
+    S: StateTrait
+        + Clone
+        + Debug
+        + Eq
+        + Hash
+        + Display
+        + From<String>
+        + Default
+        + Serialize
+        + DeserializeOwned,
+    E: EventTrait + Clone + Debug + IntoEvent + Serialize + DeserializeOwned,
+    C: Default + Clone + Debug,
 {
-    /// 新しいテストランナーを作成
-    pub fn new(machine: &'a mut Machine<C, E, S>) -> Self {
+    pub fn new(machine: Machine<C, E, S>) -> Self {
         Self {
             machine,
-            results: TestResults {
-                results: Vec::new(),
-                coverage: CoverageReport {
-                    visited_states: HashSet::new(),
-                    visited_transitions: HashSet::new(),
-                    total_states: 0,
-                    total_transitions: 0,
-                },
-            },
-            coverage: HashMap::new(),
-            _marker: PhantomData,
+            test_cases: Vec::new(),
+            results: HashMap::new(),
         }
     }
 
-    /// テストケースを実行
-    pub async fn run_test(&mut self, test_case: &TestCase) -> TestResult {
-        // マシンのコピーを作成して変更を追跡
-        // let mut machine_clone = self.machine.clone();
-        // Cloning the machine is problematic with async because the builder is now async.
-        // Instead, we should ideally use the provided machine and reset it if possible,
-        // or create a new machine instance for each test.
-        // For simplicity here, let's assume we can create a new builder from the original definition
-        // (This requires the definition to be available or reconstructable)
-        // A more practical approach might involve a `reset()` method on Machine or using `MachineBuilder::clone()`
-        // Let's try cloning the builder if the original machine instance isn't easily reset/rebuilt.
-        // However, the TestRunner only has a reference &'a Machine.
-        // ***Simplification for now: We'll use the single machine instance and modify it directly.***
-        // ***This means tests are NOT isolated and depend on the order they run!***
-        // ***A TODO for proper test isolation.***
-        // let mut machine_clone = self.machine.clone(); // Can't easily clone Machine now
+    pub fn add_test_case(&mut self, test_case: TestCase) {
+        self.test_cases.push(test_case);
+    }
 
-        // Use the original machine directly (WARNING: NO ISOLATION)
-        // Resetting state might be needed, but let's assume tests handle it for now.
+    pub async fn run_all_tests(&mut self) {
+        for test_case in &self.test_cases {
+            let result = self.run_test_case(test_case).await;
+            self.results.insert(test_case.name.clone(), result);
+        }
+    }
 
-        // TODO: Implement proper state initialization/reset for async machine
-        // if test_case.initial_state != self.machine.initial { ... }
+    async fn run_test_case(&self, test_case: &TestCase) -> Result<(), Error> {
+        let mut machine = self.machine.clone();
+        machine.reset(); // Ensure machine starts from initial state
+        machine.set_context(test_case.initial_context.clone().unwrap_or_default());
 
-        // Record initial state (assuming it's correct)
-        let initial_state = self
-            .machine
-            .current_states
-            .iter()
-            .next()
-            .cloned()
-            .unwrap_or_default();
-        self.results.coverage.visited_states.insert(initial_state);
+        let mut visited_states: HashSet<String> = HashSet::new();
+        visited_states.insert(machine.current_state().to_string()); // Convert S to String
 
-        // イベントを順番に送信
-        let mut last_state = self
-            .machine
-            .current_states
-            .iter()
-            .next()
-            .cloned()
-            .unwrap_or_default();
-        for event_like in &test_case.events {
-            // Assuming TestCase events are IntoEvent compatible
-            let event = event_like.clone().into_event(); // Clone and convert
-            let current_state = last_state.clone(); // State before sending event
+        for event_input in &test_case.events {
+            let event = event_input.clone().into_event()?;
+            let result = machine.send(event).await;
 
-            // イベント送信
-            // match machine_clone.send(event.clone()) {
-            match self.machine.send(event.clone()).await {
-                // Use self.machine, await send
-                Ok(_) => {}
-                Err(err) => {
-                    return TestResult {
-                        test_name: test_case.name.clone(),
-                        success: false,
-                        actual_state: current_state,
-                        expected_state: test_case.expected_state.clone(),
-                        error_message: Some(format!(
-                            "Error sending event '{}': {}",
-                            event.event_type, err
-                        )),
-                    };
-                }
+            if let Err(e) = result {
+                return Err(e.into());
             }
-
-            // 新しい状態を記録
-            let new_state = self
-                .machine
-                .current_states
-                .iter()
-                .next()
-                .cloned()
-                .unwrap_or_default(); // Get the new state
-
-            // 遷移を記録
-            self.results.coverage.visited_states.insert(new_state.clone());
-            self.results.coverage.visited_transitions.insert(format!(
-                "{} --{}--> {}",
-                current_state, event.event_type, new_state
-            ));
-            last_state = new_state; // Update last_state for next iteration
+            visited_states.insert(machine.current_state().to_string()); // Convert S to String
         }
 
-        // 最終状態を確認
-        let final_state = last_state;
-        // let final_state = self.machine
-        //     .current_states
-        //     .iter()
-        //     .next()
-        //     .cloned()
-        //     .unwrap_or_default();
-
-        let success = final_state == test_case.expected_state;
-
-        TestResult {
-            test_name: test_case.name.clone(),
-            success,
-            actual_state: final_state.clone(),
-            expected_state: test_case.expected_state.clone(),
-            error_message: if success {
-                None
-            } else {
-                Some(format!(
-                    "Expected state: {}, but got: {}",
-                    test_case.expected_state, final_state
-                ))
-            },
-        }
-    }
-
-    /// 複数のテストケースを実行
-    pub async fn run_tests(&mut self, test_cases: Vec<TestCase>) -> TestResults {
-        let mut results = Vec::new();
-
-        for test_case in test_cases {
-            let result = self.run_test(&test_case).await;
-            results.push(result);
+        let final_state = machine.current_state();
+        if final_state.to_string() != test_case.expected_state.to_string() {
+            // Convert S to String for comparison
+            return Err(Error::AssertionFailed(format!(
+                "Test case '{}': Expected final state '{}', but got '{}'",
+                test_case.name,
+                test_case.expected_state.to_string(), // Convert S to String
+                final_state.to_string()               // Convert S to String
+            )));
         }
 
-        // カバレッジレポートを作成
-        let coverage = CoverageReport {
-            visited_states: self.results.coverage.visited_states.clone(),
-            visited_transitions: self.results.coverage.visited_transitions.clone(),
-            total_states: 0, // Placeholder
-            total_transitions: self.results.coverage.visited_transitions.len(),
-        };
+        // Optional: Check expected context if provided
+        if let Some(expected_context) = &test_case.expected_context {
+            if &machine.get_context() != expected_context {
+                return Err(Error::AssertionFailed(format!(
+                    "Test case '{}': Expected final context {:?}, but got {:?}",
+                    test_case.name,
+                    expected_context,
+                    machine.get_context()
+                )));
+            }
+        }
 
-        self.results.coverage = coverage;
-        self.results.results = results;
-        self.results
-    }
-
-    /// マシンを特定の状態に初期化する（シンプルな実装）
-    fn initialize_to_state(&self, _machine: &mut Machine<C, E, S>, _target_state: &str) -> Result<()> {
-        // TODO: Implement async state initialization if needed
-        // This likely involves finding a path and sending events with await.
         Ok(())
     }
 
-    pub fn generate_report(&self) -> CoverageReport {
-        let visited_states_count = self.coverage.len();
-        // FIXME: Find correct way to get total state count
-        // let total_states = self.machine.states.len();
-        let total_states = 0; // Placeholder
-        let coverage_percentage = if total_states > 0 {
-            (visited_states_count as f64 / total_states as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        CoverageReport {
-            visited_states: self.coverage.keys().cloned().collect(),
-            visited_transitions: self.results.coverage.visited_transitions.clone(),
-            total_states, // Use the placeholder
-            total_transitions: self.results.coverage.visited_transitions.len(),
-        }
+    pub fn get_results(&self) -> HashMap<String, Result<(), Error>> {
+        self.results.clone() // Clone results to avoid move error
     }
 }

@@ -255,7 +255,7 @@ pub mod coordination {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MachineBuilder, State, Transition};
+    use crate::{Event, MachineBuilder, State, Transition, TransitionType, Action, ActionType, Context};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
         }
 
         // 親マシンに"START"イベントを送信（実際のテストではなく、形式だけ）
-        let result = parent_machine.send("START");
+        let result = parent_machine.send(Event::new("START"));
         println!("Debug: Parent machine START event result: {:?}", result);
 
         {
@@ -295,67 +295,84 @@ mod tests {
         }
     }
 
-    fn create_child_machine() -> Machine {
-        let initial = State::new("initial");
-        let progress = State::new("progress");
-        let final_state = State::new_final("final");
+    fn create_child_machine() -> Machine<Context, Event, String> {
+        let initial = State::new(String::from("initial"));
+        let progress = State::new(String::from("progress"));
+        let final_state = State::new_final(String::from("final"));
 
-        let start = Transition::new("initial", "START", "progress");
-        let complete = Transition::new("progress", "COMPLETE", "final");
+        let start = Transition::new(
+            String::from("initial"),
+            Some(String::from("progress")),
+            Some(Event::new("START")),
+            None,
+            Vec::new(),
+            TransitionType::External,
+        );
+        let complete = Transition::new(
+            String::from("progress"),
+            Some(String::from("final")),
+            Some(Event::new("COMPLETE")),
+            None,
+            Vec::new(),
+            TransitionType::External,
+        );
 
-        MachineBuilder::new("childMachine")
+        MachineBuilder::<Context, Event, String, ()>::new("childMachine".to_string(), String::from("initial"))
             .state(initial)
             .state(progress)
             .state(final_state)
-            .initial("initial")
             .transition(start)
             .transition(complete)
             .build()
+            .blocking_recv()
             .unwrap()
     }
 
-    fn create_parent_machine(child: Arc<Mutex<impl ChildMachine + 'static>>) -> Machine {
-        let monitoring = State::new("monitoring");
-        let completed = State::new("completed");
+    fn create_parent_machine(child: Arc<Mutex<impl ChildMachine + 'static>>) -> Machine<Context, Event, String> {
+        let monitoring = State::new(String::from("monitoring"));
+        let completed = State::new(String::from("completed"));
 
-        let _start_monitoring = Transition::new("monitoring", "CHECK", "completed");
-
-        // 子マシンの状態を監視するアクション
         let monitor_action =
             coordination::create_child_monitor_action("monitorChild", child.clone());
 
-        // イベントを転送するアクション
         let forward_action = coordination::create_event_forwarder_action(
             "forwardToChild",
             child.clone(),
             "START",
-            "START",
+            Event::new("START"),
         );
 
-        // 監視完了を確認するガード
         let check_complete = (
             "isChildComplete",
-            |ctx: &crate::Context, _: &crate::Event| {
+            |ctx: &crate::Context, _: &crate::Event| -> bool {
                 ctx.get::<bool>("childComplete").unwrap_or(false)
             },
         );
 
-        // START 内部遷移
-        let mut start_transition = Transition::internal_transition("monitoring", "START");
-        start_transition.with_action(forward_action);
+        let mut start_transition = Transition::internal_transition(
+            String::from("monitoring"),
+            Event::new("START"),
+        );
+        start_transition = start_transition.with_action(forward_action);
 
-        // CHECK 遷移
-        let mut check_transition = Transition::new("monitoring", "CHECK", "completed");
-        check_transition.with_guard(check_complete);
+        let mut check_transition = Transition::new(
+            String::from("monitoring"),
+            Some(String::from("completed")),
+            Some(Event::new("CHECK")),
+            None,
+            Vec::new(),
+            TransitionType::External,
+        );
+        check_transition = check_transition.with_guard(check_complete);
 
-        MachineBuilder::new("parentMachine")
+        MachineBuilder::<Context, Event, String, ()>::new("parentMachine".to_string(), String::from("monitoring"))
             .state(monitoring)
             .state(completed)
-            .initial("monitoring")
-            .on_entry("monitoring", monitor_action)
+            .on_entry(&String::from("monitoring"), monitor_action)
             .transition(start_transition)
             .transition(check_transition)
             .build()
+            .blocking_recv()
             .unwrap()
     }
 }

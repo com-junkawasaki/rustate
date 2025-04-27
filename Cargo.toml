@@ -32,11 +32,6 @@ tokio = { version = "1.38.0", features = ["full"] }
 rand = "0.8"
 tracing = "0.1"
 proptest = "1.2"
-# gRPC関連の依存を追加
-tonic = "0.10.2"
-prost = "0.12.1"
-tonic-build = "0.10.2"
-tokio-stream = { version = "0.1", features = ["net"] }
 chrono = "0.4"
 
 # 開発用依存関係

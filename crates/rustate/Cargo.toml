@@ -12,9 +12,10 @@ categories = ["concurrency", "asynchronous", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", optional = true }
+serde_json = "1.0"
 async-trait = "0.1"
-tokio = { version = "1", features = ["sync", "macros", "time"], optional = true }
+# Make tokio a non-optional dependency and include necessary features
+tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 thiserror = "1.0"
 async-recursion = "1.0"
@@ -36,17 +37,18 @@ rustate_macros = { path = "../rustate_macros" }
 # Add optional dependencies for features
 syn = { version = "2.0", features = ["full", "parsing"], optional = true }
 quote = { version = "1.0", optional = true }
+proptest = { version = "1.0", optional = true }
 
 [features]
 default = ["mbt", "integration"]
 wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:console_error_panic_hook", "dep:js-sys"]
 integration = []
-integration_async = ["tokio/rt-multi-thread", "tokio/sync"]
-codegen = ["dep:syn", "dep:quote", "serde_json"]
+# Remove tokio features here as it's now a direct dependency
+integration_async = []
+codegen = ["dep:syn", "dep:quote"]
 mbt = []
-property-testing = ["mbt"]
+property-testing = ["mbt", "dep:proptest"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 futures = "0.3"
-proptest = "1.0"

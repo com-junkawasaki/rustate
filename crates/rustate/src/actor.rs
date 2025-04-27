@@ -13,7 +13,7 @@ use crate::context::Context;
 use crate::error::{Result, StateError};
 use crate::event::{Event, EventTrait};
 use crate::state::{State, StateTrait};
-use crate::{EventData, StateMachine};
+use crate::Machine as StateMachine;
 use async_trait::async_trait;
 use js_sys::Promise;
 use serde::de::DeserializeOwned;
@@ -565,7 +565,7 @@ where
                                          Ok(v) => v,
                                          Err(e) => {
                                              error!(actor_id = %actor_id, error = %e, "Failed to serialize state for snapshot");
-                                             let _ = responder.send(Err(StateError::SerializationError(e.to_string())));
+                                             let _ = responder.send(Err(StateError::Serialization(e.to_string())));
                                              continue; // Skip snapshot creation on serialization error
                                          }
                                      };

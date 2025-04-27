@@ -11,7 +11,6 @@ use crate::{
     transition::{Transition, TransitionType},
     Machine, // Use crate::Machine
 };
-use rustate_macros::console_log;
 use serde::{Deserialize, Serialize};
 use serde_json; // Import the crate itself
 use serde_json::Value; // Add this import
@@ -154,7 +153,7 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
         |ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
             let mut ctx = ctx_arc.write().await;
             ctx.set("status", "GREEN").unwrap();
-            console_log!("TRAFFIC LIGHT: Entered Green");
+            web_sys::console::log_1(&JsValue::from_str("TRAFFIC LIGHT: Entered Green"));
             Ok(())
         },
     )
@@ -163,7 +162,7 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
         |ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
             let mut ctx = ctx_arc.write().await;
             ctx.set("status", "YELLOW").unwrap();
-            console_log!("TRAFFIC LIGHT: Entered Yellow");
+            web_sys::console::log_1(&JsValue::from_str("TRAFFIC LIGHT: Entered Yellow"));
             Ok(())
         },
     )
@@ -172,7 +171,7 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
         |ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
             let mut ctx = ctx_arc.write().await;
             ctx.set("status", "RED").unwrap();
-            console_log!("TRAFFIC LIGHT: Entered Red");
+            web_sys::console::log_1(&JsValue::from_str("TRAFFIC LIGHT: Entered Red"));
             Ok(())
         },
     )
@@ -218,7 +217,9 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
     .on_entry(
         &"player".to_string(),
         |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
-            console_log!("MUSIC PLAYER: Entered Player superstate");
+            web_sys::console::log_1(&JsValue::from_str(
+                "MUSIC PLAYER: Entered Player superstate",
+            ));
             let mut ctx = ctx_arc.write().await;
             ctx.set("player_state", "entered").unwrap();
             Ok(())
@@ -227,7 +228,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
     .on_exit(
         &"player".to_string(),
         |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
-            console_log!("MUSIC PLAYER: Exited Player superstate");
+            web_sys::console::log_1(&JsValue::from_str("MUSIC PLAYER: Exited Player superstate"));
             let mut ctx = ctx_arc.write().await;
             ctx.set("player_state", "exited").unwrap();
             Ok(())
@@ -239,7 +240,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
         |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
             let mut ctx = ctx_arc.write().await;
             ctx.set("status", "playing").unwrap();
-            console_log!("MUSIC PLAYER: Entered Playing state");
+            web_sys::console::log_1(&JsValue::from_str("MUSIC PLAYER: Entered Playing state"));
             Ok(())
         },
     )
@@ -256,7 +257,10 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
                 let current_track = current_track_result.map(|r| r.unwrap_or(0)).unwrap_or(0);
                 let next_track = current_track + 1;
                 ctx_write.set("track", next_track).ok();
-                console_log!("MUSIC PLAYER: Switched to next track {}", next_track);
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "MUSIC PLAYER: Switched to next track {}",
+                    next_track
+                )));
                 Ok(())
             },
         )],
@@ -279,7 +283,10 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
                     0
                 };
                 ctx_write.set("track", prev_track).ok();
-                console_log!("MUSIC PLAYER: Switched to previous track {}", prev_track);
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "MUSIC PLAYER: Switched to previous track {}",
+                    prev_track
+                )));
                 Ok(())
             },
         )],
@@ -291,19 +298,25 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
 
 #[wasm_bindgen]
 pub async fn init_traffic_light() {
-    console_log!("Initializing traffic light machine...");
+    web_sys::console::log_1(&JsValue::from_str("Initializing traffic light machine..."));
     match create_traffic_light().await {
         Ok(machine) => TRAFFIC_MACHINE.with(|m| *m.borrow_mut() = Some(machine)),
-        Err(e) => console_log!("Error initializing traffic light: {:?}", e),
+        Err(e) => web_sys::console::log_1(&JsValue::from_str(&format!(
+            "Error initializing traffic light: {:?}",
+            e
+        ))),
     }
 }
 
 #[wasm_bindgen]
 pub async fn init_music_player() {
-    console_log!("Initializing music player machine...");
+    web_sys::console::log_1(&JsValue::from_str("Initializing music player machine..."));
     match create_music_player().await {
         Ok(machine) => MUSIC_MACHINE.with(|m| *m.borrow_mut() = Some(machine)),
-        Err(e) => console_log!("Error initializing music player: {:?}", e),
+        Err(e) => web_sys::console::log_1(&JsValue::from_str(&format!(
+            "Error initializing music player: {:?}",
+            e
+        ))),
     }
 }
 
@@ -320,7 +333,9 @@ pub async fn send_traffic_event(event_name: String) -> Result<JsValue, JsValue> 
             let fut = machine.send(event);
             // How to handle async in this context? Needs an executor.
             // For now, just log placeholder.
-            console::log_1(&"Sending traffic event (async exec needed)".into());
+            web_sys::console::log_1(&JsValue::from_str(
+                "Sending traffic event (async exec needed)",
+            ));
             Ok(JsValue::from_str(&format!("Sent {}", event_name)))
         } else {
             Err(JsValue::from_str("Traffic machine not initialized"))
@@ -344,7 +359,9 @@ pub async fn send_music_event(event_name: String) -> Result<JsValue, JsValue> {
             // Need to spawn this future
             let fut = machine.send(event);
             // How to handle async in this context? Needs an executor.
-            console::log_1(&"Sending music event (async exec needed)".into());
+            web_sys::console::log_1(&JsValue::from_str(
+                "Sending music event (async exec needed)",
+            ));
             Ok(JsValue::from_str(&format!("Sent {}", event_name)))
         } else {
             Err(JsValue::from_str("Music machine not initialized"))
@@ -407,7 +424,10 @@ pub fn send_music_player_event(event_str: &str) -> Result<(), JsValue> {
             let fut = machine.send(event); // Still might have Default error here
             wasm_bindgen_futures::spawn_local(async move {
                 if let Err(e) = fut.await {
-                    console_log!("Error sending event: {:?}", e);
+                    web_sys::console::log_1(&JsValue::from_str(&format!(
+                        "Error sending event: {:?}",
+                        e
+                    )));
                 }
             });
         }
@@ -420,7 +440,4 @@ pub fn send_music_player_event(event_str: &str) -> Result<(), JsValue> {
 extern "C" {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
-}
-macro_rules! console_log {
-    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }
