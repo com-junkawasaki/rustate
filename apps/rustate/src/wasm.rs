@@ -1,14 +1,14 @@
 //! WASM bindings for the rustate library.
 use crate::{
-    action::{Action, ActionType},
+    action::Action,
     context::Context,
-    error::Result as StateResult, // Alias Result to avoid conflict with JS Result
+    error::{Error, Result},
     event::{Event, EventTrait, IntoEvent},
     guard::Guard,
-    machine::MachineBuilder,
-    state::{State, StateType},
+    machine::{Machine, MachineBuilder},
+    state::State,
+    state_registry::StateRegistry,
     transition::{Transition, TransitionType},
-    Machine, // Use crate::Machine
 };
 use serde::{Deserialize, Serialize};
 use serde_json; // Import the crate itself
@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use wasm_bindgen::prelude::*;
-use web_sys::console; // Correct import from external crate
+use wasm_bindgen_futures::spawn_local;
 
 // Global state machines (consider a better way to manage them)
 thread_local! {
@@ -104,7 +104,7 @@ impl IntoEvent for MusicPlayerEvent {
 }
 
 // Function to create the traffic light machine (internal)
-async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEvent, String, ()>> {
+async fn create_traffic_light() -> Result<Machine<Context, TrafficLightEvent, String, ()>> {
     // States, Guards, Transitions
     let green = State::<_, _, _>::new("green".to_string());
     let yellow = State::<_, _, _>::new("yellow".to_string());
@@ -179,7 +179,7 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
 }
 
 // Function to create the music player machine (internal)
-async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent, String, ()>> {
+async fn create_music_player() -> Result<Machine<Context, MusicPlayerEvent, String, ()>> {
     // States, Guard
     let power_off = State::<_, _, _>::new("powerOff".to_string());
     let player = State::<_, _, _>::new("player".to_string());
@@ -449,4 +449,22 @@ pub fn send_music_player_event(event_str: &str) -> Result<(), JsValue> {
 extern "C" {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
+}
+
+/// Asynchronously sends an event to the state machine contained within the Arc<Mutex>.
+#[wasm_bindgen]
+pub async fn send_event_to_machine_async(
+    machine_handle: &WasmMachineHandle,
+    event: JsValue,
+) -> Result<(), JsValue> {
+    let event: Event = serde_wasm_bindgen::from_value(event)
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize event: {}", e)))?;
+
+    let machine_lock = Arc::clone(&machine_handle.machine);
+    let mut machine = machine_lock.lock().await;
+    machine
+        .send(event)
+        .await // Added .await
+        .map_err(|e| JsValue::from_str(&format!("Error sending event: {}", e)))?; // Map error to JsValue
+    Ok(())
 }
