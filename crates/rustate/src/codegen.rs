@@ -7,11 +7,19 @@
 //! requires the `proto` feature flag in addition to `codegen`.
 
 use crate::{
+    action::Action,
+    context::Context,
     error::{Error, Result},
-    machine::Machine,
-}; // Removed unused imports Action, State, Transition
+    event::{Event, EventTrait},
+    guard::Guard,
+    machine::MachineBuilder,
+    state::{State, StateTrait},
+    transition::Transition,
+};
+use serde::Serialize;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
+use std::path::Path;
 
 // Conditionally import items needed for specific features
 #[cfg(feature = "codegen")]

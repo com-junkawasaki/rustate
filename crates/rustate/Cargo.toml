@@ -12,10 +12,10 @@ categories = ["concurrency", "asynchronous", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", optional = true }
 async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+tokio = { version = "1", features = ["sync", "macros", "time"], optional = true }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 thiserror = "1.0"
 async-recursion = "1.0"
 futures = "0.3"
@@ -27,19 +27,26 @@ wasm-bindgen-futures = "0.4"
 wasm-bindgen = { version = "0.2", optional = true }
 web-sys = { version = "0.3", features = ["console"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
+js-sys = { version = "0.3", optional = true }
 
 log = "0.4"
 
 rustate_macros = { path = "../rustate_macros" }
 
+# Add optional dependencies for features
+syn = { version = "2.0", features = ["full", "parsing"], optional = true }
+quote = { version = "1.0", optional = true }
+
 [features]
 default = ["mbt", "integration"]
-wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook", "js-sys"]
+wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:console_error_panic_hook", "dep:js-sys"]
 integration = []
-integration_async = ["tokio/rt-multi-thread"]
-codegen = ["dep:syn", "dep:quote", "dep:serde_json"]
+integration_async = ["tokio/rt-multi-thread", "tokio/sync"]
+codegen = ["dep:syn", "dep:quote", "serde_json"]
 mbt = []
-property-testing = ["dep:proptest"]
+property-testing = ["mbt"]
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = "0.3"
 proptest = "1.0"

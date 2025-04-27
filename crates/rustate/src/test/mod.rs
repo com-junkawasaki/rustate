@@ -25,7 +25,7 @@ pub use xstate::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{prelude::*, Context, Event, StateError as Error, StateTrait, TransitionType};
+    use crate::{error::StateError as Error, prelude::*, Context, Event, StateTrait, TransitionType};
     use futures::executor::block_on;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
