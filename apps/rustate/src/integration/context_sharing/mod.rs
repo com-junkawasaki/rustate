@@ -112,21 +112,22 @@
 //! - **Write Contention**: High write frequency can block readers.
 //! - **Data Structure**: Relies on a key-value structure within a JSON object.
 
-use crate::integration::error::{Error as IntegrationError, LockResultExt, Result};
-use crate::prelude::*; // Use prelude for tests
+use crate::integration::error::{
+    Error as IntegrationError, LockResultExt, Result as IntegrationResult,
+};
 use crate::Result as RuStateResult;
 use crate::{Context, Event, Machine, MachineBuilder, State, Transition, TransitionType};
-use futures::FutureExt; // Add this import
+use futures::FutureExt;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
-use tracing::{trace, warn}; // Added tracing
+use tracing::{trace, warn};
 
 /// A thread-safe, shareable context container.
 ///
 /// This struct wraps context data (stored internally as a `serde_json::Value`, typically an Object)
 /// within an `Arc<RwLock<...>>`, allowing multiple state machines or threads
 /// to safely read and write to the same underlying data store.
-#[derive(Clone, Default, Debug)] // Added Debug
+#[derive(Clone, Default, Debug)]
 pub struct SharedContext {
     /// The underlying shared data, protected by a Read-Write lock.
     data: Arc<RwLock<serde_json::Value>>,

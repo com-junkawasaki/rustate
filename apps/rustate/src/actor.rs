@@ -1,11 +1,15 @@
+use crate::error::{Result as StateResult, StateError};
+use crate::state::StateTrait;
+use crate::Machine as StateMachine;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use thiserror::Error;
-use crate::state::{StateTrait};
-use crate::Machine as StateMachine;
-use crate::error::{Result as StateResult, StateError};
 // use crate::event::{Event, EventTrait}; // Use Actor::Event
+use crate::actor_ref::ActorRef as CoreActorRefTrait; // Use the trait from core
+use crate::MachineBuilder;
+use serde_json::Value;
+use std::any::Any;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::mpsc as tokio_mpsc;
@@ -13,10 +17,6 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn}; // Use tracing macros
 use uuid::Uuid;
-use crate::actor_ref::ActorRef as CoreActorRefTrait; // Use the trait from core
-use crate::MachineBuilder;
-use std::any::Any;
-use serde_json::Value;
 
 /// Errors that can occur during actor processing.
 ///

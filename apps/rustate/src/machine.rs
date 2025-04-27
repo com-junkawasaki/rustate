@@ -3,7 +3,7 @@ use crate::{
     context::Context,
     error::{Result, StateError as Error},
     event::{Event, EventTrait, IntoEvent},
-    guard::{Guard},
+    guard::Guard,
     state::{State, StateCollection, StateTrait, StateType},
     transition::{Transition, TransitionType},
 };
@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
@@ -18,7 +19,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace, warn};
-use serde_json::Value;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]

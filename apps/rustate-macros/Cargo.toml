@@ -1,0 +1,16 @@
+[package]
+name = "rustate-macros"
+version = "0.1.0"
+edition = "2021"
+authors = ["junkawasaki"]
+description = "Procedural macros for the rustate library."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/junkawasaki/rustate"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "parsing"] }
+quote = "1.0"
+proc-macro2 = "1.0" 

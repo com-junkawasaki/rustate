@@ -22,10 +22,10 @@ pub mod machine;
 pub mod state;
 pub mod transition;
 
-#[cfg(feature = "wasm")]
-pub mod wasm;
 #[cfg(feature = "codegen")]
 pub mod codegen;
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 // Add integration module declaration (assuming it should always be present for now)
 // If it should be optional based on the 'integration' feature, wrap with #[cfg(feature = "integration")]
@@ -58,6 +58,10 @@ pub use spawn::spawn;
 /// See [`system::ActorSystem`] for details.
 pub use system::ActorSystem;
 
+// Add re-exports for types needed by machine.rs or others
+pub use actor::{ActorStatus, Snapshot as ActorSnapshot}; // Added for MachineSnapshot
+pub use event::{Event, IntoEvent}; // Removed duplicate EventTrait
+
 // --- Add re-exports from obsolete crate (Review and merge carefully) ---
 
 // Re-export core types from moved modules
@@ -65,7 +69,7 @@ pub use action::{Action, ActionType, IntoAction};
 pub use context::Context;
 pub use error::Result;
 pub use error::StateError as Error;
-pub use event::{Event, EventTrait, IntoEvent};
+pub use event::EventTrait;
 pub use guard::{Guard, IntoGuard};
 pub use machine::{Machine, MachineBuilder, MachineSnapshot};
 pub use state::{HistoryType, State, StateCollection, StateTrait, StateType};
@@ -85,11 +89,8 @@ pub use crate::codegen::*; // Re-export codegen specific items
 // Re-export integration items (if the feature is enabled)
 #[cfg(feature = "integration")]
 pub use crate::integration::{
-    context_sharing::SharedContext,
-    event_forwarding::SharedMachineRef,
-    hierarchical::ChildMachine,
-    Error as IntegrationError,
-    Result as IntegrationResult,
+    context_sharing::SharedContext, event_forwarding::SharedMachineRef, hierarchical::ChildMachine,
+    Error as IntegrationError, Result as IntegrationResult,
 };
 
 // Re-export serde_json for convenience

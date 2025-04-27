@@ -451,12 +451,10 @@ dependencies = [
  "getrandom 0.2.16",
  "js-sys",
  "log",
- "proc-macro2",
  "proptest",
- "quote",
+ "rustate-macros",
  "serde",
  "serde_json",
- "syn",
  "thiserror",
  "tokio",
  "tracing",
@@ -464,6 +462,15 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "rustate-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
