@@ -124,6 +124,7 @@ use crate::error::AgentError;
 use crate::integration::error::Result as IntegrationResult;
 use crate::{Context, Error as StateError, Event, EventTrait, IntoEvent, Machine};
 use std::fmt::Debug;
+use std::future::Future;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -133,7 +134,6 @@ use tracing::{debug, error};
 ///
 /// このトレイトは親ステートマシンから子ステートマシンへの
 /// 操作を抽象化するために使用されます。
-#[async_trait::async_trait]
 pub trait ChildMachine: Send + Sync {
     /// 子ステートマシンにイベントを送信します。
     ///
@@ -143,20 +143,23 @@ pub trait ChildMachine: Send + Sync {
     /// # 戻り値
     /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
     /// * エラーが発生した場合は `Err`。
-    async fn send_event(&mut self, event: Event) -> IntegrationResult<bool>;
+    fn send_event<E: IntoEvent + Send>(
+        &mut self,
+        event: E,
+    ) -> impl Future<Output = Result<bool, StateError>> + Send;
 
     /// 子ステートマシンの現在の状態（またはステータス）を取得します。
     ///
     /// # 戻り値
     /// * 現在の状態を表す文字列の `Option`。
     /// * エラーが発生した場合は `Err`。
-    async fn get_status(&self) -> IntegrationResult<Option<String>>;
+    fn get_status(&self) -> impl Future<Output = IntegrationResult<Option<String>>> + Send;
 
     /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool;
 
     /// 特定の状態にあるか確認
-    fn is_in_state(&self, state_id: &str) -> bool;
+    fn is_in_state(&self, state_id: &str) -> impl Future<Output = Result<bool, StateError>> + Send;
 
     /// 現在の状態IDのリストを取得
     fn current_states(&self) -> Vec<String>;
@@ -187,7 +190,6 @@ impl DefaultChildMachine {
     }
 }
 
-#[async_trait::async_trait]
 impl ChildMachine for DefaultChildMachine {
     /// 子ステートマシンにイベントを送信します。
     ///
@@ -197,12 +199,12 @@ impl ChildMachine for DefaultChildMachine {
     /// # 戻り値
     /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
     /// * エラーが発生した場合は `Err`。
-    async fn send_event(&mut self, event: Event) -> IntegrationResult<bool> {
-        let mut machine_guard = self.machine.lock().await;
-        machine_guard
-            .send(event.into_event())
-            .await
-            .map_err(Into::into)
+    fn send_event<E: IntoEvent + Send>(
+        &mut self,
+        event: E,
+    ) -> impl Future<Output = Result<bool, StateError>> + Send {
+        let fut = self.machine.send(event.into_event());
+        Box::pin(fut)
     }
 
     /// 子ステートマシンの現在の状態（またはステータス）を取得します。
@@ -210,11 +212,9 @@ impl ChildMachine for DefaultChildMachine {
     /// # 戻り値
     /// * 現在の状態を表す文字列の `Option`。
     /// * エラーが発生した場合は `Err`。
-    async fn get_status(&self) -> IntegrationResult<Option<String>> {
-        let guard = self.machine.lock().await;
-        // Comment out the problematic get_status call for now
-        // Ok(guard.get_status()?.map(|status| status.into()))
-        Ok(None) // Return Ok(None) temporarily
+    fn get_status(&self) -> impl Future<Output = IntegrationResult<Option<String>>> + Send {
+        let _guard = self.machine.name.clone();
+        Box::pin(async move { Ok(Some(_guard)) })
     }
 
     /// 最終状態にあるか確認
@@ -226,11 +226,10 @@ impl ChildMachine for DefaultChildMachine {
     }
 
     /// 特定の状態にあるか確認
-    fn is_in_state(&self, state_id: &str) -> bool {
-        futures::executor::block_on(async {
-            let guard = self.machine.lock().await;
-            guard.is_in(&state_id.to_string())
-        })
+    fn is_in_state(&self, state_id: &str) -> impl Future<Output = Result<bool, StateError>> + Send {
+        let state_id_owned = state_id.to_string();
+        let result = self.machine.is_in(&state_id_owned);
+        Box::pin(async move { Ok(result) })
     }
 
     /// 現在の状態IDのリストを取得
@@ -470,4 +469,19 @@ pub enum HierarchicalError {
     SendError(String),
     #[error("Child machine error: {0}")]
     ChildError(String),
+}
+
+fn create_child_check_guard(shared_context: crate::SharedContext) -> crate::Guard<Context, Event> {
+    let guard_context = shared_context.clone();
+    crate::Guard::new("checkChildComplete", move |_ctx, _evt| {
+        // Clone inside closure or before block_on
+        let context_clone = guard_context.clone();
+        futures::executor::block_on(async move {
+            context_clone
+                .get::<bool>("childComplete")
+                .ok()
+                .flatten()
+                .unwrap_or(false)
+        })
+    })
 }

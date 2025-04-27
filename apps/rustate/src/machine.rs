@@ -7,6 +7,7 @@ use crate::{
     transition::{Transition, TransitionType},
 };
 use crate::{Actor, ActorError};
+use crate::{Context, Guard};
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use futures::FutureExt;
@@ -19,7 +20,6 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, trace, warn};
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -765,6 +765,88 @@ where
         serde_json::to_string(&definition_data)
             .map_err(|e| StateError::Serialization(e.to_string())) // Use correct variant name
     }
+
+    /// Processes transitions based on the current state and event.
+    async fn process_transitions(
+        &mut self,
+        event: E,
+        current_state_ids: &HashSet<S>,
+        context: Arc<RwLock<C>>,
+    ) -> StateResult<()> {
+        let mut valid_transitions = Vec::new();
+
+        // Read context once using Arc<RwLock>
+        let current_context_locked = context.read().await;
+        let current_context_cloned = (*current_context_locked).clone(); // Clone the inner C
+        drop(current_context_locked); // Release read lock quickly
+
+        for state_id in current_state_ids.iter() {
+            // Find direct transitions
+            if let Some(state_transitions) = self.transitions.get(state_id) {
+                let stream = stream::iter(state_transitions)
+                    .filter(|t| futures::future::ready(t.matches_event(&event)))
+                    .then(|t| {
+                        let context_clone = current_context_cloned.clone(); // Use cloned C
+                        let event_clone = event.clone();
+                        async move {
+                            if t.is_enabled(&context_clone, &event_clone).await {
+                                Some(t.clone())
+                            } else {
+                                None
+                            }
+                        }
+                    })
+                    .filter_map(|t| futures::future::ready(t));
+                valid_transitions.extend(stream.collect::<Vec<_>>().await);
+            }
+            // Find wildcard transitions for the state
+            if let Some(wildcard_transitions) = self.transitions.get(&S::from("*".to_string())) {
+                let stream = stream::iter(wildcard_transitions)
+                    .then(|t| {
+                        let context_clone = current_context_cloned.clone(); // Use cloned C
+                        let event_clone = event.clone();
+                        async move {
+                            if t.is_enabled(&context_clone, &event_clone).await {
+                                Some(t.clone())
+                            } else {
+                                None
+                            }
+                        }
+                    })
+                    .filter_map(|t| futures::future::ready(t));
+                valid_transitions.extend(stream.collect::<Vec<_>>().await);
+            }
+        }
+
+        if let Some(transition) = valid_transitions.into_iter().next() {
+            self.execute_transition(&transition, current_state_ids, &event)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    // Implement _get_ancestors directly using StateCollection::get
+    fn _get_ancestors(&self, state_id: &S) -> Vec<S> {
+        let mut ancestors = Vec::new();
+        let mut current_id_opt = Some(state_id.clone());
+        while let Some(current_id) = current_id_opt {
+            // Use StateCollection::get(&S)
+            if let Some(state) = self.states.get(&current_id) {
+                if let Some(parent_id) = &state.parent {
+                    ancestors.push(parent_id.clone());
+                    current_id_opt = Some(parent_id.clone());
+                } else {
+                    current_id_opt = None; // Reached root
+                }
+            } else {
+                current_id_opt = None; // State not found, break loop
+            }
+        }
+        ancestors
+    }
+
+    // ... rest of impl ...
 }
 
 /// Builder for creating Machine instances
@@ -946,83 +1028,27 @@ pub fn get_ancestors<S: StateTrait + Clone + Eq + Hash>(
 
 impl<C, E, S, O> Machine<C, E, S, O>
 where
-    C: ContextTrait + Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait + Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Eq + fmt::Debug,
+    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Send
+        + Sync
+        + 'static
+        + Eq
+        + fmt::Debug
+        + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     // ... existing methods ...
 
-    /// Processes transitions based on the current state and event.
-    async fn process_transitions(
-        &mut self,
-        event: E,
-        current_state_ids: &HashSet<S>,
-        context: Arc<RwLock<C>>,
-    ) -> StateResult<()> {
-        let mut executed = false;
-        let mut valid_transitions = Vec::new();
-
-        // Read context once using Arc<RwLock>
-        let current_context_locked = context.read().await;
-        let current_context_cloned = (*current_context_locked).clone(); // Clone the inner C
-        drop(current_context_locked); // Release read lock quickly
-
-        for state_id in current_state_ids.iter() {
-            // Find direct transitions
-            if let Some(state_transitions) = self.transitions.get(state_id) {
-                let stream = stream::iter(state_transitions)
-                    .filter(|t| futures::future::ready(t.matches_event(&event)))
-                    .then(|t| {
-                        let context_clone = current_context_cloned.clone(); // Use cloned C
-                        let event_clone = event.clone();
-                        async move {
-                            if t.is_enabled(&context_clone, &event_clone).await {
-                                Some(t.clone())
-                            } else {
-                                None
-                            }
-                        }
-                    })
-                    .filter_map(|t| futures::future::ready(t));
-                valid_transitions.extend(stream.collect::<Vec<_>>().await);
-            }
-            // Find wildcard transitions for the state
-            if let Some(wildcard_transitions) = self.transitions.get(&S::from("*".to_string())) {
-                let stream = stream::iter(wildcard_transitions)
-                    .then(|t| {
-                        let context_clone = current_context_cloned.clone(); // Use cloned C
-                        let event_clone = event.clone();
-                        async move {
-                            if t.is_enabled(&context_clone, &event_clone).await {
-                                Some(t.clone())
-                            } else {
-                                None
-                            }
-                        }
-                    })
-                    .filter_map(|t| futures::future::ready(t));
-                valid_transitions.extend(stream.collect::<Vec<_>>().await);
-            }
-        }
-
-        if let Some(transition) = valid_transitions.into_iter().next() {
-            self.execute_transition(&transition, current_state_ids, &event)
-                .await?;
-            executed = true;
-        }
-
-        Ok(())
-    }
-
     // Prefix unused methods with underscore
     fn _get_ancestors_inclusive(&self, state_id: &S) -> Vec<String> {
-        // ... implementation ...
-    }
-
-    // Prefix unused methods with underscore
-    fn _get_ancestors(&self, state_id: &S) -> Vec<S> {
-        get_ancestors(&self.states, state_id)
+        let mut ancestors = vec![state_id.to_string()];
+        ancestors.extend(self._get_ancestors(state_id).iter().map(|s| s.to_string()));
+        ancestors
     }
 
     // Prefix unused methods with underscore
@@ -1036,23 +1062,53 @@ where
 #[async_trait]
 impl<C, E, S, O> Actor for Machine<C, E, S, O>
 where
-    C: ContextTrait + Clone + Send + Sync + 'static + Default + Debug,
-    E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
+    C: Clone + Send + Sync + 'static + Default + Debug + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + fmt::Debug
+        + Serialize
+        + DeserializeOwned
+        + IntoEvent,
     S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
-    async fn handle(&mut self, event: Event) -> ActorResult<()> {
-        // Prefix unused child_state variable
-        for (_id, _child_state) in self.states.iter_mut() {
-            // If children were actors, forward event:
-            // if let Some(actor_ref) = child_state.actor_ref() {
-            //     actor_ref.send(event.clone()).await?;
-            // }
-        }
-        self.send(event).await.map_err(|e| ActorError::Processing(e.to_string()))?;
-        Ok(())
+    // Use correct return type Result<..., ActorError>
+    async fn receive(
+        &self,
+        _state: Self::State,
+        _event: Self::Event,
+    ) -> Result<Self::State, ActorError> {
+        // Use ActorError here
+        Err(ActorError::ProcessingFailed(
+            "Machine cannot directly implement Actor::receive due to &self receiver".to_string(),
+        ))
     }
-    // ... rest of Actor impl ...
+
+    type State = HashSet<S>;
+    type Context = C;
+    type Event = E;
+    type StateId = S;
+    type Output = O;
+
+    fn initial_state(&self) -> Self::State {
+        let mut initial_states = HashSet::new();
+        if let Some(initial_id) = self.initial.clone() {
+            initial_states.insert(initial_id);
+        }
+        initial_states
+    }
+
+    async fn handle_event(&mut self, event: Event) -> Result<(), ActorError> {
+        // Prefix unused _child_state
+        for (_id, _child_state) in self.states.states.iter_mut() {
+            // ...
+        }
+        // ...
+    }
 }
 
 // ... MachineBuilder struct and impl ...

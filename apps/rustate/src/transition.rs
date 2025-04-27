@@ -224,8 +224,6 @@ where
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     pub fn check(&self, context: &C, event: &E) -> bool {
-        self.guard
-            .as_ref()
-            .is_none_or(|g| g.check(context, event))
+        self.guard.as_ref().is_none_or(|g| g.check(context, event))
     }
 }

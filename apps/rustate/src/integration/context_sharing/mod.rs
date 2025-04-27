@@ -152,8 +152,8 @@ impl SharedContext {
     /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> IntegrationResult<Option<T>> {
         trace!(key = key, "Attempting to get value from shared context");
-        let data_guard = self.data.read().lock_err()?;
-        match &*data_guard {
+        let _data_guard = self.data.read().lock_err()?;
+        match &*_data_guard {
             serde_json::Value::Object(map) => match map.get(key) {
                 Some(value) => {
                     // Clone the value to attempt deserialization
@@ -189,13 +189,10 @@ impl SharedContext {
         trace!(key = key, "Attempting to set value in shared context");
         let mut data_guard = self.data.write().lock_err()?;
         let json_value = serde_json::to_value(value)?;
-
         match &mut *data_guard {
             serde_json::Value::Object(map) => {
                 map.insert(key.to_string(), json_value);
             }
-            // Handle cases where the RwLock contains Null, Bool, etc.
-            // Replace it with an object containing the new key-value.
             _ => {
                 warn!("Shared context was not an object, replacing with new object containing key: {}", key);
                 *data_guard = serde_json::json!({ key: json_value });
@@ -214,8 +211,8 @@ impl SharedContext {
     /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
     pub fn contains_key(&self, key: &str) -> IntegrationResult<bool> {
         trace!(key = key, "Checking if key exists in shared context");
-        let data_guard = self.data.read().lock_err()?;
-        match &*data_guard {
+        let _data_guard = self.data.read().lock_err()?;
+        match &*_data_guard {
             serde_json::Value::Object(map) => Ok(map.contains_key(key)),
             _ => Ok(false),
         }
@@ -231,8 +228,8 @@ impl SharedContext {
     /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
     pub fn remove(&self, key: &str) -> IntegrationResult<Option<serde_json::Value>> {
         trace!(key = key, "Attempting to remove key from shared context");
-        let mut data_guard = self.data.write().lock_err()?;
-        match &mut *data_guard {
+        let mut _data_guard = self.data.write().lock_err()?;
+        match &mut *_data_guard {
             serde_json::Value::Object(map) => Ok(map.remove(key)),
             _ => Ok(None),
         }
@@ -246,8 +243,8 @@ impl SharedContext {
     /// * `Ok(serde_json::Value)` containing the cloned data.
     /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
     pub async fn dump(&self) -> IntegrationResult<serde_json::Value> {
-        let data_guard = self.data.read().lock_err()?;
-        Ok(data_guard.clone())
+        let _data_guard = self.data.read().lock_err()?;
+        Ok(_data_guard.clone())
     }
 
     /// Increments a value in the shared context.
@@ -263,7 +260,6 @@ impl SharedContext {
     /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
     pub fn increment(&self, key: &str) -> IntegrationResult<()> {
         trace!(key = key, "Attempting to increment value in shared context");
-        let data_guard = self.data.write().lock_err()?;
         let current_value: Option<i32> = self.get(key)?;
         let new_value = current_value.unwrap_or(0) + 1;
         self.set(key, new_value)?;
@@ -274,83 +270,80 @@ impl SharedContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Action, Event, Machine, MachineBuilder, State, Transition, TransitionType};
-    use crate::{Context};
     use crate::integration::error::{Error as IntegrationError, Result as IntegrationResult};
+    use crate::Context;
+    use crate::{Action, Event, Machine, MachineBuilder, State, Transition, TransitionType};
     use futures::FutureExt;
     use tokio::sync::RwLock;
 
     async fn create_machines(
         shared_context: SharedContext,
-    ) -> (Machine<(), Event, String, ()>, Machine<Context, Event, String, ()>) {
+    ) -> (
+        Machine<(), Event, String, ()>,
+        Machine<Context, Event, String, ()>,
+    ) {
         // Clone context before defining closures
         let context_for_writer = shared_context.clone();
         let context_for_reader = shared_context.clone();
 
         // Writer Action: Use the cloned context
-        let write_action = Action::from_fn(
-            move |_local_ctx: Arc<RwLock<()>>, _evt: &Event| {
-                // Clone again for the async block if needed inside the closure
-                let ctx_writer_clone = context_for_writer.clone();
-                async move {
-                    println!("Writer Action: Writing to shared context");
-                    ctx_writer_clone.set("status", "updated_a")?;
-                    ctx_writer_clone.increment("counter")?;
-                    Ok(())
-                }
-                .boxed()
-            },
-        );
+        let write_action = Action::from_fn(move |_local_ctx: Arc<RwLock<()>>, _evt: &Event| {
+            // Clone again for the async block if needed inside the closure
+            let ctx_writer_clone = context_for_writer.clone();
+            async move {
+                println!("Writer Action: Writing to shared context");
+                ctx_writer_clone.set("status", "updated_a")?;
+                ctx_writer_clone.increment("counter")?;
+                Ok(())
+            }
+            .boxed()
+        });
 
         let mut idle_state_a = State::new("idle".to_string());
         let event_a_transition = Transition::new(
-                "idle".to_string(),
-                None::<String>,
-                Some(Event::from("EVENT_A")),
-                None, // Guard
-                vec![write_action.into()], // Action needs .into() here to match Transition trait expectations
-                TransitionType::Internal,
+            "idle".to_string(),
+            None::<String>,
+            Some(Event::from("EVENT_A")),
+            None,                      // Guard
+            vec![write_action.into()], // Action needs .into() here to match Transition trait expectations
+            TransitionType::Internal,
         );
         idle_state_a.add_transition("EVENT_A".to_string(), event_a_transition);
         let done_state_a = State::new_final("done".to_string());
-        let machine_a = MachineBuilder::<(), Event, String, ()>::new(
-            "idle".to_string(),
-            "idle".to_string(),
-        )
-        .state(idle_state_a)
-        .state(done_state_a)
-        .build()
-        .await
-        .expect("Machine A async build failed");
+        let machine_a =
+            MachineBuilder::<(), Event, String, ()>::new("idle".to_string(), "idle".to_string())
+                .state(idle_state_a)
+                .state(done_state_a)
+                .build()
+                .await
+                .expect("Machine A async build failed");
 
         // Reader Action: Use the other cloned context
-        let read_action = Action::from_fn(
-            move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
-                // Clone again for the async block if needed inside the closure
-                let ctx_reader_clone = context_for_reader.clone();
-                async move {
-                    println!("Reader Action: Reading shared context");
-                    let status = ctx_reader_clone.get::<String>("status")?;
-                    let counter = ctx_reader_clone.get::<i32>("counter")?;
-                    println!("Reader: Read status: {:?}, counter: {:?}", status, counter);
-                    if let Some(s) = status {
-                        local_ctx.write().await.set("local_status_copy", s)?;
-                    }
-                    Ok(())
+        let read_action = Action::from_fn(move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
+            // Clone again for the async block if needed inside the closure
+            let ctx_reader_clone = context_for_reader.clone();
+            async move {
+                println!("Reader Action: Reading shared context");
+                let status = ctx_reader_clone.get::<String>("status")?;
+                let counter = ctx_reader_clone.get::<i32>("counter")?;
+                println!("Reader: Read status: {:?}, counter: {:?}", status, counter);
+                if let Some(s) = status {
+                    local_ctx.write().await.set("local_status_copy", s)?;
                 }
-                .boxed()
-            },
-        );
+                Ok(())
+            }
+            .boxed()
+        });
 
         let mut waiting_state_b = State::new("waiting".to_string());
         let event_b_transition = Transition::new(
-                "waiting".to_string(),
-                None::<String>,
-                Some(Event::from("EVENT_B")),
-                None, // Guard
-                vec![read_action.into()], // Action needs .into() here to match Transition trait expectations
-                TransitionType::Internal,
-            );
+            "waiting".to_string(),
+            None::<String>,
+            Some(Event::from("EVENT_B")),
+            None,                     // Guard
+            vec![read_action.into()], // Action needs .into() here to match Transition trait expectations
+            TransitionType::Internal,
+        );
         waiting_state_b.add_transition("EVENT_B".to_string(), event_b_transition);
         let finished_state_b = State::new_final("processed".to_string());
         let machine_b = MachineBuilder::<Context, Event, String, ()>::new(
@@ -418,7 +411,9 @@ mod tests {
         // Simplify map_or/unwrap_or to is_some_and
         // Assuming machine_b's context is relevant here, which it isn't directly
         // Reading directly from shared_context instead
-        assert!(ctx_b.get::<String>("local_status")?.is_some_and(|s| s == "active"));
+        assert!(ctx_b
+            .get::<String>("local_status")?
+            .is_some_and(|s| s == "active"));
         assert!(ctx_b.get::<i64>("local_counter")?.is_some_and(|c| c == 1));
 
         Ok::<(), IntegrationError>(())

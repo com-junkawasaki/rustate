@@ -1,6 +1,7 @@
 use crate::actor::{Actor, ActorError};
 use crate::context::Context;
 use crate::event::{Event, EventTrait, IntoEvent};
+use crate::integration::error::Error as IntegrationError;
 use crate::machine::Machine;
 use crate::state::State;
 use crate::MachineBuilder;
@@ -9,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::Mutex;
-use crate::IntegrationError;
+use std::sync::PoisonError;
 
 /// Represents the state of the `CounterActor`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -100,18 +101,27 @@ impl CounterActor {
     }
 
     pub fn get_state(&self) -> Result<CounterState, IntegrationError> {
-        let state = self.state.lock().map_err(|e: PoisonError<_>| IntegrationError::Lock(format!("CounterState Mutex poisoned: {}", e)))?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|_e: PoisonError<_>| IntegrationError::LockError)?;
         Ok(state.clone())
     }
 
-    pub async fn increment(&self) -> Result<(), IntegrationError> {
-        let mut state = self.state.lock().map_err(|e: PoisonError<_>| IntegrationError::Lock(format!("CounterState Mutex poisoned: {}", e)))?;
+    pub fn increment(&self) -> Result<(), IntegrationError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_e: PoisonError<_>| IntegrationError::LockError)?;
         state.count += 1;
         Ok(())
     }
 
-    pub async fn decrement(&self) -> Result<(), IntegrationError> {
-        let mut state = self.state.lock().map_err(|e: PoisonError<_>| IntegrationError::Lock(format!("CounterState Mutex poisoned: {}", e)))?;
+    pub fn decrement(&self) -> Result<(), IntegrationError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_e: PoisonError<_>| IntegrationError::LockError)?;
         state.count -= 1;
         Ok(())
     }

@@ -142,12 +142,12 @@ impl EventForwarder for SharedMachineRef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Context, Event, Machine, MachineBuilder, State, Transition, TransitionType, Action,
-    };
     use crate::error::StateError;
-    use std::sync::Arc;
+    use crate::{
+        Action, Context, Event, Machine, MachineBuilder, State, Transition, TransitionType,
+    };
     use futures::FutureExt;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_event_forwarding() -> IntegrationResult<()> {
@@ -213,18 +213,20 @@ mod tests {
         let done = State::new_final("done".to_string());
 
         // Action to forward the event to the child
-        let forward_action = Action::from_fn(move |_ctx: Arc<tokio::sync::RwLock<Context>>, evt: &Event| {
-            let child_clone = Arc::clone(&child_ref);
-            let event_to_forward = evt.clone();
-            async move {
-                let child_guard = child_clone.lock().await;
-                match child_guard.send_event(event_to_forward).await {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(StateError::ActionFailed(format!("Forward failed: {:?}", e))),
+        let forward_action = Action::from_fn(
+            move |_ctx: Arc<tokio::sync::RwLock<Context>>, evt: &Event| {
+                let child_clone = Arc::clone(&child_ref);
+                let event_to_forward = evt.clone();
+                async move {
+                    let child_guard = child_clone.lock().await;
+                    match child_guard.send_event(event_to_forward).await {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(StateError::ActionFailed(format!("Forward failed: {:?}", e))),
+                    }
                 }
-            }
-            .boxed()
-        });
+                .boxed()
+            },
+        );
 
         // Transitions
         let process = Transition::new(
@@ -245,13 +247,15 @@ mod tests {
             TransitionType::External,
         );
 
-        Ok(MachineBuilder::new("parentMachine".to_string(), "initial".to_string())
-            .state(initial)
-            .state(processing)
-            .state(done)
-            .transition(process)
-            .transition(complete)
-            .build()
-            .await?)
+        Ok(
+            MachineBuilder::new("parentMachine".to_string(), "initial".to_string())
+                .state(initial)
+                .state(processing)
+                .state(done)
+                .transition(process)
+                .transition(complete)
+                .build()
+                .await?,
+        )
     }
 }
