@@ -120,20 +120,15 @@
 //! - 深い階層構造を作成すると、デバッグや理解が難しくなる場合があります
 //! - マルチスレッド環境では、子ステートマシンへのアクセスに対する同期処理が必要です
 
-use crate::{
-    Action, Context, Error as StateError, Event, EventTrait, IntoEvent, Machine, MachineBuilder,
-    State, Transition, TransitionType,
-};
 use crate::error::AgentError;
+use crate::integration::error::Result as IntegrationResult;
+use crate::{Context, Error as StateError, Event, EventTrait, IntoEvent, Machine};
 use futures::FutureExt;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, warn};
 use thiserror::Error;
+use tokio::sync::Mutex;
+use tracing::{debug, error};
 
 /// 子ステートマシンのインターフェース
 ///
@@ -141,11 +136,22 @@ use thiserror::Error;
 /// 操作を抽象化するために使用されます。
 #[async_trait::async_trait]
 pub trait ChildMachine: Send + Sync {
-    /// 親からのイベントを処理
-    fn handle_parent_event<'a, E: IntoEvent + Send + 'a>(
-        &'a mut self,
-        event: E,
-    ) -> Pin<Box<dyn Future<Output = IntegrationResult<bool>> + Send + 'a>>;
+    /// 子ステートマシンにイベントを送信します。
+    ///
+    /// # 引数
+    /// * `event` - 子ステートマシンに送信するイベント。
+    ///
+    /// # 戻り値
+    /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
+    /// * エラーが発生した場合は `Err`。
+    async fn send_event(&mut self, event: Event) -> IntegrationResult<bool>;
+
+    /// 子ステートマシンの現在の状態（またはステータス）を取得します。
+    ///
+    /// # 戻り値
+    /// * 現在の状態を表す文字列の `Option`。
+    /// * エラーが発生した場合は `Err`。
+    async fn get_status(&self) -> IntegrationResult<Option<String>>;
 
     /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool;
@@ -184,19 +190,30 @@ impl DefaultChildMachine {
 
 #[async_trait::async_trait]
 impl ChildMachine for DefaultChildMachine {
-    /// 親からのイベントを処理
-    fn handle_parent_event<'a, E: IntoEvent + Send + 'a>(
-        &'a mut self,
-        event: E,
-    ) -> Pin<Box<dyn Future<Output = IntegrationResult<bool>> + Send + 'a>> {
-        async move {
-            let mut machine_guard = self.machine.lock().await;
-            machine_guard
-                .send(event.into_event())
-                .await
-                .map_err(Into::into)
-        }
-        .boxed()
+    /// 子ステートマシンにイベントを送信します。
+    ///
+    /// # 引数
+    /// * `event` - 子ステートマシンに送信するイベント。
+    ///
+    /// # 戻り値
+    /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
+    /// * エラーが発生した場合は `Err`。
+    async fn send_event(&mut self, event: Event) -> IntegrationResult<bool> {
+        let mut machine_guard = self.machine.lock().await;
+        machine_guard
+            .send(event.into_event())
+            .await
+            .map_err(Into::into)
+    }
+
+    /// 子ステートマシンの現在の状態（またはステータス）を取得します。
+    ///
+    /// # 戻り値
+    /// * 現在の状態を表す文字列の `Option`。
+    /// * エラーが発生した場合は `Err`。
+    async fn get_status(&self) -> IntegrationResult<Option<String>> {
+        let guard = self.machine.lock().await;
+        Ok(guard.get_status()?.map(|status| status.into()))
     }
 
     /// 最終状態にあるか確認
@@ -279,10 +296,18 @@ pub mod coordination {
             let child_lock = Arc::clone(&child_arc_for_monitor);
             Box::pin(async move {
                 let mut child = child_lock.lock().await;
-                if let Some(status) = child.get_status().await {
-                    debug!("Child status observed by parent: {}", status);
-                    let mut ctx_guard = ctx.write().await;
-                    ctx_guard.insert("child_status".to_string(), status.into());
+                match child.get_status().await {
+                    Ok(Some(status)) => {
+                        debug!("Child status observed by parent: {}", status);
+                        let mut ctx_guard = ctx.write().await;
+                        ctx_guard.set("child_status".to_string(), status.into())?;
+                    }
+                    Ok(None) => {
+                        debug!("Child status is None.");
+                    }
+                    Err(e) => {
+                        error!("Error getting child status: {:?}", e);
+                    }
                 }
                 Ok(())
             })

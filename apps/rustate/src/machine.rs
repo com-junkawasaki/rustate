@@ -1,26 +1,22 @@
 use crate::{
     action::{Action, ActionFn, IntoAction},
     context::Context,
-    error::{Result, StateError as Error},
+    error::{Result as StateResult, StateError},
     event::{Event, EventTrait, IntoEvent},
-    guard::Guard,
-    state::{State, StateCollection, StateTrait, StateType},
+    guard::{Guard, IntoGuard},
+    state::{State, StateCollection, StateId, StateTrait, StateType},
     transition::{Transition, TransitionType},
 };
-use async_trait::async_trait;
-use futures::stream::{self, StreamExt};
-use futures::FutureExt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, trace, warn};
-use uuid::Uuid;
+use futures::stream::{self, StreamExt};
+use tokio::sync::RwLock;
+use crate::action::ActionType;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -65,7 +61,7 @@ where
     /// Collection of transitions (Grouped by source state ID)
     pub transitions: HashMap<S, Vec<Transition<S, C, E>>>,
     /// Initial state id
-    pub initial: S,
+    pub initial: Option<S>,
     /// Current active state IDs
     pub current_states: HashSet<S>,
     /// Current context data wrapped in Arc<RwLock>
@@ -760,7 +756,7 @@ where
 }
 
 /// Builder for creating Machine instances
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,

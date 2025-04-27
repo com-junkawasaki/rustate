@@ -79,11 +79,10 @@
 //!   設計には注意が必要です。循環的な依存関係は避けてください。
 //! - 大量のイベント転送が発生する場合、パフォーマンスに影響する可能性があります。
 
-use crate::integration::error::{LockResultExt, Result};
-use crate::{IntoEvent, Machine};
-use futures::FutureExt;
+use crate::integration::error::Result as IntegrationResult;
+use crate::{Context, Event, IntoEvent, Machine};
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 /// 共有ステートマシン参照
 ///
@@ -108,14 +107,14 @@ impl SharedMachineRef {
     }
 
     /// ステートマシンにイベントを送信
-    pub async fn send_event<E: IntoEvent + Send>(&self, event: E) -> Result<bool> {
+    pub async fn send_event<E: IntoEvent + Send>(&self, event: E) -> IntegrationResult<bool> {
         let event = event.into_event();
         let mut machine = self.machine.lock().await;
         Ok(machine.send(event).await?)
     }
 
     /// ステートマシンが特定の状態にあるか確認
-    pub async fn is_in_state(&self, state_id: &str) -> Result<bool> {
+    pub async fn is_in_state(&self, state_id: &str) -> IntegrationResult<bool> {
         let machine = self.machine.lock().await;
         Ok(machine.is_in(&state_id.to_string()))
     }
@@ -130,12 +129,12 @@ impl SharedMachineRef {
 #[async_trait::async_trait]
 pub trait EventForwarder {
     /// イベントを転送
-    async fn forward_event<E: IntoEvent + Send>(&self, event: E) -> Result<bool>;
+    async fn forward_event<E: IntoEvent + Send>(&self, event: E) -> IntegrationResult<bool>;
 }
 
 #[async_trait::async_trait]
 impl EventForwarder for SharedMachineRef {
-    async fn forward_event<E: IntoEvent + Send>(&self, event: E) -> Result<bool> {
+    async fn forward_event<E: IntoEvent + Send>(&self, event: E) -> IntegrationResult<bool> {
         self.send_event(event).await
     }
 }
@@ -144,11 +143,14 @@ impl EventForwarder for SharedMachineRef {
 mod tests {
     use super::*;
     use crate::{
-        Action, ActionType, Context, Event, MachineBuilder, State, Transition, TransitionType,
+        ActionType, Context, Event, IntoEvent, Machine, MachineBuilder, State,
+        Transition, TransitionType, error::StateError,
     };
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     #[tokio::test]
-    async fn test_event_forwarding() -> Result<()> {
+    async fn test_event_forwarding() -> IntegrationResult<()> {
         // 子ステートマシンを作成
         let child = create_child_machine();
         let shared_child = SharedMachineRef::new(child);
@@ -198,26 +200,28 @@ mod tests {
 
     async fn create_parent_machine(
         child: SharedMachineRef,
-    ) -> Result<Machine<Context, Event, String>> {
+    ) -> IntegrationResult<Machine<Context, Event, String>> {
         let state = State::new("parent".to_string());
 
-        let forward_to_child = Action::from_fn(move |_ctx: Arc<RwLock<Context>>, evt: &Event| {
+        let forward_closure = move |_ctx: Arc<RwLock<Context>>, evt: &Event| {
             let child_clone = child.clone();
+            let event_type_clone = evt.event_type.clone();
             async move {
-                println!("Debug: Parent received event: {}", evt.event_type);
-                if evt.event_type.contains("PARENT_EVENT") {
+                println!("Debug: Parent received event: {}", event_type_clone);
+                if event_type_clone.contains("PARENT_EVENT") {
                     println!("Debug: Forwarding ACTIVATE event to child");
                     let result = child_clone.send_event(Event::from("ACTIVATE")).await;
                     println!("Debug: Child event result: {:?}", result);
-                    result?;
+                    result.map(|_| ()).map_err(|e| StateError::ActionFailed(format!("Child send_event failed: {}", e)))
+                } else {
+                    Ok(())
                 }
-                Ok(())
             }
-        });
+        };
 
         let mut internal_transition =
             Transition::internal_transition("parent".to_string(), Event::from("PARENT_EVENT"));
-        internal_transition = internal_transition.with_action(forward_to_child);
+        internal_transition = internal_transition.with_action(forward_closure);
 
         let result = MachineBuilder::new("parentMachine".to_string(), "parent".to_string())
             .state(state)
