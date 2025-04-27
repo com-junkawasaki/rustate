@@ -4,12 +4,11 @@
 //! Guards are functions that evaluate based on the current context and triggering event,
 //! returning `true` if the associated transition is allowed, and `false` otherwise.
 
-use crate::{
-    context::Context,
-    error::StateError,
-    event::{Event, EventTrait},
-};
-use serde::{Deserialize, Serialize};
+use crate::context::Context;
+use crate::error::StateError;
+use crate::event::Event;
+use async_trait::async_trait;
+use serde::Serialize;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;

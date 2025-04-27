@@ -33,6 +33,7 @@ js-sys = { version = "0.3", optional = true }
 log = "0.4"
 
 rustate_macros = { path = "../rustate_macros" }
+rustate_core = { path = "../rustate_core" }
 
 # Add optional dependencies for features
 syn = { version = "2.0", features = ["full", "parsing"], optional = true }
@@ -48,6 +49,7 @@ integration_async = []
 codegen = ["dep:syn", "dep:quote"]
 mbt = []
 property-testing = ["mbt", "dep:proptest"]
+xstate-compat = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

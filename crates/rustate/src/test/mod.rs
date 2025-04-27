@@ -22,6 +22,14 @@ pub use xstate::{
     XStateTestPlan,
 };
 
+mod xstate_test;
+
+// #[cfg(feature = "xstate-compat")]
+// pub use xstate_test::run_xstate_test_suite;
+
+// #[cfg(feature = "xstate-compat")]
+// pub use xstate_test::XStateTestResult;
+
 #[cfg(test)]
 mod tests {
     use super::*;

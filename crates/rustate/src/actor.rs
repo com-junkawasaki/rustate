@@ -9,26 +9,32 @@
 ///
 /// Compare this with `rustate_core` which provides more foundational, abstract
 /// actor concepts. This module offers a ready-to-use implementation.
-use crate::context::Context;
+// use crate::context::Context;
 use crate::error::{Result, StateError};
-use crate::event::{Event, EventTrait};
+// use crate::event::{Event, EventTrait};
 use crate::state::{State, StateTrait};
 use crate::Machine as StateMachine;
 use async_trait::async_trait;
-use js_sys::Promise;
-use serde::de::DeserializeOwned;
+// use js_sys::Promise;
+// use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json; // Import json macro
-use std::fmt::{self, Debug, Display};
+// use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use std::sync::Arc;
+// use std::sync::Arc;
 use tokio::sync::mpsc as tokio_mpsc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn}; // Use tracing macros
 use uuid::Uuid;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
+// use wasm_bindgen::prelude::*;
+// use wasm_bindgen_futures::JsFuture;
+use wasm_bindgen::JsValue;
+use crate::actor_ref::ActorRef;
+use crate::error::ActorError;
+use crate::MachineBuilder;
+use std::any::Any;
 
 // --- Actor Options ---
 
@@ -764,7 +770,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::Context; // Use the crate's Context if applicable
+    // use crate::context::Context; // Use the crate's Context if applicable
     use serde_json::json; // Import json macro
     use std::fmt::Display;
     use tokio::time::{sleep, Duration};

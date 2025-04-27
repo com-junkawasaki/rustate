@@ -1,13 +1,16 @@
 use super::generator::TestCase;
 use crate::{
-    Context, Error, Error as StateError, Event, EventTrait, IntoEvent, Machine, Result, StateTrait,
+    Error, Event, EventTrait, Machine, Result, StateTrait,
+    Transition,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::marker::{PhantomData, Send, Sync};
+use std::marker::{Send, Sync};
+use std::time::Duration;
+use thiserror::Error;
 
 /// テスト実行結果を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
