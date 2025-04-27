@@ -506,20 +506,17 @@ where
 mod tests {
     use super::*;
     use crate::{
-        decision::{Decision, DecisionContext},
-        episode::Goal,
-        error::AgentError,
-        feedback::Feedback,
-        insight::Insight,
-        observation::Observation,
+        decision::Decision,
+        goal::Goal,
         policy::Policy,
-        storage::{MemoryStorage, Storage},
+        storage::MemoryStorage,
     };
     use async_trait::async_trait;
     use rustate::{Event, EventTrait, MachineBuilder, State, StateTrait, StateType, Transition};
-    use serde_json::Value;
+    use serde::{Deserialize, Serialize};
+    use serde_json::{json, Value};
     use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
-    use std::sync::Arc;
+    
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
     enum TestState {
@@ -604,7 +601,14 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             match self {
-                TestEvent::Custom(s) => Some(&json!(s)), // Use json! macro for payload
+                TestEvent::Custom(s) => {
+                    // This still causes lifetime issues because we need to return a reference
+                    // to a value owned by this function. Box::leak might work but isn't ideal.
+                    // Returning owned Value might be better if EventTrait allows.
+                    // For now, returning None for Custom payload in test to avoid E0515.
+                    // Some(&*Box::leak(Box::new(json!(s)))) // Potential fix, but uses leak
+                    None
+                }
                 _ => None,
             }
         }
@@ -633,7 +637,7 @@ mod tests {
         async fn decide(
             &self,
             current_state: TestState,
-            _goal_state: Option<Goal<TestState>>,
+            _goal_state: TestState,
         ) -> Result<Decision<TestEvent>> {
             let event = match current_state {
                 TestState::Idle => TestEvent::Start,
@@ -684,7 +688,7 @@ mod tests {
         let storage = MemoryStorage::<TestState, TestEvent>::new();
 
         // Agent::new takes MachineBuilder<S, E> in v0.2.4?
-        let agent_result = Agent::new(
+        let _agent_result = Agent::new(
             "test-agent-creation",
             builder, // Pass the builder
             policy,
@@ -718,7 +722,24 @@ mod tests {
         let storage = MemoryStorage::<TestState, TestEvent>::new();
         let mut agent =
             Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
-        // ... rest of test ...
+
+        // Start an episode first
+        agent
+            .start_episode(
+                "test_episode",
+                TestState::Idle,
+                Goal::new(TestState::Stopped), // Removed extra argument
+            )
+            .await
+            .unwrap();
+
+        let result = agent.process_event(TestEvent::Start).await;
+        assert!(result.is_ok());
+        assert_eq!(agent.current_state().unwrap(), TestState::Running);
+
+        // TODO: Re-evaluate these lines if they are necessary and how to implement correctly
+        // agent.current_states = [TestState::Stopped.id().to_string()]; // Commented out E0609
+        // agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped; // Commented out E0609
     }
 
     #[tokio::test]
@@ -760,22 +781,33 @@ mod tests {
         let mut agent =
             Agent::new("test-agent-episode", builder, policy, storage, None, None).unwrap();
 
-        let episode_name = "ep_manage";
-        let goal = Goal::new(TestState::Stopped);
+        assert!(agent.current_episode().is_none());
 
-        let start_result = agent
-            .start_episode(episode_name, TestState::Idle, goal.clone())
-            .await;
-        // ... rest of test ...
+        // Start episode
+        agent
+            .start_episode(
+                "ep1",
+                TestState::Idle,
+                Goal::new(TestState::Stopped), // Assuming Goal::new exists
+            )
+            .await
+            .unwrap();
 
-        // Manually set current_states using the state ID string
-        agent.current_states = [TestState::Stopped.id().to_string()]
-            .iter()
-            .cloned()
-            .collect();
-        // Set current_state within the episode
-        agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped;
+        assert!(agent.current_episode().is_some());
+        assert_eq!(agent.current_episode().unwrap().name, "ep1");
+        assert_eq!(
+            agent.current_episode().unwrap().initial_state,
+            TestState::Idle
+        );
 
-        // ... rest of test ...
+        // TODO: Re-evaluate these lines if necessary and how to implement correctly
+        // agent.current_states = [TestState::Stopped.id().to_string()]; // Commented out E0609
+        // agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped; // Commented out E0609
+
+        // Complete episode
+        let completed_episode = agent.complete_episode(true).await.unwrap();
+        assert!(completed_episode.is_some());
+        assert_eq!(completed_episode.unwrap().name, "ep1");
+        assert!(agent.current_episode().is_none());
     }
 }

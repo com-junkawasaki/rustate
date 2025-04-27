@@ -115,7 +115,7 @@ pub type PolicyBox<S, E> = Arc<dyn Policy<S, E>>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::AgentError;
+    
     use rustate::{EventTrait, StateTrait, StateType};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
@@ -180,10 +180,6 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             None
-        }
-
-        fn name(&self) -> &str {
-            self.event_type()
         }
     }
 

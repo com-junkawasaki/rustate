@@ -24,6 +24,7 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+prost-types = "0.13.5"
 
 [build-dependencies]
 tonic-build = { workspace = true }

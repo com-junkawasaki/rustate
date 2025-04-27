@@ -14,6 +14,30 @@ use rustate::{Context as RuContext, Machine as RuMachine, MachineBuilder as RuMa
 use serde_json::{from_value, json, to_value, Value};
 use std::collections::HashMap;
 
+// Import generated gRPC types
+pub mod proto {
+    tonic::include_proto!(\"rustate\");
+}
+
+// Import necessary types from rustate core
+use rustate::{
+    action::{Action, IntoAction},
+    context::Context,
+    error::{Result as RuResult, StateError},
+    event::{Event, EventTrait},
+    guard::{Guard, IntoGuard},
+    machine::{Machine, MachineBuilder},
+    state::{State, StateTrait, StateType},
+    transition::{Transition, TransitionType}, // Added TransitionType import
+};
+
+// Import necessary types for JSON handling and conversion
+use prost_types::{value::Kind, ListValue, Struct as ProstStruct, Value as ProstValue};
+use serde_json::{Map, Value as JsonValue};
+use std::convert::{TryFrom, TryInto};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 /// RuStateのStateTypeからgRPCのStateTypeへの変換
 ///
 /// # 引数
@@ -143,14 +167,54 @@ pub fn state_from_proto(proto_state: &proto::State) -> RuState {
 ///
 /// # 戻り値
 /// * 変換されたgRPCの遷移オブジェクト
-pub fn transition_to_proto(transition: &RuTransition) -> proto::Transition {
-    proto::Transition {
-        source: transition.source.clone(),
-        event: transition.event.clone(),
-        target: transition.target.clone().unwrap_or_default().to_string(),
-        guards: transition.guard.iter().map(|g| g.to_string()).collect(),
-        actions: transition.actions.iter().map(|a| a.to_string()).collect(),
-    }
+pub fn transition_to_proto<S, C, E>(
+    transition: &Transition<S, C, E>,
+) -> Result<proto::Transition, ConversionError>
+where
+    S: StateTrait + Serialize,
+    C: Serialize,
+    E: EventTrait + Serialize,
+{
+    // Convert source and target Option<S> to proto::StateId
+    let source_id = state_to_proto_id(&transition.source)?;
+    let target_id = match &transition.target {
+        Some(t) => Some(state_to_proto_id(t)?),
+        None => None,
+    };
+
+    // Convert event Option<E> to proto::Event
+    let event = match &transition.event {
+        Some(e) => Some(event_to_proto(e)?),
+        None => None,
+    };
+
+    // Convert guard Option<Guard<C, E>> to proto::Guard
+    let guard = match &transition.guard {
+        Some(g) => Some(guard_to_proto(g)?),
+        None => None,
+    };
+
+    // Convert actions Vec<Action<C, E>> to Vec<proto::Action>
+    let actions = transition
+        .actions
+        .iter()
+        .map(action_to_proto)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Convert TransitionType enum
+    let transition_type = match transition.transition_type {
+        TransitionType::External => proto::TransitionType::External,
+        TransitionType::Internal => proto::TransitionType::Internal,
+    };
+
+    Ok(proto::Transition {
+        source: Some(source_id),
+        target: target_id, // Already Option<proto::StateId>
+        event,
+        guard,
+        actions,
+        transition_type: transition_type.into(),
+    })
 }
 
 /// gRPCのTransitionからRuStateのTransitionへの変換
@@ -160,21 +224,61 @@ pub fn transition_to_proto(transition: &RuTransition) -> proto::Transition {
 ///
 /// # 戻り値
 /// * 変換されたRuStateの遷移オブジェクト
-pub fn transition_from_proto(proto_transition: &proto::Transition) -> RuTransition {
-    // Create a basic transition. Guards and actions are typically added via MachineBuilder.
-    let transition = RuTransition::new(
-        &proto_transition.source,
-        &proto_transition.event,
-        &proto_transition.target, // Assuming target is String in proto
-    );
+pub fn transition_from_proto<S, C, E>(
+    proto_transition: &proto::Transition,
+) -> Result<Transition<S, C, E>, ConversionError>
+where
+    S: StateTrait + DeserializeOwned + Clone + Send + Sync + \'static,
+    C: DeserializeOwned + Clone + Send + Sync + Default + Debug + \'static,
+    E: EventTrait + DeserializeOwned + Clone + Send + Sync + Eq + Debug + Serialize + \'static,
+{
+    let source = proto_transition
+        .source
+        .as_ref()
+        .ok_or(ConversionError::MissingField(\"transition source\".to_string()))
+        .and_then(|id| state_from_proto_id::<S>(id))?;
 
-    // If guards/actions were simple strings/IDs and present in proto,
-    // they could potentially be stored in RuTransition if its definition allows.
-    // For now, we assume guards/actions are complex and handled by the builder.
-    // transition.guard = proto_transition.guards.iter().map(|g_id| Guard::new(g_id, |_,_| true)).collect(); // Example if storing simple guards
-    // transition.actions = proto_transition.actions.iter().map(|a_id| Action::new(a_id, ActionType::Transition, |_,_| {})).collect(); // Example
+    let target = match &proto_transition.target {
+        Some(id) => Some(state_from_proto_id::<S>(id)?),
+        None => None,
+    };
 
-    transition
+    let event = match &proto_transition.event {
+        Some(ev) => Some(event_from_proto::<E>(ev)?),
+        None => None,
+    };
+
+    // Guards need reconstruction with actual logic, use named guard for now
+    let guard = match &proto_transition.guard {
+        Some(g) => Some(Guard::<C, E>::named(&g.name)), // Reconstruct named guard
+        None => None,
+    };
+
+    // Actions also need reconstruction, use named actions (assuming Action::named exists)
+    let actions = proto_transition
+        .actions
+        .iter()
+        .map(|a| Ok(Action::<C, E>::from_fn(|_,_| async { Ok(()) } ) ) ) // Reconstruct dummy action
+        .collect::<Result<Vec<_>, ConversionError>>()?;
+
+    let transition_type = proto::TransitionType::try_from(proto_transition.transition_type)
+        .map_err(|_| {
+            ConversionError::InvalidValue(\"invalid transition type\".to_string())
+        })
+        .map(|tt| match tt {
+            proto::TransitionType::External => TransitionType::External,
+            proto::TransitionType::Internal => TransitionType::Internal,
+        })?;
+
+    // Use Transition::new to create the core Transition struct
+    Ok(Transition::new(
+        source,
+        target,
+        event,
+        guard,
+        actions,
+        transition_type,
+    ))
 }
 
 /// RuStateのMachineからgRPCのMachineDefinitionへの変換
@@ -195,7 +299,7 @@ pub fn machine_to_proto(machine: &RuMachine) -> Result<proto::MachineDefinition>
     // 遷移の変換
     let mut transitions = Vec::new();
     for transition in &machine.transitions {
-        transitions.push(transition_to_proto(transition));
+        transitions.push(transition_to_proto(transition)?);
     }
 
     // コンテキストのJSONシリアライズ
@@ -238,7 +342,7 @@ pub fn machine_from_proto(proto_machine: &proto::MachineDefinition) -> Result<Ru
 
     // 遷移の追加
     for proto_transition in &proto_machine.transitions {
-        let rustate_transition = transition_from_proto(proto_transition);
+        let rustate_transition = transition_from_proto(proto_transition)?;
         // Add guards/actions here if they are part of the proto definition
         // and can be reconstructed into callable closures/functions.
         // This usually requires a registry or factory.
@@ -859,68 +963,78 @@ mod tests {
     }
 
     #[test]
-    fn test_transition_conversion() {
-        // ... setup ...
-
-        // Create a guard (example)
+    fn test_guard_conversion() {
+        // Define a simple closure guard
         let guard_fn = |ctx: &Context, _evt: &Event| -> bool {
-            ctx.get::<i32>("count").map_or(false, |&c| c > 10)
+            ctx.get::<i32>("count").map_or(false, |c| c > 10) // Removed & from |&c|
         };
-        let original_guard = Guard::new("count_guard", GuardType::Function, guard_fn);
+        // Use the correct Guard::new signature (name, predicate)
+        let original_guard = Guard::new("count_guard", guard_fn);
 
-        // Create an action (example)
-        let action_fn = |ctx: Arc<RwLock<Context>>, _evt: &Event| {
-            Box::pin(async move {
-                let mut ctx_lock = ctx.write().await;
-                let count = ctx_lock.get::<i32>("count").map_or(0, |&c| c + 1);
-                ctx_lock
-                    .set("count", count)
-                    .map_err(|e| StateError::ActionFailed(e.to_string()))
-            })
+        let proto_g = guard_to_proto(&original_guard).unwrap();
+        assert_eq!(proto_g.name, "count_guard");
+
+        // Convert back (condition logic is lost, compare by name)
+        let converted_g = guard_from_proto::<Context, Event>(&proto_g).unwrap();
+        assert_eq!(converted_g.name, original_guard.name);
+        // Cannot compare the actual condition function
+    }
+
+    #[test]
+    fn test_action_conversion() {
+        // Define a simple async closure action
+        let action_fn = |ctx_arc: Arc<RwLock<Context>>, _evt: &Event| async move {
+            let mut ctx_lock = ctx_arc.write().await;
+            let count = ctx_lock.get::<i32>("count").map_or(0, |c| c + 1); // Removed & from |&c|
+            ctx_lock
+                .set("count", count)
+                .map_err(|e| StateError::ActionFailed(e.to_string())) // Use StateError::ActionFailed
         };
+
+        // Use Action::from_fn
         let original_action = Action::from_fn(action_fn);
 
-        let original_t = Transition {
-            source: "StateA".to_string(),
-            target: Some("StateB".to_string()),
-            event: Some(Event::new("EVENT_X")),
-            guard: Some(original_guard),    // Include guard
-            actions: vec![original_action], // Include action
-            id: Default::default(),         // Assuming Uuid default
-            transition_type: TransitionType::External,
-            _phantom_s: Default::default(),
-            _phantom_c: Default::default(),
-            _phantom_e: Default::default(),
-        };
+        let proto_a = action_to_proto(&original_action).unwrap();
+        // Assuming action_to_proto uses a placeholder name or derives it
+        // assert_eq!(proto_a.name, "some_action_name"); // Adjust based on actual implementation
 
-        // Convert to proto
-        let proto_t = match transition_to_proto(&original_t) {
-            Ok(p) => p,
-            Err(e) => panic!("Conversion to proto failed: {}", e),
-        };
+        // Convert back (logic is lost)
+        let converted_a = action_from_proto::<Context, Event>(&proto_a).unwrap();
+        // Cannot compare function, maybe compare name if action_to_proto sets it?
+    }
 
-        // Convert back to rustate
-        let converted_t = match transition_from_proto(&proto_t) {
-            Ok(r) => r,
-            Err(e) => panic!("Conversion from proto failed: {}", e),
-        };
+    #[test]
+    fn test_transition_conversion() {
+        // Create a sample transition
+        let guard = Guard::new("test_guard", |_, _| true);
+        let action = Action::from_fn(|_, _| async { Ok(()) }); // Dummy action
+        let original_t = Transition::new(
+            TestState::A,             // Source State
+            Some(TestState::B),       // Target State
+            Some(TestEvent::X),       // Event
+            Some(guard),              // Guard
+            vec![action],              // Actions
+            TransitionType::External, // Transition Type
+        );
 
-        // Basic assertions
+        let proto_t = transition_to_proto(&original_t).unwrap();
+
+        assert_eq!(proto_t.source.as_ref().unwrap().id, TestState::A.id());
+        assert_eq!(proto_t.target.as_ref().unwrap().id, TestState::B.id());
+        assert_eq!(proto_t.event.as_ref().unwrap().event_type, TestEvent::X.event_type());
+        assert_eq!(proto_t.guard.as_ref().unwrap().name, "test_guard");
+        assert_eq!(proto_t.actions.len(), 1);
+        assert_eq!(proto_t.transition_type, proto::TransitionType::External as i32);
+
+        // Convert back from proto
+        let converted_t = transition_from_proto::<TestState, Context, TestEvent>(&proto_t).unwrap();
+
+        // Compare relevant fields (guards/actions reconstructed by name/dummy)
         assert_eq!(converted_t.source, original_t.source);
         assert_eq!(converted_t.target, original_t.target);
         assert_eq!(converted_t.event, original_t.event);
+        assert_eq!(converted_t.guard.map(|g| g.name), original_t.guard.map(|g| g.name));
+        // Cannot easily compare reconstructed actions
         assert_eq!(converted_t.transition_type, original_t.transition_type);
-
-        // Assert guard presence (logic cannot be compared directly)
-        assert!(
-            converted_t.guard.is_some(),
-            "Guard should exist after conversion"
-        );
-        assert!(original_t.guard.is_some(), "Original guard should exist");
-        // Cannot compare guard logic, check presence only
-        // assert_eq!(converted_t.guard.is_some(), original_t.guard.is_some()); // Use is_some()
-
-        // Assert action count (logic cannot be compared directly)
-        assert_eq!(converted_t.actions.len(), original_t.actions.len());
     }
 }

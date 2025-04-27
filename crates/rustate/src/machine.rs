@@ -18,6 +18,19 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
+
+/// Define the serializable state structure
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct SerializableMachineState<S, C>
+where
+    S: StateTrait + Serialize + DeserializeOwned + Clone + Eq + Hash,
+    C: Serialize + DeserializeOwned + Clone,
+{
+    current_states: HashSet<S>,
+    context: C,
+    history: HashMap<String, S>,
+}
 
 /// Represents a state machine instance
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -390,7 +403,7 @@ where
         let context_clone_for_entry = self.context.clone(); // Clone Arc for entry states
         for id in &enter_states {
             enter_futures.push(
-                self.enter_state(id, event, context_clone_for_entry.clone())
+                self.enter_state(id, Some(event), context_clone_for_entry.clone())
                     .boxed(),
             );
         }
@@ -707,6 +720,23 @@ where
             current = self.states.get(id).and_then(|s| s.parent.as_ref());
         }
         false
+    }
+
+    /// Serializes the machine state (current states and context) to a JSON string.
+    pub fn serialize_state(&self) -> Result<String> {
+        let state_data = SerializableMachineState {
+            current_states: self.current_states.clone(),
+            context: (*self.context.blocking_read()).clone(),
+            history: self.history.clone(),
+        };
+        serde_json::to_string_pretty(&state_data)
+            .map_err(|e| StateError::SerializationError(e.to_string()))
+    }
+
+    /// Serializes the machine definition (states, transitions) to a JSON string.
+    pub fn serialize_definition(&self) -> Result<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| StateError::SerializationError(e.to_string()))
     }
 }
 

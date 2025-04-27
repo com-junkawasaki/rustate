@@ -23,7 +23,7 @@ use uuid::Uuid;
 pub struct Transition<S = String, C = Context, E = Event>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static + Default + Debug,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Source state id
@@ -55,7 +55,7 @@ where
 impl<S, C, E> Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static + Default,
+    C: Clone + Send + Sync + 'static + Default + Debug,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Create a new transition
@@ -125,7 +125,10 @@ where
     }
 
     /// Add a guard condition to this transition
-    pub fn with_guard(mut self, guard: impl IntoGuard<C, E>) -> Self {
+    pub fn with_guard(mut self, guard: impl IntoGuard<C, E>) -> Self
+    where
+        C: Default + Debug,
+    {
         self.guard = Some(guard.into_guard());
         self
     }
@@ -171,7 +174,7 @@ where
 impl<S, C, E> fmt::Debug for Transition<S, C, E>
 where
     S: StateTrait + fmt::Debug,
-    C: Clone + Send + Sync + 'static + Debug,
+    C: Clone + Send + Sync + 'static + Debug + Default,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -189,7 +192,7 @@ where
 impl<S, C, E> PartialEq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
-    C: Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static + Default + Debug,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -203,7 +206,7 @@ where
 impl<S, C, E> Eq for Transition<S, C, E>
 where
     S: StateTrait + Eq,
-    C: Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static + Default + Debug,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
 }
@@ -223,7 +226,7 @@ trait TransitionTrait<C, E> {
 impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
 where
     S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static,
+    C: Clone + Send + Sync + Default + 'static + Debug,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
     /// Check if the transition guard allows the transition (synchronous)

@@ -148,23 +148,32 @@ async fn create_traffic_light() -> StateResult<Machine<Context, TrafficLightEven
     .transition(green_to_yellow)
     .transition(yellow_to_red)
     .transition(red_to_green)
-    // Change closure signature to Fn(&C, &E)
+    // Change closure signature to Fn(Arc<RwLock<C>>, &E) -> Fut
     .on_entry(
         &"green".to_string(),
-        |ctx: &Context, _event: &TrafficLightEvent| {
-            console_log!("TRAFFIC LIGHT: Turned Green (Context: {:?})", ctx);
+        |ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
+            let mut ctx = ctx_arc.write().await;
+            ctx.set("status", "GREEN").unwrap();
+            console_log!("TRAFFIC LIGHT: Entered Green");
+            Ok(())
         },
     )
     .on_entry(
         &"yellow".to_string(),
-        |ctx: &Context, _event: &TrafficLightEvent| {
-            console_log!("TRAFFIC LIGHT: Turned Yellow (Context: {:?})", ctx);
+        |ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
+            let mut ctx = ctx_arc.write().await;
+            ctx.set("status", "YELLOW").unwrap();
+            console_log!("TRAFFIC LIGHT: Entered Yellow");
+            Ok(())
         },
     )
     .on_entry(
         &"red".to_string(),
-        |ctx: &Context, _event: &TrafficLightEvent| {
-            console_log!("TRAFFIC LIGHT: Turned Red (Context: {:?})", ctx);
+        |ctx_arc: Arc<RwLock<Context>>, _event: &TrafficLightEvent| async move {
+            let mut ctx = ctx_arc.write().await;
+            ctx.set("status", "RED").unwrap();
+            console_log!("TRAFFIC LIGHT: Entered Red");
+            Ok(())
         },
     )
     .build()
@@ -205,25 +214,33 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
     .state(normal_speed)
     .state(double_speed)
     .state(paused)
-    // Change closure signature to Fn(&C, &E)
+    // Change closure signature to Fn(Arc<RwLock<C>>, &E) -> Fut
     .on_entry(
         &"player".to_string(),
-        |ctx: &Context, _event: &MusicPlayerEvent| {
-            console_log!("MUSIC PLAYER: Powered On (Context: {:?})", ctx);
+        |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
+            console_log!("MUSIC PLAYER: Entered Player superstate");
+            let mut ctx = ctx_arc.write().await;
+            ctx.set("player_state", "entered").unwrap();
+            Ok(())
         },
     )
     .on_exit(
         &"player".to_string(),
-        |ctx: &Context, _event: &MusicPlayerEvent| {
-            console_log!("MUSIC PLAYER: Powered Off (Context: {:?})", ctx);
+        |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
+            console_log!("MUSIC PLAYER: Exited Player superstate");
+            let mut ctx = ctx_arc.write().await;
+            ctx.set("player_state", "exited").unwrap();
+            Ok(())
         },
     )
+    // -- Child state actions --
     .on_entry(
         &"playing".to_string(),
-        |ctx: &Context, _event: &MusicPlayerEvent| {
-            let track_result: Option<Result<usize, _>> = ctx.get("track");
-            let track = track_result.map(|r| r.unwrap_or(0)).unwrap_or(0);
-            console_log!("MUSIC PLAYER: Playing track {} (Context: {:?})", track, ctx);
+        |ctx_arc: Arc<RwLock<Context>>, _event: &MusicPlayerEvent| async move {
+            let mut ctx = ctx_arc.write().await;
+            ctx.set("status", "playing").unwrap();
+            console_log!("MUSIC PLAYER: Entered Playing state");
+            Ok(())
         },
     )
     .transition(Transition::new(
@@ -240,6 +257,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
                 let next_track = current_track + 1;
                 ctx_write.set("track", next_track).ok();
                 console_log!("MUSIC PLAYER: Switched to next track {}", next_track);
+                Ok(())
             },
         )],
         TransitionType::Internal,
@@ -262,6 +280,7 @@ async fn create_music_player() -> StateResult<Machine<Context, MusicPlayerEvent,
                 };
                 ctx_write.set("track", prev_track).ok();
                 console_log!("MUSIC PLAYER: Switched to previous track {}", prev_track);
+                Ok(())
             },
         )],
         TransitionType::Internal,
@@ -394,4 +413,14 @@ pub fn send_music_player_event(event_str: &str) -> Result<(), JsValue> {
         }
         Ok(())
     })
+}
+
+// Helper macro for wasm logging
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+macro_rules! console_log {
+    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }

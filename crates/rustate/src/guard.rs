@@ -212,3 +212,18 @@ where
     E: EventTrait + Send + Sync + 'static,
 {
 }
+
+// Default implementation for Guard when C and E have defaults
+impl<C, E> Default for Guard<C, E>
+where
+    C: Send + Sync + 'static + Default + Clone + fmt::Debug,
+    E: EventTrait + Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self {
+            name: "default_guard".to_string(),
+            // Default condition allows the transition
+            condition: Arc::new(|_ctx, _evt| true),
+        }
+    }
+}

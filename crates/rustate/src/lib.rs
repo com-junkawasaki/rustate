@@ -147,6 +147,7 @@ mod test;
 // Public modules
 pub mod machine;
 pub mod state;
+// pub mod state_machine; // Commented out potentially incorrect module path
 pub mod transition;
 
 // Conditionally compiled public modules/re-exports

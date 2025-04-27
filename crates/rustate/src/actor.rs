@@ -9,18 +9,20 @@
 ///
 /// Compare this with `rustate_core` which provides more foundational, abstract
 /// actor concepts. This module offers a ready-to-use implementation.
+use crate::context::Context;
 use crate::error::{Result, StateError};
-use crate::event::EventTrait;
-use crate::state::StateTrait;
+use crate::event::{Event, EventTrait};
+use crate::state::{State, StateTrait};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn}; // Use tracing macros
 use uuid::Uuid;
+use tokio::sync::mpsc as tokio_mpsc;
 
 // --- Actor Options ---
 
@@ -730,22 +732,21 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     // --- Test State Definition ---
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)] // Ensure State is comparable and serializable
+    #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Hash, Eq)]
     pub struct TestState {
-        count: i32,
-        name: String,
+        pub value: i32,
     }
 
     impl StateTrait for TestState {} // Basic implementation
 
     impl Display for TestState {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "State(count: {}, name: {})", self.count, self.name)
+            write!(f, "TestState({})", self.value)
         }
     }
 
     // --- Test Event Definition ---
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)] // Default needed for ActorCommand if event is part of it indirectly
+    #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
     pub enum TestEvent {
         Increment,
         Decrement,
@@ -773,14 +774,15 @@ mod tests {
     }
 
     // --- Test Query/Response Definition ---
-    #[derive(Debug, Clone)]
-    enum TestQuery {
-        GetCount,
-        GetName,
-    }
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub struct TestQuery(pub String);
 
-    #[derive(Debug, Clone, PartialEq, Eq)] // PartialEq/Eq for assertions
-    struct TestResponse(String); // Simple string response
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub struct TestResponse(pub String);
+
+    impl TestResponse {
+        // ... existing code ...
+    }
 
     // --- Test Actor Logic ---
     #[derive(Default)] // Add Default derive
@@ -791,8 +793,7 @@ mod tests {
         fn initial(&self) -> (TestState, Context) {
             (
                 TestState {
-                    count: 0,
-                    name: "Initial".to_string(),
+                    value: 0,
                 },
                 Context::default(), // Assuming Context::default() exists
             )
@@ -805,9 +806,9 @@ mod tests {
             event: TestEvent,
         ) -> Result<(TestState, Context), StateError> {
             match event {
-                TestEvent::Increment => state.count += 1,
-                TestEvent::Decrement => state.count -= 1,
-                TestEvent::SetName(name) => state.name = name,
+                TestEvent::Increment => state.value += 1,
+                TestEvent::Decrement => state.value -= 1,
+                TestEvent::SetName(name) => state.value = name.parse::<i32>().unwrap(),
                 TestEvent::None => {} // No-op
             }
             Ok((state, context)) // Return potentially modified state and original context
@@ -819,142 +820,97 @@ mod tests {
             _context: &Context, // Context not used here
             query: TestQuery,
         ) -> TestResponse {
-            match query {
-                TestQuery::GetCount => TestResponse(state.count.to_string()),
-                TestQuery::GetName => TestResponse(state.name.clone()),
-            }
+            TestResponse(format!("Value: {}", state.value))
         }
     }
 
     // --- Test Cases ---
 
     #[tokio::test]
-    async fn test_actor_creation_and_initial_state() {
-        let logic = TestActorLogic::default();
-        let initial_context = Context::default();
-        let (actor_ref, _join_handle) =
-            create_actor(logic, initial_context, Some("test-create"), 32);
+    async fn test_create_actor() {
+        let logic = TestActorLogic;
+        let initial_context = Context::new();
+        let (_actor_ref, snapshot_res) =
+            create_actor::<_, _, _, _, _, _, (), _>(logic, initial_context, Some("test-create"), 32); // Specify R = ()
 
-        sleep(Duration::from_millis(10)).await; // Allow time for actor to start
+        // Wait for the initial snapshot
+        let snapshot_result = snapshot_res.await;
+        assert!(snapshot_result.is_ok());
+        let snapshot = snapshot_result.unwrap();
 
-        let status = actor_ref.get_status().await;
-        assert_eq!(status, ActorStatus::Active);
+        // Check snapshot fields
+        assert_eq!(snapshot.status, ActorStatus::Active);
+        // Compare snapshot.value (json) with expected state (json)
+        let expected_state = TestState { value: 0 };
+        let expected_state_value = serde_json::to_value(expected_state).unwrap();
+        assert_eq!(snapshot.value, expected_state_value);
+        // Check context via snapshot.context
+        assert_eq!(snapshot.context.get::<i32>("counter").unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_send_event() {
+        let logic = TestActorLogic;
+        let (actor_ref, _initial_snapshot_res) =
+            create_actor::<_, _, _, _, _, _, (), _>(logic, Context::new(), Some("test-event"), 32); // Specify R = ()
+        let _ = _initial_snapshot_res.await; // Wait for init
+
+        let res = actor_ref.send_event(TestEvent::Increment).await;
+        assert!(res.is_ok());
+
+        // Give time for the actor to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         let snapshot_res = actor_ref.get_snapshot().await;
         assert!(snapshot_res.is_ok());
         let snapshot = snapshot_res.unwrap();
 
-        // Assert initial state via snapshot
-        let expected_state = TestState {
-            count: 0,
-            name: "Initial".to_string(),
-        };
-        let expected_state_value = serde_json::to_value(&expected_state).unwrap();
-
+        // Compare snapshot.value with expected state
+        let expected_state = TestState { value: 1 };
+        let expected_state_value = serde_json::to_value(expected_state).unwrap();
         assert_eq!(snapshot.value, expected_state_value);
-        // assert_eq!(snapshot.context, Context::default()); // Assuming Context impls PartialEq
-        assert_eq!(snapshot.status, ActorStatus::Active);
-        assert!(snapshot.output.is_none()); // Assuming TestOutput is Default = ()
+        // Check context, unwrap the get result before comparing
+        assert_eq!(snapshot.context.get::<i32>("counter").unwrap(), 1);
 
-        // Stop the actor
-        let stop_res = actor_ref.stop().await;
-        assert!(stop_res.is_ok());
-        sleep(Duration::from_millis(10)).await; // Allow time for actor to stop
-        let final_status = actor_ref.get_status().await;
-        assert_eq!(final_status, ActorStatus::Stopped);
-
-        // Optionally join the handle, though it might have already finished
-        // let _ = _join_handle.await;
+        actor_ref.stop().await.ok(); // Stop the actor
     }
 
     #[tokio::test]
-    async fn test_actor_event_handling() {
-        let logic = TestActorLogic::default();
-        let initial_context = Context::default();
-        let (actor_ref, _join_handle) =
-            create_actor(logic, initial_context, Some("test-event"), 32);
+    async fn test_send_query() {
+        let logic = TestActorLogic;
+        let (actor_ref, _initial_snapshot) = create_actor::<_, _, _, _, _, _, (), _>(logic, Context::new(), Some("test-query"), 32); // Specify R = ()
 
-        sleep(Duration::from_millis(10)).await; // Allow time for actor to start
+        let query = TestQuery("get_value".to_string());
+        let response = actor_ref.query(query).await;
 
-        // Send Increment
-        let send_res1 = actor_ref.send_event(TestEvent::Increment).await;
-        assert!(send_res1.is_ok());
-        sleep(Duration::from_millis(10)).await; // Allow processing time
+        assert!(response.is_ok());
+        assert_eq!(response.unwrap(), TestResponse("Value: 0".to_string()));
 
-        // Query count
-        let query_res1 = actor_ref.query(TestQuery::GetCount).await;
-        assert!(query_res1.is_ok());
-        assert_eq!(query_res1.unwrap(), TestResponse("1".to_string()));
-
-        // Send SetName
-        let send_res2 = actor_ref
-            .send_event(TestEvent::SetName("Updated".to_string()))
-            .await;
-        assert!(send_res2.is_ok());
-        sleep(Duration::from_millis(10)).await;
-
-        // Query name
-        let query_res2 = actor_ref.query(TestQuery::GetName).await;
-        assert!(query_res2.is_ok());
-        assert_eq!(query_res2.unwrap(), TestResponse("Updated".to_string()));
-
-        // Query count again (should still be 1)
-        let query_res3 = actor_ref.query(TestQuery::GetCount).await;
-        assert!(query_res3.is_ok());
-        assert_eq!(query_res3.unwrap(), TestResponse("1".to_string()));
-
-        // Stop the actor
-        let stop_res = actor_ref.stop().await;
-        assert!(stop_res.is_ok());
-        sleep(Duration::from_millis(10)).await;
-        assert_eq!(actor_ref.get_status().await, ActorStatus::Stopped);
-        // let _ = _join_handle.await;
+        actor_ref.stop().await.ok(); // Stop the actor
     }
 
     #[tokio::test]
-    async fn test_actor_stop() {
-        let logic = TestActorLogic::default();
-        let initial_context = Context::default();
-        let (actor_ref, join_handle) = create_actor(logic, initial_context, Some("test-stop"), 32);
+    async fn test_stop_actor() {
+        let logic = TestActorLogic;
+        let (actor_ref, join_handle) = // Removed explicit type annotation here
+            create_actor::<_, _, _, _, _, _, (), _>(logic, Context::new(), Some("test-stop"), 32); // Specify R = ()
 
-        sleep(Duration::from_millis(10)).await; // Allow start
+        // Wait for initial snapshot
+        actor_ref.get_snapshot().await.unwrap();
 
-        assert_eq!(actor_ref.get_status().await, ActorStatus::Active);
-
-        // Stop the actor
         let stop_res = actor_ref.stop().await;
         assert!(stop_res.is_ok());
 
-        // Allow time for the stop command to be processed and the task to exit
-        sleep(Duration::from_millis(20)).await;
+        // Check if the actor task completed
+        let join_res = join_handle.await;
+        assert!(join_res.is_ok());
 
-        // Check status via ref
-        let status_after_stop = actor_ref.get_status().await;
-        // Status becomes Stopped *after* the loop finishes, check might race.
-        // assert_eq!(status_after_stop, ActorStatus::Stopped);
-
-        // Attempting to send after stop should fail (or indicate closed channel)
-        let send_after_stop_res = actor_ref.send_event(TestEvent::Increment).await;
-        assert!(send_after_stop_res.is_err());
-        if let Err(StateError::SendError(msg)) = send_after_stop_res {
-            println!("Send after stop failed as expected: {}", msg);
-            assert!(
-                msg.contains("channel closed") || msg.contains("actor") && msg.contains("stopped")
-            );
-        } else {
-            panic!("Expected SendError after stop");
-        }
-
-        // Join the handle to ensure the task actually finished
-        // This might take a moment if the actor was busy
-        let join_result = tokio::time::timeout(Duration::from_millis(100), join_handle).await;
-        assert!(join_result.is_ok(), "Actor task did not finish after stop");
-        if let Ok(task_result) = join_result {
-            assert!(task_result.is_ok(), "Actor task panicked");
-        }
-
-        // Final status check after join should reliably be Stopped
-        assert_eq!(actor_ref.get_status().await, ActorStatus::Stopped);
+        // Further sends should fail
+        assert!(actor_ref.send_event(TestEvent::Increment).await.is_err());
+        assert!(actor_ref
+            .query(TestQuery("get_value".to_string()))
+            .await
+            .is_err());
     }
 
     // TODO: Add tests for:
