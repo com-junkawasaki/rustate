@@ -139,9 +139,7 @@ use tokio::sync::{Mutex, RwLock};
 #[async_trait::async_trait]
 pub trait ChildMachine: Send + Sync {
     /// 親からのイベントを処理
-    fn handle_parent_event<'a,
-        E: IntoEvent + Send + 'a
-    >(
+    fn handle_parent_event<'a, E: IntoEvent + Send + 'a>(
         &'a mut self,
         event: E,
     ) -> Pin<Box<dyn Future<Output = IntegrationResult<bool>> + Send + 'a>>;
@@ -168,11 +166,15 @@ pub struct DefaultChildMachine {
 impl DefaultChildMachine {
     /// 新しい子ステートマシンを作成
     pub fn new(machine: Machine<Context, Event, String>) -> Self {
-        Self { machine: Arc::new(Mutex::new(machine)) }
+        Self {
+            machine: Arc::new(Mutex::new(machine)),
+        }
     }
 
     /// 内部ステートマシンへの参照を取得
-    pub async fn machine_locked(&self) -> tokio::sync::MutexGuard<'_, Machine<Context, Event, String>> {
+    pub async fn machine_locked(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, Machine<Context, Event, String>> {
         self.machine.lock().await
     }
 }
@@ -180,15 +182,16 @@ impl DefaultChildMachine {
 #[async_trait::async_trait]
 impl ChildMachine for DefaultChildMachine {
     /// 親からのイベントを処理
-    fn handle_parent_event<'a,
-        E: IntoEvent + Send + 'a
-    >(
+    fn handle_parent_event<'a, E: IntoEvent + Send + 'a>(
         &'a mut self,
         event: E,
     ) -> Pin<Box<dyn Future<Output = IntegrationResult<bool>> + Send + 'a>> {
         async move {
             let mut machine_guard = self.machine.lock().await;
-            machine_guard.send(event.into_event()).await.map_err(Into::into)
+            machine_guard
+                .send(event.into_event())
+                .await
+                .map_err(Into::into)
         }
         .boxed()
     }

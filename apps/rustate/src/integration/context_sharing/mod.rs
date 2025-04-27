@@ -314,7 +314,10 @@ mod tests {
                     println!("Reader Action: Reading shared context");
                     let status = ctx_reader_clone.get::<String>("status")?;
                     let counter = ctx_reader_clone.get::<i32>("counter")?;
-                    println!("Reader Action: Read status={:?}, counter={:?}", status, counter);
+                    println!(
+                        "Reader Action: Read status={:?}, counter={:?}",
+                        status, counter
+                    );
 
                     let mut ctx_guard = ctx.write().await;
                     if let Some(s) = status {
@@ -374,11 +377,11 @@ mod tests {
         assert!(changed_a);
         println!("State A after EVENT_A: {:?}", machine_a.current_states);
         assert!(machine_a.is_in(&"done".to_string()));
-        println!("Shared context after A write: {:?}", shared_context.dump().await?);
-        assert_eq!(
-            shared_context.get::<String>("status")?.unwrap(),
-            "active"
+        println!(
+            "Shared context after A write: {:?}",
+            shared_context.dump().await?
         );
+        assert_eq!(shared_context.get::<String>("status")?.unwrap(), "active");
         assert_eq!(shared_context.get::<i32>("counter")?.unwrap(), 1);
 
         // Machine B reads from shared context
@@ -392,13 +395,15 @@ mod tests {
         let ctx_b = machine_b.context.read().await;
         println!("Machine B local context: {:?}", ctx_b);
         assert_eq!(
-            ctx_b.get::<String>("local_status")
+            ctx_b
+                .get::<String>("local_status")
                 .ok_or_else(|| StateError::Unknown("Missing local_status".into()))?? // Use StateError::Unknown
                 .unwrap(),
             "active"
         );
         assert_eq!(
-            ctx_b.get::<i32>("local_counter")
+            ctx_b
+                .get::<i32>("local_counter")
                 .ok_or_else(|| StateError::Unknown("Missing local_counter".into()))?? // Use StateError::Unknown
                 .unwrap(),
             1

@@ -873,10 +873,7 @@ where
 
 /// Snapshot of the machine state for actors
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "S: Serialize",
-    deserialize = "S: StateTrait"
-))]
+#[serde(bound(serialize = "S: Serialize", deserialize = "S: StateTrait"))]
 pub struct MachineSnapshot<C, S, O>
 where
     C: Clone + Serialize + DeserializeOwned + Send + Sync + 'static + Debug,

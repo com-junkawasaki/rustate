@@ -16,11 +16,11 @@ RuState provides the following features:
 - ✅ Serializable machines
 - ✅ Cross-crate state machine integration
 - ✅ Actor pattern support
-- ❓ Model-based testing (MBT) support - *(Note: The previously described `src/mbt/` directory was not found; location and status of MBT features need verification)*
+- ❓ Model-based testing (MBT) support 
 
 ## Model-Based Testing (MBT) Integration
 
-*(Note: The detailed description of MBT features previously here has been removed as the corresponding `src/mbt/` directory in `rustate_core` was not found during the latest review. The existence, location, and status of MBT features need to be verified within the current codebase before this section can be accurately updated.)*
+TODO: Implement MBT integration.
 
 ## Cross-Crate State Machine Integration
 
