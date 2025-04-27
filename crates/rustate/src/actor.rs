@@ -602,6 +602,29 @@ where
         // Perform any cleanup if needed
         // logic.stopped() // If ActorLogic had a stopped hook
     }
+
+    /// Creates a snapshot of the current actor state.
+    fn create_snapshot(&self, status_override: Option<ActorStatus>) -> Result<Snapshot<C, R>, StateError> {
+        // Clone necessary parts: context needs read lock then clone
+        let context_clone = self.context.read().blocking_read().clone(); // Use blocking read in sync context if needed
+        // State needs Clone trait
+        let state_clone = self.state.clone(); // Assuming S implements Clone
+        // Output needs Clone
+        let output_clone = self.output.clone();
+
+        // Convert current state (S) to serde_json::Value
+        // This assumes S is simple enough to be represented by its ID or similar.
+        // If S is complex, this might need `serde_json::to_value(state_clone)`
+        // which requires S: Serialize.
+        let current_value = json!(state_clone.id()); // Use state ID as the value representation
+
+        Ok(Snapshot {
+            value: current_value,
+            context: context_clone,
+            output: output_clone,
+            status: status_override.unwrap_or(*self.status.read().blocking_read()),
+        })
+    }
 }
 
 // --- Spawning Function ---

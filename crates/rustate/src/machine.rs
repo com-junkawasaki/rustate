@@ -722,21 +722,24 @@ where
         false
     }
 
-    /// Serializes the machine state (current states and context) to a JSON string.
+    /// Returns the serialization result as a string.
+    /// Errors during serialization are wrapped in `Error::Serialization`.
     pub fn serialize_state(&self) -> Result<String> {
-        let state_data = SerializableMachineState {
+        let serializable_state = SerializableMachineState {
             current_states: self.current_states.clone(),
-            context: (*self.context.blocking_read()).clone(),
+            context: self.context.blocking_read().clone(), // Clone context data
             history: self.history.clone(),
         };
-        serde_json::to_string_pretty(&state_data)
-            .map_err(|e| StateError::SerializationError(e.to_string()))
+        serde_json::to_string(&serializable_state)
+            .map_err(|e| Error::Serialization(e.to_string())) // Use correct variant
     }
 
-    /// Serializes the machine definition (states, transitions) to a JSON string.
+    /// Serializes the machine's *definition* (states, transitions) to JSON.
+    /// Excludes runtime state like current_states and context.
+    /// Errors during serialization are wrapped in `Error::Serialization`.
     pub fn serialize_definition(&self) -> Result<String> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| StateError::SerializationError(e.to_string()))
+        // Use the derived Serialize on Machine itself, which skips runtime fields
+        serde_json::to_string(self).map_err(|e| Error::Serialization(e.to_string())) // Use correct variant
     }
 }
 

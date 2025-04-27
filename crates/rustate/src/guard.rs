@@ -38,7 +38,7 @@ pub type AsyncGuardPredicate<C, E> = Arc<
 /// **Serialization Note:** The `condition` function pointer itself is not serialized
 /// (due to `serde(skip)`). When deserializing a machine definition, guards must
 /// typically be re-associated based on their `name`.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 pub struct Guard<C = Context, E = Event>
 where
     C: Send + Sync + 'static + Default + Clone + fmt::Debug,
