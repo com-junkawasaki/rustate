@@ -120,9 +120,15 @@
 //! - 深い階層構造を作成すると、デバッグや理解が難しくなる場合があります
 //! - マルチスレッド環境では、子ステートマシンへのアクセスに対する同期処理が必要です
 
-use crate::integration::error::Result;
-use crate::{IntoEvent, Machine};
+use crate::integration::error::Result as IntegrationResult;
+use crate::{
+    Action, Context, Error as StateError, Event, EventTrait, IntoEvent, Machine, MachineBuilder,
+    State, Transition, TransitionType,
+};
+use futures::future::BoxFuture;
 use futures::FutureExt;
+use serde::{Deserialize, Serialize};
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
@@ -130,9 +136,15 @@ use tokio::sync::{Mutex, RwLock};
 ///
 /// このトレイトは親ステートマシンから子ステートマシンへの
 /// 操作を抽象化するために使用されます。
+#[async_trait::async_trait]
 pub trait ChildMachine: Send + Sync {
     /// 親からのイベントを処理
-    async fn handle_parent_event<E: IntoEvent + Send>(&mut self, event: E) -> Result<bool>;
+    fn handle_parent_event<'a,
+        E: IntoEvent + Send + 'a
+    >(
+        &'a mut self,
+        event: E,
+    ) -> Pin<Box<dyn Future<Output = IntegrationResult<bool>> + Send + 'a>>;
 
     /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool;
@@ -144,60 +156,73 @@ pub trait ChildMachine: Send + Sync {
     fn current_states(&self) -> Vec<String>;
 
     /// 子ステートマシンのJSON表現を取得
-    fn to_json(&self) -> Result<String>;
+    fn to_json(&self) -> IntegrationResult<String>;
 }
 
 /// デフォルトの子ステートマシン実装
 pub struct DefaultChildMachine {
     /// 内部ステートマシン
-    machine: Arc<Mutex<Machine>>,
-    /// 最終状態ID
-    final_state_id: String,
+    machine: Arc<Mutex<Machine<Context, Event, String>>>,
 }
 
 impl DefaultChildMachine {
     /// 新しい子ステートマシンを作成
-    pub fn new(machine: Machine, final_state_id: impl Into<String>) -> Self {
-        Self {
-            machine: Arc::new(Mutex::new(machine)),
-            final_state_id: final_state_id.into(),
-        }
+    pub fn new(machine: Machine<Context, Event, String>) -> Self {
+        Self { machine: Arc::new(Mutex::new(machine)) }
     }
 
     /// 内部ステートマシンへの参照を取得
-    pub async fn machine_locked(&self) -> tokio::sync::MutexGuard<'_, Machine> {
+    pub async fn machine_locked(&self) -> tokio::sync::MutexGuard<'_, Machine<Context, Event, String>> {
         self.machine.lock().await
     }
 }
 
 #[async_trait::async_trait]
 impl ChildMachine for DefaultChildMachine {
-    async fn handle_parent_event<E: IntoEvent + Send>(
-        &mut self,
+    /// 親からのイベントを処理
+    fn handle_parent_event<'a,
+        E: IntoEvent + Send + 'a
+    >(
+        &'a mut self,
         event: E,
-    ) -> Result<bool> {
-        self.machine.send(event.into_event()).await.map_err(Into::into)
+    ) -> Pin<Box<dyn Future<Output = IntegrationResult<bool>> + Send + 'a>> {
+        async move {
+            let mut machine_guard = self.machine.lock().await;
+            machine_guard.send(event.into_event()).await.map_err(Into::into)
+        }
+        .boxed()
     }
 
+    /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool {
-        self.machine.blocking_lock().is_in(&self.final_state_id)
+        futures::executor::block_on(async {
+            let guard = self.machine.lock().await;
+            guard.is_in(&"final".to_string())
+        })
     }
 
+    /// 特定の状態にあるか確認
     fn is_in_state(&self, state_id: &str) -> bool {
-        self.machine.blocking_lock().is_in(&state_id.to_string())
+        futures::executor::block_on(async {
+            let guard = self.machine.lock().await;
+            guard.is_in(&state_id.to_string())
+        })
     }
 
+    /// 現在の状態IDのリストを取得
     fn current_states(&self) -> Vec<String> {
-        self.machine
-            .blocking_lock()
-            .current_states
-            .iter()
-            .cloned()
-            .collect()
+        futures::executor::block_on(async {
+            let guard = self.machine.lock().await;
+            guard.current_states.iter().cloned().collect()
+        })
     }
 
-    fn to_json(&self) -> Result<String> {
-        Ok(self.machine.blocking_lock().to_json()?)
+    /// 子ステートマシンのJSON表現を取得
+    fn to_json(&self) -> IntegrationResult<String> {
+        futures::executor::block_on(async {
+            let guard = self.machine.lock().await;
+            Ok(guard.to_json()?)
+        })
     }
 }
 
@@ -329,7 +354,7 @@ pub mod coordination {
     #[tokio::test]
     async fn test_hierarchical_integration() -> crate::Result<()> {
         let child_machine = create_child_machine();
-        let child_wrapper = DefaultChildMachine::new(child_machine, "final".to_string());
+        let child_wrapper = DefaultChildMachine::new(child_machine);
         let child_ref = Arc::new(Mutex::new(child_wrapper)); // Wrap in Mutex for async access in test
 
         let mut parent_machine = create_parent_machine(child_ref.clone());

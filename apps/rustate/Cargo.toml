@@ -2,11 +2,11 @@
 name = "rustate"
 version = "0.3.0"
 edition = "2021"
-authors = ["junkawasaki"]
+authors = ["jun784"]
 description = "A Rust library for creating and managing state machines, inspired by XState."
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/junkawasaki/rustate"
-readme = "../../README.md"
+license = "MIT"
+repository = "https://github.com/jun784/rustate"
+readme = "README.md"
 keywords = ["statemachine", "statechart", "xstate", "actor", "async"]
 categories = ["concurrency", "asynchronous", "data-structures"]
 
@@ -31,11 +31,8 @@ getrandom = { version = "0.2", features = ["js"], optional = true }
 
 proptest = { version = "1.0", optional = true }
 
-rustate-macros = { path = "../rustate-macros", optional = true }
-
 [features]
-default = ["mbt", "integration", "macros"]
-macros = ["dep:rustate-macros"]
+default = ["mbt", "integration"]
 wasm = [
     "dep:wasm-bindgen",
     "dep:web-sys",
