@@ -466,17 +466,19 @@ where
                 }
             } else if state.state_type == StateType::Parallel {
                 // Enter all child regions concurrently
-                let child_states = state.children.clone(); 
+                let child_states = state.children.clone();
                 let results: Vec<_> = stream::iter(child_states)
-                    .map(|child_id_str: String| { // Explicitly type the closure argument
+                    .map(|child_id_str: String| {
+                        // Explicitly type the closure argument
                         let context_clone = context.clone();
                         let event_clone = event.cloned();
                         async move {
                             let child_id_s = S::from(child_id_str); // Convert String child ID to S
-                            self.enter_state(&child_id_s, event_clone.as_ref(), context_clone).await
+                            self.enter_state(&child_id_s, event_clone.as_ref(), context_clone)
+                                .await
                         }
                     })
-                    .buffer_unordered(state.children.len()) 
+                    .buffer_unordered(state.children.len())
                     .collect()
                     .await;
 
@@ -740,8 +742,8 @@ where
             context: self.context.blocking_read().clone(), // Clone context data
             history: self.history.clone(),
         };
-        serde_json::to_string(&serializable_state)
-            .map_err(|e| Error::Serialization(e.to_string())) // Use correct variant
+        serde_json::to_string(&serializable_state).map_err(|e| Error::Serialization(e.to_string()))
+        // Use correct variant
     }
 
     /// Serializes the machine's *definition* (states, transitions) to JSON.
@@ -749,7 +751,8 @@ where
     /// Errors during serialization are wrapped in `Error::Serialization`.
     pub fn serialize_definition(&self) -> Result<String> {
         // Use the derived Serialize on Machine itself, which skips runtime fields
-        serde_json::to_string(self).map_err(|e| Error::Serialization(e.to_string())) // Use correct variant
+        serde_json::to_string(self).map_err(|e| Error::Serialization(e.to_string()))
+        // Use correct variant
     }
 }
 

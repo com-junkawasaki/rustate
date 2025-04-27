@@ -33,13 +33,13 @@ log = "0.4"
 rustate_macros = { path = "../rustate_macros" }
 
 [features]
-default = []
-wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook"]
+default = ["mbt", "integration"]
+wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook", "js-sys"]
 integration = []
-integration_async = ["integration", "tokio/sync"]
-codegen = []
+integration_async = ["tokio/rt-multi-thread"]
+codegen = ["dep:syn", "dep:quote", "dep:serde_json"]
 mbt = []
-property-testing = ["mbt"]
+property-testing = ["dep:proptest"]
 
 [dev-dependencies]
 proptest = "1.0"

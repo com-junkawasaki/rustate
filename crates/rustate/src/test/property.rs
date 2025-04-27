@@ -1,6 +1,6 @@
 use crate::{Context, EventTrait, IntoEvent, Machine, Result, StateTrait};
 use proptest::strategy::{BoxedStrategy, Strategy};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 pub trait StateMachineProperty<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     /// 検証条件を評価する
     fn evaluate(&self, machine: &Machine<S, E>) -> bool;
@@ -37,7 +37,7 @@ pub struct PropertyTestResult {
 pub struct GivenBuilder<S, E, F>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
     F: Fn(&Machine<S, E>) -> bool + Clone + 'static,
 {
     name: String,
@@ -50,7 +50,7 @@ where
 pub struct WhenBuilder<S, E, F, G>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
     F: Fn(&Machine<S, E>) -> bool + Clone + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + Clone + 'static,
 {
@@ -66,7 +66,7 @@ where
 pub struct StateMachinePropertyImpl<S, E, F, G, H>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
     F: Fn(&Machine<S, E>) -> bool + Clone + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + Clone + 'static,
     H: Fn(&Machine<S, E>) -> bool + Clone + 'static,
@@ -82,7 +82,7 @@ where
 impl<S, E> Machine<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     /// 状態マシンのプロパティを定義するためのビルダーを開始
     pub fn property(name: impl Into<String>) -> PropertyBuilder<S, E> {
@@ -98,7 +98,7 @@ where
 pub struct PropertyBuilder<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     name: String,
     description: Option<String>,
@@ -108,7 +108,7 @@ where
 impl<S, E> PropertyBuilder<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     /// プロパティの説明を設定
     pub fn description(mut self, description: impl Into<String>) -> Self {
@@ -133,7 +133,7 @@ where
 impl<S, E, F> GivenBuilder<S, E, F>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
     F: Fn(&Machine<S, E>) -> bool + Clone + 'static,
 {
     /// アクションを設定
@@ -154,7 +154,7 @@ where
 impl<S, E, F, G> WhenBuilder<S, E, F, G>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
     F: Fn(&Machine<S, E>) -> bool + Clone + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + Clone + 'static,
 {
@@ -177,7 +177,7 @@ where
 impl<S, E, F, G, H> StateMachineProperty<S, E> for StateMachinePropertyImpl<S, E, F, G, H>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
     F: Fn(&Machine<S, E>) -> bool + Clone + 'static,
     G: Fn(&mut Machine<S, E>) -> Result<S> + Clone + 'static,
     H: Fn(&Machine<S, E>) -> bool + Clone + 'static,
@@ -218,7 +218,7 @@ where
 pub struct EventSequenceStrategyBuilder<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     valid_events: Vec<E>,
     min_length: usize,
@@ -229,7 +229,7 @@ where
 impl<S, E> EventSequenceStrategyBuilder<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     /// 新しいビルダーを作成
     pub fn new() -> Self {
@@ -276,7 +276,7 @@ where
 pub struct PropertyTestRunner<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     machine: Machine<S, E>,
 }
@@ -284,7 +284,7 @@ where
 impl<S, E> PropertyTestRunner<S, E>
 where
     S: StateTrait + Clone + Debug + Default + 'static,
-    E: EventTrait + Clone + Debug + IntoEvent + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + 'static + Serialize + DeserializeOwned,
 {
     /// 新しいテストランナーを作成
     pub fn new(machine: Machine<S, E>) -> Self {

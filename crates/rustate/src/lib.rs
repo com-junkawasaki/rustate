@@ -196,7 +196,7 @@ pub use guard::{Guard, IntoGuard};
 pub use machine::{Machine, MachineBuilder, MachineSnapshot};
 /// Represents a state within the machine.
 /// See [`state::State`], [`state::StateTrait`], and [`state::StateType`].
-pub use state::{State, StateCollection, StateTrait, StateType, HistoryType};
+pub use state::{HistoryType, State, StateCollection, StateTrait, StateType};
 /// Represents a transition between states.
 /// See [`transition::Transition`].
 pub use transition::{Transition, TransitionType};
@@ -204,7 +204,7 @@ pub use transition::{Transition, TransitionType};
 // Actor model related re-exports
 /// Encapsulates the logic of an actor (often a state machine).
 /// See [`actor::ActorLogic`].
-pub use actor::{ActorRefImpl, ActorStatus, Snapshot as ActorSnapshot, create_actor, ActorLogic};
+pub use actor::{create_actor, ActorLogic, ActorRefImpl, ActorStatus, Snapshot as ActorSnapshot};
 /// Represents the possible statuses of an actor.
 /// See [`actor::ActorStatus`].
 // pub use actor::ActorStatus; // Removed duplicate export
@@ -259,21 +259,31 @@ pub mod prelude {
     //! This prelude is designed to be imported with `use rustate::prelude::*;`
     //! to bring the most common types and traits into scope.
 
-    // Core components (always included)
-    pub use crate::serde_json;
-    pub use crate::machine::{
-        Action, ActionExt, Context, Data, Error as StateMachineError, Event, EventExt,
-        Result as StateMachineResult, State, StateExt, StateMachine, StateMachineBuilder,
-        StateMachineExt, StateMachineImpl, TickEvent, TimeoutEvent, Transition,
-        TransitionCondition, TransitionExt, TransitionGuard,
-    }; // Re-export common dependency (always included)
+    // Core components (always included) - Import from the public re-exports
+    pub use crate::{
+        Action, ActionType, Context, Error, Event, EventTrait, Guard, HistoryType, IntoAction,
+        IntoEvent, IntoGuard, Machine, MachineBuilder, MachineSnapshot, Result, State,
+        StateCollection, StateTrait, StateType, Transition, TransitionType,
+    };
+    // Traits from machine that might be useful (assuming they are public or re-exported appropriately)
+    // NOTE: These might need further review depending on the actual public API of `crate::machine`
+    // If `ActionExt`, `EventExt`, `StateExt` etc. are meant to be public, they should be
+    // re-exported explicitly outside the prelude first. For now, we comment them out
+    // to fix the immediate build errors.
+    // pub use crate::machine::{
+    //     ActionExt, EventExt, StateExt, StateMachine, StateMachineExt, StateMachineImpl,
+    //     TickEvent, TimeoutEvent, TransitionCondition, TransitionExt, TransitionGuard,
+    // };
+    // pub use crate::machine::Data; // If Data is a public type/trait in machine
+    pub use crate::serde_json; // Re-export common dependency (always included)
 
     // Conditional exports using separate `use` statements
     #[cfg(any(feature = "mbt", feature = "property-testing"))]
-    pub use crate::model_based::*;
+    pub use crate::test::*; // Use the correct path `test` instead of `model_based`
 
-    #[cfg(all(feature = "property-testing", not(feature = "mbt")))]
-    pub use crate::property_testing::*; // Assuming a separate module
+    #[cfg(feature = "property-testing")]
+    // No need for separate `property_testing` module if items are in `test`
+    // pub use crate::property_testing::*; // Assuming a separate module
 
     #[cfg(feature = "integration")]
     pub use crate::integration::{

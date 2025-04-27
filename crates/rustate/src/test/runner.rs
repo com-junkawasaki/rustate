@@ -1,7 +1,11 @@
 use super::generator::TestCase;
-use crate::{Error, Event, IntoEvent, Machine, Result};
-use serde::{Deserialize, Serialize};
+use crate::{Error, Event, IntoEvent, Machine, Result, StateTrait, Context, Error as StateError};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::HashSet;
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
 
 /// テスト実行結果を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -98,22 +102,39 @@ impl TestResults {
 
 /// テストを実行するランナー
 #[derive(Debug)]
-pub struct TestRunner<'a> {
-    /// 参照する状態マシン
-    machine: &'a Machine,
-    /// テスト中に訪問した状態
-    visited_states: HashSet<String>,
-    /// テスト中に訪問した遷移
-    visited_transitions: HashSet<String>,
+pub struct TestRunner<'a, S = String, E = Event, C = Context>
+where
+    S: StateTrait + Clone + Debug + Eq + Hash + Display + Send + Sync + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + Send + Sync + 'static,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
+{
+    machine: &'a mut Machine<C, E, S>,
+    results: TestResults,
+    coverage: HashMap<String, usize>,
+    _marker: PhantomData<(S, E, C)>,
 }
 
-impl<'a> TestRunner<'a> {
+impl<'a, S, E, C> TestRunner<'a, S, E, C>
+where
+    S: StateTrait + Clone + Debug + Eq + Hash + Display + Send + Sync + 'static,
+    E: EventTrait + Clone + Debug + IntoEvent + Send + Sync + 'static,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
+{
     /// 新しいテストランナーを作成
-    pub fn new(machine: &'a Machine) -> Self {
+    pub fn new(machine: &'a mut Machine<C, E, S>) -> Self {
         Self {
             machine,
-            visited_states: HashSet::new(),
-            visited_transitions: HashSet::new(),
+            results: TestResults {
+                results: Vec::new(),
+                coverage: CoverageReport {
+                    visited_states: HashSet::new(),
+                    visited_transitions: HashSet::new(),
+                    total_states: 0,
+                    total_transitions: 0,
+                },
+            },
+            coverage: HashMap::new(),
+            _marker: PhantomData,
         }
     }
 
@@ -148,7 +169,7 @@ impl<'a> TestRunner<'a> {
             .next()
             .cloned()
             .unwrap_or_default();
-        self.visited_states.insert(initial_state);
+        self.results.coverage.visited_states.insert(initial_state);
 
         // イベントを順番に送信
         let mut last_state = self
@@ -192,8 +213,8 @@ impl<'a> TestRunner<'a> {
                 .unwrap_or_default(); // Get the new state
 
             // 遷移を記録
-            self.visited_states.insert(new_state.clone());
-            self.visited_transitions.insert(format!(
+            self.results.coverage.visited_states.insert(new_state.clone());
+            self.results.coverage.visited_transitions.insert(format!(
                 "{} --{}--> {}",
                 current_state, event.event_type, new_state
             ));
@@ -238,19 +259,40 @@ impl<'a> TestRunner<'a> {
 
         // カバレッジレポートを作成
         let coverage = CoverageReport {
-            visited_states: self.visited_states.clone(),
-            visited_transitions: self.visited_transitions.clone(),
-            total_states: self.machine.states.len(),
-            total_transitions: self.machine.transitions.len(),
+            visited_states: self.results.coverage.visited_states.clone(),
+            visited_transitions: self.results.coverage.visited_transitions.clone(),
+            total_states: 0, // Placeholder
+            total_transitions: self.results.coverage.visited_transitions.len(),
         };
 
-        TestResults { results, coverage }
+        self.results.coverage = coverage;
+        self.results.results = results;
+        self.results
     }
 
     /// マシンを特定の状態に初期化する（シンプルな実装）
-    fn initialize_to_state(&self, _machine: &mut Machine, _target_state: &str) -> Result<()> {
+    fn initialize_to_state(&self, _machine: &mut Machine<C, E, S>, _target_state: &str) -> Result<()> {
         // TODO: Implement async state initialization if needed
         // This likely involves finding a path and sending events with await.
         Ok(())
+    }
+
+    pub fn generate_report(&self) -> CoverageReport {
+        let visited_states_count = self.coverage.len();
+        // FIXME: Find correct way to get total state count
+        // let total_states = self.machine.states.len();
+        let total_states = 0; // Placeholder
+        let coverage_percentage = if total_states > 0 {
+            (visited_states_count as f64 / total_states as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        CoverageReport {
+            visited_states: self.coverage.keys().cloned().collect(),
+            visited_transitions: self.results.coverage.visited_transitions.clone(),
+            total_states, // Use the placeholder
+            total_transitions: self.results.coverage.visited_transitions.len(),
+        }
     }
 }

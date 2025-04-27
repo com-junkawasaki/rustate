@@ -13,8 +13,12 @@ use crate::context::Context;
 use crate::error::{Result, StateError};
 use crate::event::{Event, EventTrait};
 use crate::state::{State, StateTrait};
+use crate::{EventData, StateMachine};
 use async_trait::async_trait;
+use js_sys::Promise;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::json; // Import json macro
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -23,12 +27,8 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn}; // Use tracing macros
 use uuid::Uuid;
-use serde_json::json; // Import json macro
-use crate::{EventData, StateMachine};
-use js_sys::Promise;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use serde::de::DeserializeOwned;
 
 // --- Actor Options ---
 
@@ -624,8 +624,8 @@ where
     {
         // Clone necessary parts: context needs read lock then clone
         let context_clone = context.blocking_read().clone(); // Use blocking read for sync fn
-        // State needs Clone trait
-        let state_clone = state.clone(); 
+                                                             // State needs Clone trait
+        let state_clone = state.clone();
         // Output needs Clone
         let output_clone = output.clone();
 
