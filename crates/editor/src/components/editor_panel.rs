@@ -10,7 +10,8 @@ pub struct EditorPanelProps {
 
 #[function_component(EditorPanel)]
 pub fn editor_panel() -> Html {
-    let editor_state = use_context::<UseReducerHandle<EditorState>>().expect("EditorState context not found");
+    let editor_state =
+        use_context::<UseReducerHandle<EditorState>>().expect("EditorState context not found");
     let json_text = use_state(String::new);
 
     let on_json_change = {

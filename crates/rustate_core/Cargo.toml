@@ -11,6 +11,23 @@ async-trait = "0.1"
 thiserror = "1.0"
 uuid = { workspace = true, features = ["v4"] }
 
+# Optional WASM dependencies
+wasm-bindgen = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true }
+getrandom = { version = "0.2", features = ["js"], optional = true }
+
 [dev-dependencies]
 # クレート固有の開発用依存関係
-rustate_macros = { path = "../rustate_macros" } 
+rustate_macros = { path = "../rustate_macros" }
+
+[features]
+default = []
+# Enable WASM-specific features and dependencies
+wasm = [
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+    "dep:console_error_panic_hook",
+    "dep:getrandom",
+    "uuid/js"
+] 

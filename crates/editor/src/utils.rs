@@ -148,13 +148,22 @@ pub fn machine_to_rust_code(machine: &EditorMachine) -> String {
                 }
             }
             StateType::Parallel => {
-                code.push_str(&format!("    let {} = State::new_parallel(\"{}\");\n", id, id));
+                code.push_str(&format!(
+                    "    let {} = State::new_parallel(\"{}\");\n",
+                    id, id
+                ));
             }
             StateType::History => {
-                code.push_str(&format!("    let {} = State::new_history(\"{}\");\n", id, id));
+                code.push_str(&format!(
+                    "    let {} = State::new_history(\"{}\");\n",
+                    id, id
+                ));
             }
             StateType::DeepHistory => {
-                code.push_str(&format!("    let {} = State::new_deep_history(\"{}\");\n", id, id));
+                code.push_str(&format!(
+                    "    let {} = State::new_deep_history(\"{}\");\n",
+                    id, id
+                ));
             }
         }
     }

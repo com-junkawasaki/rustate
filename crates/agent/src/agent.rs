@@ -300,7 +300,7 @@ where
     /// Executes a single step in the agent's decision-making process.
     pub async fn step(&mut self) -> Result<S> {
         // Get current state and decision first (immutable borrows)
-        let current_state = self.current_state()?;
+        let _current_state = self.current_state()?;
         let decision = self.make_decision().await?;
 
         // Clone episode data needed *before* applying decision
@@ -357,7 +357,7 @@ where
             // Check if the current state is already the goal before taking a step
             if self.is_goal_reached(&current_state)? {
                 // Ensure the episode is marked successful even if it starts at the goal
-                self.complete_episode(true).await?; 
+                self.complete_episode(true).await?;
                 return Ok(true);
             }
 
@@ -400,7 +400,8 @@ where
                 .unwrap_or_default()
         };
 
-        if let Some(ref _sm_ref) = self.machine_ref { // prefixed with _
+        if let Some(ref _sm_ref) = self.machine_ref {
+            // prefixed with _
             // TODO: Call transition method on SharedMachineRef if available
             // sm_ref.transition(event.into_event(), context).await?
             Err(AgentError::NotSupported(
@@ -476,25 +477,23 @@ where
         Ok(())
     }
 
-    /// Internal method to generate insights from an episode.
-    pub async fn generate_insights(&self, _episode: &Episode<S, E>) -> Result<Vec<Insight>> { // prefixed with _
-        // TODO: Verify Storage has get_trace and Policy has analyze_episode_trace
-        // let trace = self.storage.get_trace(&episode.id).await?;
-        // let insights = self.policy.analyze_episode_trace(&trace).await?;
-        Ok(vec![]) // Placeholder
+    /// Helper to generate insights (example implementation).
+    pub async fn generate_insights(&self, _episode: &Episode<S, E>) -> Result<Vec<Insight>> {
+        // Placeholder implementation
+        Ok(Vec::new())
     }
 
     /// Applies a decision by sending the event to the state machine.
     async fn apply_decision(&self, decision: &Decision<E>) -> Result<S> {
-        // Use process_event to handle the event sending logic
-        self.process_event(decision.event.clone()).await
+        let event_to_send = decision.action.clone(); // Assuming Decision.action is the event
+        self.process_event(event_to_send).await
     }
 
-    /// Checks if the current state matches the goal state.
+    /// Checks if the current state matches the goal state of the active episode.
     fn is_goal_reached(&self, current_state: &S) -> Result<bool> {
         if let Some(episode) = &self.current_episode {
-            // Access goal field directly
-            Ok(episode.goal.target_state.id() == current_state.id())
+            // Compare current state with the target state in the Goal struct
+            Ok(current_state == &episode.goal.target_state)
         } else {
             Err(AgentError::NoActiveEpisode)
         }

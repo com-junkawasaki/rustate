@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
-use uuid;
+use uuid as uuid_crate;
 
 /// 観測データは、状態遷移に関する情報を記録します。
 /// 前の状態、イベント、結果の状態、メタデータなどを含みます。
@@ -41,7 +41,7 @@ where
     /// 新しい観測を作成します
     pub fn new(previous_state: S, event: E, next_state: S) -> Self {
         Self {
-            id: format!("obs-{}", uuid::Uuid::new_v4()),
+            id: format!("obs-{}", uuid_crate::Uuid::new_v4()),
             previous_state,
             event,
             next_state,

@@ -1,5 +1,5 @@
 [package]
-name = "rustate-demo"
+name = "demo"
 version = "0.1.0"
 edition = "2021"
 description = "A demo page for Rustate state machines"
@@ -20,7 +20,7 @@ name = "rustate-demo"
 path = "src/main.rs"
 
 [dependencies]
-rustate = { path = "../rustate", features = ["wasm"] }
+rustate_core = { path = "../rustate_core", features = ["wasm"] }
 yew = { version = "0.21", features = ["csr"] }
 wasm-bindgen.workspace = true
 js-sys.workspace = true
@@ -32,4 +32,4 @@ wasm-bindgen-futures = "0.4"
 gloo = "0.10"
 log = "0.4"
 wasm-logger = "0.2"
-uuid = { workspace = true } 
+uuid = { workspace = true }

@@ -1,5 +1,5 @@
 use gloo::console::log;
-use rustate::{Action, ActionType, Machine, MachineBuilder, State, StateTrait, Transition};
+use rustate_core::{Action, ActionType, Machine, MachineBuilder, State, StateTrait, Transition};
 use std::cell::RefCell;
 use std::rc::Rc;
 use yew::prelude::*;

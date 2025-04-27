@@ -57,9 +57,7 @@ pub fn canvas(props: &CanvasProps) -> Html {
             .states
             .iter()
             .map(|(id, state)| {
-                let is_selected = editor_state
-                    .selected_element
-                    .as_ref() == Some(id);
+                let is_selected = editor_state.selected_element.as_ref() == Some(id);
 
                 let state_class = if is_selected {
                     "state state-selected"
@@ -111,9 +109,7 @@ pub fn canvas(props: &CanvasProps) -> Html {
             .iter()
             .map(|(id, transition)| {
                 let transition_id = id.to_string();
-                let is_selected = editor_state
-                    .selected_element
-                    .as_ref() == Some(&transition_id);
+                let is_selected = editor_state.selected_element.as_ref() == Some(&transition_id);
 
                 let transition_class = if is_selected {
                     "transition transition-selected"
