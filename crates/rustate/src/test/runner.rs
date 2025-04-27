@@ -3,11 +3,11 @@ use crate::{
     Context, Error, Error as StateError, Event, EventTrait, IntoEvent, Machine, Result, StateTrait,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::marker::{Send, Sync, PhantomData};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::marker::{PhantomData, Send, Sync};
 
 /// テスト実行結果を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -160,7 +160,7 @@ where
 
     async fn run_test_case(&self, test_case: &TestCase) -> Result<(), Error> {
         let mut machine = self.machine.clone();
-        
+
         {
             let mut context_guard = machine.context.write().await;
             *context_guard = C::default();
@@ -168,7 +168,7 @@ where
 
         let mut visited_states: HashSet<S> = HashSet::new();
         if let Some(state) = machine.current_states.iter().next().cloned() {
-             visited_states.insert(state);
+            visited_states.insert(state);
         }
 
         for event in &test_case.events {
@@ -178,7 +178,7 @@ where
                 return Err(e.into());
             }
             if let Some(state) = machine.current_states.iter().next().cloned() {
-                 visited_states.insert(state);
+                visited_states.insert(state);
             }
         }
 
@@ -189,21 +189,18 @@ where
                 if final_state.to_string() != test_case.expected_state {
                     return Err(Error::ActionFailed(format!(
                         "Test case '{}': Expected final state '{}', but got '{}'",
-                        test_case.name,
-                        test_case.expected_state,
-                        final_state              
+                        test_case.name, test_case.expected_state, final_state
                     )));
                 }
             }
             None => {
-                 return Err(Error::ActionFailed(format!(
-                     "Test case '{}': Machine ended with no current state, expected '{}'",
-                     test_case.name,
-                     test_case.expected_state
-                 )));
+                return Err(Error::ActionFailed(format!(
+                    "Test case '{}': Machine ended with no current state, expected '{}'",
+                    test_case.name, test_case.expected_state
+                )));
             }
         }
-        
+
         Ok(())
     }
 

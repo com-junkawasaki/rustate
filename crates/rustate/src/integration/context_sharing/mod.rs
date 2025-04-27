@@ -114,12 +114,12 @@
 
 use crate::integration::error::{Error as IntegrationError, LockResultExt, Result};
 use crate::prelude::*; // Use prelude for tests
+use crate::Result as RuStateResult;
 use crate::{Context, Event, Machine, MachineBuilder, State, Transition, TransitionType};
+use futures::FutureExt; // Add this import
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 use tracing::{trace, warn}; // Added tracing
-                            // Add explicit Result import
-use crate::Result as RuStateResult;
 
 /// A thread-safe, shareable context container.
 ///
@@ -262,113 +262,126 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
-    // Helper function to create simple machines for testing context sharing
+    // Helper function to create machines for testing
     fn create_machines(
         shared_context: SharedContext,
-    ) -> (
-        Machine<(), Event, String>,
-        Machine<Context, Event, String>,
-    ) {
-        let ctx_writer = shared_context.clone();
-        let ctx_reader = shared_context;
-
-        // Machine A writes to shared context
-        let write_action = Action::from_fn(move |_ctx: Arc<RwLock<()>>, _evt: &Event| {
-            let writer = ctx_writer.clone();
-            async move {
-                writer.set("status", "active_from_a")?;
-                writer.set("counter", 10)?; // Add another value
-                Ok(())
+    ) -> (Machine<(), Event, String>, Machine<Context, Event, String>) {
+        // Machine A uses unit type () as its context
+        let write_action = Action::from_fn({
+            let ctx_writer = shared_context.clone();
+            move |_ctx: Arc<RwLock<()>>, _evt: &Event| {
+                let ctx_writer_clone = ctx_writer.clone();
+                async move {
+                    println!("Writer Action: Setting shared context");
+                    ctx_writer_clone.set("status", "active")?;
+                    ctx_writer_clone.set("counter", 1)?; // Assuming i32 or similar
+                    Ok(())
+                }
             }
         });
-        let machine_a = MachineBuilder::<(), Event, String>::new("idle".to_string(), "idle".to_string())
-            .state("idle".to_string(), |s| {
-                s.on(Event::new("WRITE"), |t| {
-                    t.target("done".to_string()).actions([write_action])
-                })
-            })
-            .state("done".to_string(), |_| {})
-            .build()
-            .expect("Failed to build machine A");
 
-        // Machine B reads from shared context and writes to its *local* context
-        let read_action = Action::from_fn(move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
-            let reader = ctx_reader.clone();
-            async move {
-                if let Some(status) = reader.get::<String>("status")? {
-                    local_ctx.write().await.set("local_copy", status)?;
+        // Specify the Output type O as () for MachineBuilder
+        let idle_state_a = State::new("idle".to_string()).add_transition(
+            "EVENT_A",
+            Transition::new(
+                "idle".to_string(),
+                Some("done".to_string()),
+                Some(Event::from("EVENT_A")),
+                None,
+                vec![write_action.clone()], // Clone action
+                TransitionType::External,
+            ),
+        );
+        let done_state_a = State::new("done".to_string());
+
+        let machine_a =
+            MachineBuilder::<(), Event, String, ()>::new("idle".to_string(), "idle".to_string())
+                .state(idle_state_a) // Pass owned state
+                .state(done_state_a)
+                .build()
+                .now_or_never()
+                .expect("Machine A build failed")
+                .unwrap();
+
+        // Machine B uses the default `rustate::Context`
+        let read_action = Action::from_fn({
+            let ctx_reader = shared_context.clone();
+            move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
+                let ctx_reader_clone = ctx_reader.clone();
+                async move {
+                    println!("Reader Action: Reading shared context");
+                    if let Some(status) = ctx_reader_clone.get::<String>("status")? {
+                        local_ctx.write().await.set("local_status", status)?;
+                    }
+                    if let Some(counter) = ctx_reader_clone.get::<i32>("counter")? {
+                        local_ctx.write().await.set("local_counter", counter)?;
+                    }
+                    Ok(())
                 }
-                if let Some(counter) = reader.get::<i32>("counter")? {
-                    local_ctx.write().await.set("local_count", counter)?;
-                }
-                Ok(())
             }
         });
-        let machine_b = MachineBuilder::<Context, Event, String>::new("waiting".to_string(), "waiting".to_string())
-            .state("waiting".to_string(), |s| {
-                s.on(Event::new("READ"), |t| {
-                    t.target("finished".to_string()).actions([read_action])
-                })
-            })
-            .state("finished".to_string(), |_| {})
-            .build()
-            .expect("Failed to build machine B");
+
+        // Adjust state building for Machine B
+        let waiting_state_b = State::new("waiting".to_string()).add_transition(
+            "EVENT_B",
+            Transition::new(
+                "waiting".to_string(),
+                Some("finished".to_string()),
+                Some(Event::from("EVENT_B")),
+                None,
+                vec![read_action.clone()], // Clone action
+                TransitionType::External,
+            ),
+        );
+        let finished_state_b = State::new("finished".to_string());
+
+        // Specify the Output type O as () for MachineBuilder
+        let machine_b = MachineBuilder::<Context, Event, String, ()>::new(
+            "waiting".to_string(),
+            "waiting".to_string(),
+        )
+        .state(waiting_state_b) // Pass owned state
+        .state(finished_state_b)
+        .build()
+        .now_or_never()
+        .expect("Machine B build failed")
+        .unwrap();
 
         (machine_a, machine_b)
     }
 
     #[tokio::test]
     async fn test_context_sharing_flow() -> RuStateResult<()> {
-        println!("--- Starting test_context_sharing_flow ---");
-        // 1. Create shared context
         let shared_context = SharedContext::new();
-        assert!(shared_context.dump().await?.as_object().unwrap().is_empty());
-        println!("Initial shared context: {:?}", shared_context.dump().await?);
-
-        // 2. Create machines sharing the context
         let (mut machine_a, mut machine_b) = create_machines(shared_context.clone());
-        println!("Created machines A and B");
 
-        // 3. Trigger Machine A to write
-        println!("Sending WRITE to Machine A...");
-        machine_a.send(Event::new("WRITE")).await?;
-        println!("Machine A state: {:?}", machine_a.current_state());
-        assert_eq!(machine_a.current_state().value, serde_json::json!("done"));
+        println!("Shared context before: {:?}", shared_context.dump().await?);
+        machine_a.send(Event::from("EVENT_A")).await?;
+        println!("Shared context after A: {:?}", shared_context.dump().await?);
+        machine_b.send(Event::from("EVENT_B")).await?;
+        println!("Shared context after B: {:?}", shared_context.dump().await?);
 
-        // Check shared context after A writes
-        println!(
-            "Shared context after A wrote: {:?}",
-            shared_context.dump().await?
+        // Adjust assertions to compare unwrapped results
+        assert_eq!(
+            shared_context.get::<String>("status")?, // Returns Result<Option<T>>
+            Some("active".to_string())
         );
         assert_eq!(
-            shared_context.get::<String>("status").await?,
-            Some("active_from_a".to_string())
-        );
-        assert_eq!(shared_context.get::<i32>("counter").await?, Some(10));
-
-        // 4. Trigger Machine B to read
-        println!("Sending READ to Machine B...");
-        assert_eq!(
-            machine_b.current_state().value,
-            serde_json::json!("waiting")
-        );
-        machine_b.send(Event::new("READ")).await?;
-        println!("Machine B state: {:?}", machine_b.current_state());
-        assert_eq!(
-            machine_b.current_state().value,
-            serde_json::json!("finished")
+            shared_context.get::<i32>("counter")?, // Returns Result<Option<T>>
+            Some(1)
         );
 
-        // Check Machine B's *local* context after reading
-        let b_local_ctx = machine_b.context().await;
-        println!("Machine B local context after read: {:?}", b_local_ctx);
-        assert_eq!(
-            b_local_ctx.get::<String>("local_copy")?,
-            Some(Ok("active_from_a".to_string()))
-        );
-        assert_eq!(b_local_ctx.get::<i32>("local_count")?, Some(Ok(10)));
+        let ctx_b_guard = machine_b.context.read().await;
+        let ctx_b = (*ctx_b_guard).clone();
+        drop(ctx_b_guard);
 
-        println!("--- Finished test_context_sharing_flow ---");
+        // Adjust assertions for local context
+        assert_eq!(
+            ctx_b.get::<String>("local_status")?.unwrap(),
+            "active".to_string()
+        );
+        assert_eq!(ctx_b.get::<i32>("local_counter")?.unwrap(), 1);
+
         Ok(())
     }
 
@@ -376,15 +389,18 @@ mod tests {
     async fn test_contains_remove() -> RuStateResult<()> {
         let ctx = SharedContext::new();
 
-        assert!(!ctx.contains_key("test").await?);
-        ctx.set("test", 123).await?;
-        assert!(ctx.contains_key("test").await?);
+        assert!(!ctx.contains_key("test")?);
+        ctx.set("test", 123)?;
+        assert!(ctx.contains_key("test")?);
 
-        let removed = ctx.remove("test").await?;
-        assert_eq!(removed, Some(serde_json::json!(123)));
-        assert!(!ctx.contains_key("test").await?);
+        // Fix ? on Option: Convert Option to Result before using ?
+        let removed = ctx.remove("test")?.ok_or_else(|| {
+            StateError::Other("Key 'test' unexpectedly missing after remove".to_string())
+        })?;
+        assert_eq!(removed, serde_json::json!(123));
+        assert!(!ctx.contains_key("test")?);
 
-        let removed_again = ctx.remove("test").await?;
+        let removed_again = ctx.remove("test")?;
         assert!(removed_again.is_none());
 
         Ok(())

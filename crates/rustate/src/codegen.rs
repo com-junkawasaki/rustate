@@ -13,18 +13,17 @@ use crate::{
     event::{Event, EventTrait, IntoEvent},
     guard::Guard,
     machine::MachineBuilder,
-    Machine,
     state::{State, StateTrait},
     transition::{Transition, TransitionType},
-    Error,
+    Error, Machine,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
 use std::fmt::Debug;
 use std::fmt::Display;
+use std::fs::File;
 use std::hash::Hash;
+use std::io::{Read, Write};
+use std::path::Path;
 
 // Conditionally import items needed for specific features
 #[cfg(feature = "codegen")]
@@ -371,11 +370,32 @@ fn generate_grpc_code<S, E, C>(machine: &Machine<S, E, C>) -> Result<String> {
 
 /// Generates Rust code for the state machine definition.
 pub fn generate_machine_code<
-    S: StateTrait + Display + Clone + Eq + Hash + Send + Sync + 'static + From<String> + Serialize + DeserializeOwned,
-    E: EventTrait + Clone + Eq + Hash + Send + Sync + 'static + Serialize + DeserializeOwned + Debug + IntoEvent,
+    S: StateTrait
+        + Display
+        + Clone
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + From<String>
+        + Serialize
+        + DeserializeOwned,
+    E: EventTrait
+        + Clone
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + DeserializeOwned
+        + Debug
+        + IntoEvent,
     C: Send + Sync + Clone + 'static + Serialize + Default + Debug + DeserializeOwned,
     O: Default + Debug + Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
->( // Specify generic parameters here
+>(
+    // Specify generic parameters here
     machine_name: &str,
     builder: &mut crate::MachineBuilder<C, E, S, O>,
     initial_state: &S,
@@ -388,7 +408,8 @@ pub fn generate_machine_struct_code<
     S: StateTrait + Display + Clone + Eq + Hash + Send + Sync + 'static + From<String> + Serialize,
     E: EventTrait + Clone + Eq + Hash + Send + Sync + 'static + Serialize + DeserializeOwned + Debug,
     C: Clone + Debug + Default + Send + Sync + 'static + Serialize,
->( // Specify generics
+>(
+    // Specify generics
     machine_name: &str,
     states: &[State<S, C, E>],
     // ... other args
@@ -411,20 +432,47 @@ pub fn generate_context_struct_code<C: Debug>(context_fields: &[(String, String)
     "".to_string()
 }
 
-pub fn generate_action_enum_code<C, E>(
-    actions: &[(String, Action<C, E>)],
-) -> String
+pub fn generate_action_enum_code<C, E>(actions: &[(String, Action<C, E>)]) -> String
 where
     C: Clone + Debug + Default + Send + Sync + 'static + Serialize,
-    E: EventTrait + Clone + Eq + Hash + Send + Sync + 'static + Serialize + DeserializeOwned + Debug,
+    E: EventTrait
+        + Clone
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + DeserializeOwned
+        + Debug,
 {
     // ... implementation ...
     "".to_string()
 }
 
 pub fn generate_builder_code<
-    S: StateTrait + Display + Clone + Eq + Hash + Send + Sync + 'static + From<String> + Serialize + DeserializeOwned,
-    E: EventTrait + Clone + Eq + Hash + Send + Sync + 'static + Serialize + DeserializeOwned + Debug + IntoEvent,
+    S: StateTrait
+        + Display
+        + Clone
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + From<String>
+        + Serialize
+        + DeserializeOwned,
+    E: EventTrait
+        + Clone
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Serialize
+        + DeserializeOwned
+        + Debug
+        + IntoEvent,
     C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
     O: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
 >(

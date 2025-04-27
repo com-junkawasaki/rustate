@@ -197,35 +197,37 @@ mod tests {
                 // FIXME: Proper Result handling needed
             }
         });
-        let clear_maintenance = Action::from_fn(|ctx, _evt| {
-            async move {
-                ctx.write()
-                    .await
+        let clear_maintenance =
+            Action::from_fn(|ctx: Arc<RwLock<Context>>, _evt: &Event| async move {
+                let mut context = ctx.write().await;
+                context
                     .set("maintenance", false)
-                    .map_err(|e| Error::Context(e.to_string()))
-                // FIXME: Proper Result handling needed
-            }
-        });
+                    .map_err(|e| Error::ContextError(e.to_string()))?
+            });
 
         // Define transitions with full arguments and String::from()
         let green_to_yellow = Transition::new(
-            String::from("green"),           // source
-            Some(String::from("yellow")),    // target
-            Some(Event::new("TIMER", None)), // event
-            Some(is_timer_expired.clone()),  // guard
-            vec![reset_timer.clone()],       // actions
-            TransitionType::External,        // type
+            String::from("green"),         // source
+            Some(String::from("yellow")),  // target
+            Some(Event::from("TIMER")),    // Use Event::from, not Event::new
+            None,                          // guard
+            vec![increment_timer.clone()], // actions
+            TransitionType::External,      // type
         );
         let yellow_to_red = Transition::new(
             String::from("yellow"),
             Some(String::from("red")),
-            Some(Event::new("TIMER", None)),
-            Some(is_timer_expired.clone()), // Guard was missing
-            vec![reset_timer.clone()], // Action should be reset_timer? increment_timer was used before
+            Some(Event::from("TIMER")), // Use Event::from, not Event::new
+            None,
+            vec![increment_timer.clone()],
             TransitionType::External,
         );
         let red_to_green = Transition::new(
             String::from("red"),
+            Some(String::from("green")), // Back to green
+            Some(Event::from("TIMER")),  // Use Event::from, not Event::new
+            None,
+            vec![increment_timer.clone()],
             Some(String::from("green")),
             Some(Event::new("TIMER", None)),
             Some(is_timer_expired.clone()), // Guard was missing

@@ -212,3 +212,21 @@ impl From<io::Error> for StateError {
         StateError::IoError(err.to_string())
     }
 }
+
+// Add From implementation for integration::error::Error
+impl From<crate::integration::error::Error> for StateError {
+    fn from(err: crate::integration::error::Error) -> Self {
+        // Map integration errors to appropriate StateError variants
+        // Using ExternalError as a general catch-all for now
+        match err {
+            crate::integration::error::Error::StateError(e) => e, // Unwrap if it's already a StateError
+            crate::integration::error::Error::JsonError(e) => {
+                StateError::Serialization(e.to_string())
+            } // Or Deserialization? Use general for now.
+            crate::integration::error::Error::LockError => {
+                StateError::ConcurrencyError("Shared context lock poisoned".to_string())
+            }
+            crate::integration::error::Error::Other(s) => StateError::ExternalError(s),
+        }
+    }
+}
