@@ -158,7 +158,7 @@ where
     /// Execute this transition's actions
     pub async fn execute_actions(&self, context: Arc<RwLock<C>>, event: &E) -> Result<()> {
         for action in &self.actions {
-            action.execute(context.clone(), event).await;
+            let _ = action.execute(context.clone(), event).await;
         }
         Ok(())
     }
@@ -218,28 +218,14 @@ pub enum TransitionType {
     Internal, // Stays within the source state, only executes actions
 }
 
-trait TransitionTrait<C, E> {
-    fn is_enabled(&self, context: &C, event: &E) -> bool;
-    async fn execute_actions(&self, context: Arc<RwLock<C>>, event: &E) -> Result<()>;
-}
-
-impl<S, C, E> TransitionTrait<C, E> for Transition<S, C, E>
+impl<C, E> Transition<String, C, E>
 where
-    S: StateTrait + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + Default + 'static + Debug,
+    C: Clone + Send + Sync + 'static + Default + Debug,
     E: EventTrait + Send + Sync + 'static + Clone + Eq + fmt::Debug + Serialize + DeserializeOwned,
 {
-    /// Check if the transition guard allows the transition (synchronous)
-    fn is_enabled(&self, context: &C, event: &E) -> bool {
+    pub fn check(&self, context: &C, event: &E) -> bool {
         self.guard
             .as_ref()
-            .map_or(true, |g| g.check(context, event))
-    }
-
-    /// Execute all actions associated with this transition
-    #[tracing::instrument(skip(self, context))]
-    async fn execute_actions(&self, context: Arc<RwLock<C>>, event: &E) -> Result<()> {
-        // Directly call the inherent method
-        self::Transition::execute_actions(self, context, event).await
+            .is_none_or(|g| g.check(context, event))
     }
 }

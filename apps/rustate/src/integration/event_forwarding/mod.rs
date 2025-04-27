@@ -174,10 +174,9 @@ mod tests {
         println!("Debug: Parent event result: {:?}", result);
 
         // 子マシンの状態を確認
-        // Lock the mutex before calling methods
         let is_activated = {
             let child_guard = shared_child.lock().await;
-            child_guard.is_in_state(&"activated").await?
+            child_guard.is_in_state("activated").await?
         };
         println!("Debug: Child is in activated state: {:?}", is_activated);
         assert!(is_activated);
@@ -233,7 +232,7 @@ mod tests {
             Some("processing".to_string()),
             Some(Event::from("PROCESS")),
             None,
-            vec![forward_action.into()],
+            vec![forward_action],
             TransitionType::External,
         );
 

@@ -48,8 +48,10 @@ where
     /// The synchronous predicate function that evaluates the guard condition.
     /// Takes context and event, returns `true` if the guard passes.
     #[serde(skip)]
-    pub condition: Arc<dyn Fn(&C, &E) -> bool + Send + Sync>,
+    pub condition: GuardCondition<C, E>,
 }
+
+pub type GuardCondition<C, E> = Arc<dyn Fn(&C, &E) -> bool + Send + Sync>;
 
 impl<C, E> Guard<C, E>
 where

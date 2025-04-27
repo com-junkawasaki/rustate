@@ -188,7 +188,7 @@ impl SharedContext {
     pub fn set<T: Serialize>(&self, key: &str, value: T) -> IntegrationResult<()> {
         trace!(key = key, "Attempting to set value in shared context");
         let mut data_guard = self.data.write().lock_err()?;
-        let json_value = serde_json::to_value(value)?; // Handle serialization error
+        let json_value = serde_json::to_value(value)?;
 
         match &mut *data_guard {
             serde_json::Value::Object(map) => {
@@ -275,12 +275,9 @@ impl SharedContext {
 mod tests {
     use super::*;
     use crate::{Action, Event, Machine, MachineBuilder, State, Transition, TransitionType};
-    use crate::Context;
-    
-    use crate::integration::error::Result as IntegrationResult;
+    use crate::{Context};
+    use crate::integration::error::{Error as IntegrationError, Result as IntegrationResult};
     use futures::FutureExt;
-    
-    
     use tokio::sync::RwLock;
 
     async fn create_machines(
@@ -311,7 +308,7 @@ mod tests {
                 None::<String>,
                 Some(Event::from("EVENT_A")),
                 None, // Guard
-                vec![write_action.into()],
+                vec![write_action.into()], // Action needs .into() here to match Transition trait expectations
                 TransitionType::Internal,
         );
         idle_state_a.add_transition("EVENT_A".to_string(), event_a_transition);
@@ -351,7 +348,7 @@ mod tests {
                 None::<String>,
                 Some(Event::from("EVENT_B")),
                 None, // Guard
-                vec![read_action.into()],
+                vec![read_action.into()], // Action needs .into() here to match Transition trait expectations
                 TransitionType::Internal,
             );
         waiting_state_b.add_transition("EVENT_B".to_string(), event_b_transition);
@@ -408,25 +405,23 @@ mod tests {
     #[tokio::test]
     async fn test_complex_assertions() -> IntegrationResult<()> {
         let shared_context = SharedContext::new();
+        let (mut machine_a, _machine_b) = create_machines(shared_context.clone()).await;
+
+        // Example usage, assuming EVENT_A triggers the write_action
+        machine_a.send(Event::from("EVENT_A")).await?;
+
         shared_context.set("local_status", "active")?;
         shared_context.set("local_counter", 1i64)?;
 
-        let ctx_b = shared_context; // Use the shared context directly
+        let ctx_b = shared_context;
 
-        // Fix E0599/E0277: Check Option<String> first, then compare string
-        let status_opt = ctx_b.get::<String>("local_status")?;
-        assert!(status_opt.is_some(), "local_status should exist");
-        assert_eq!(
-            status_opt.unwrap(),
-            "active",
-            "local_status should be 'active'"
-        );
+        // Simplify map_or/unwrap_or to is_some_and
+        // Assuming machine_b's context is relevant here, which it isn't directly
+        // Reading directly from shared_context instead
+        assert!(ctx_b.get::<String>("local_status")?.is_some_and(|s| s == "active"));
+        assert!(ctx_b.get::<i64>("local_counter")?.is_some_and(|c| c == 1));
 
-        let counter_opt = ctx_b.get::<i64>("local_counter")?;
-        assert!(counter_opt.is_some(), "local_counter should exist");
-        assert_eq!(counter_opt.unwrap(), 1, "local_counter should be 1");
-
-        Ok(())
+        Ok::<(), IntegrationError>(())
     }
 
     #[tokio::test]

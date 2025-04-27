@@ -283,7 +283,7 @@ pub mod coordination {
 
     // Helper to simplify parent machine creation
     fn create_parent_machine(
-        child: Arc<Mutex<impl ChildMachine + Send + 'static>>,
+        child: Arc<Mutex<impl ChildMachine + 'static>>,
     ) -> Machine<Context, Event, String> {
         // Define States using String
         let monitoring = State::new("monitoring".to_string());

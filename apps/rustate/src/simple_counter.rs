@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
+use crate::IntegrationError;
 
 /// Represents the state of the `CounterActor`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -66,7 +67,7 @@ pub struct CounterState {
 #[derive(Debug, Clone)]
 pub struct CounterActor {
     state: Arc<Mutex<CounterState>>,
-    machine: Arc<Mutex<Machine<Context, CounterEvent, String, ()>>>,
+    _machine: Arc<Mutex<Machine<Context, CounterEvent, String, ()>>>,
 }
 
 impl CounterActor {
@@ -94,8 +95,25 @@ impl CounterActor {
 
         Self {
             state: Arc::new(Mutex::new(initial_state)),
-            machine: Arc::new(Mutex::new(machine)),
+            _machine: Arc::new(Mutex::new(machine)),
         }
+    }
+
+    pub fn get_state(&self) -> Result<CounterState, IntegrationError> {
+        let state = self.state.lock().map_err(|e: PoisonError<_>| IntegrationError::Lock(format!("CounterState Mutex poisoned: {}", e)))?;
+        Ok(state.clone())
+    }
+
+    pub async fn increment(&self) -> Result<(), IntegrationError> {
+        let mut state = self.state.lock().map_err(|e: PoisonError<_>| IntegrationError::Lock(format!("CounterState Mutex poisoned: {}", e)))?;
+        state.count += 1;
+        Ok(())
+    }
+
+    pub async fn decrement(&self) -> Result<(), IntegrationError> {
+        let mut state = self.state.lock().map_err(|e: PoisonError<_>| IntegrationError::Lock(format!("CounterState Mutex poisoned: {}", e)))?;
+        state.count -= 1;
+        Ok(())
     }
 }
 
