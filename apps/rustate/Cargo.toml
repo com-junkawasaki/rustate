@@ -1,50 +1,54 @@
 [package]
 name = "rustate"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2021"
 authors = ["junkawasaki"]
 description = "A Rust library for creating and managing state machines, inspired by XState."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/junkawasaki/rustate"
-readme = "README.md"
+readme = "../../README.md"
 keywords = ["statemachine", "statechart", "xstate", "actor", "async"]
 categories = ["concurrency", "asynchronous", "data-structures"]
+
+[lib]
+proc-macro = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
-# Make tokio a non-optional dependency and include necessary features
 tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 thiserror = "1.0"
 async-recursion = "1.0"
 futures = "0.3"
 tracing = "0.1"
-# Added wasm-bindgen-futures
 wasm-bindgen-futures = "0.4"
+log = "0.4"
 
-# Optional dependencies for features
+syn = { version = "2.0", features = ["full", "parsing"], optional = true }
+quote = { version = "1.0", optional = true }
+proc-macro2 = "1.0"
+
 wasm-bindgen = { version = "0.2", optional = true }
 web-sys = { version = "0.3", features = ["console"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 js-sys = { version = "0.3", optional = true }
+getrandom = { version = "0.2", features = ["js"], optional = true }
 
-log = "0.4"
-
-rustate_macros = { path = "../rustate_macros" }
-rustate_core = { path = "../rustate_core" }
-
-# Add optional dependencies for features
-syn = { version = "2.0", features = ["full", "parsing"], optional = true }
-quote = { version = "1.0", optional = true }
 proptest = { version = "1.0", optional = true }
 
 [features]
 default = ["mbt", "integration"]
-wasm = ["dep:wasm-bindgen", "dep:web-sys", "dep:console_error_panic_hook", "dep:js-sys"]
+wasm = [
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+    "dep:console_error_panic_hook",
+    "dep:js-sys",
+    "dep:getrandom",
+    "uuid/js"
+]
 integration = []
-# Remove tokio features here as it's now a direct dependency
 integration_async = []
 codegen = ["dep:syn", "dep:quote"]
 mbt = []
@@ -54,3 +58,4 @@ xstate-compat = []
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 futures = "0.3"
+# Note: Removed rustate_macros and rustate_core dev-dependencies as they are now part of this crate. 

@@ -11,6 +11,28 @@ pub mod logic;
 pub mod simple_counter;
 pub mod spawn;
 pub mod system;
+pub mod macros;
+
+// Add the macros module
+pub mod macros;
+
+// Add modules from obsolete crate
+pub mod action;
+pub mod context;
+pub mod error;
+pub mod event;
+pub mod guard;
+pub mod machine;
+pub mod state;
+pub mod transition;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
+#[cfg(feature = "codegen")]
+pub mod codegen;
+// integration is already declared in rustate_core's original lib.rs
+// #[cfg(feature = "integration")]
+// pub mod integration;
 
 // Public re-exports for easier access by users of the crate.
 
@@ -38,6 +60,72 @@ pub use spawn::spawn;
 /// Represents the actor system, the entry point for creating top-level actors.
 /// See [`system::ActorSystem`] for details.
 pub use system::ActorSystem;
+
+// --- Add re-exports from obsolete crate (Review and merge carefully) ---
+
+// Re-export core types from moved modules
+pub use action::{Action, ActionType, IntoAction};
+pub use context::Context;
+pub use error::Result;
+pub use error::StateError as Error;
+pub use event::{Event, EventTrait, IntoEvent};
+pub use guard::{Guard, IntoGuard};
+pub use machine::{Machine, MachineBuilder, MachineSnapshot};
+pub use state::{HistoryType, State, StateCollection, StateTrait, StateType};
+pub use transition::{Transition, TransitionType};
+
+// Actor model related re-exports from obsolete's actor.rs (may conflict/need merging)
+// Consider prefixing or carefully choosing which ones to expose
+// pub use actor::{create_actor, ActorLogic, ActorRefImpl, ActorStatus, Snapshot as ActorSnapshot};
+
+// Conditionally re-export based on features
+#[cfg(feature = "wasm")]
+pub use crate::wasm::*; // Re-export WASM specific items
+
+#[cfg(feature = "codegen")]
+pub use crate::codegen::*; // Re-export codegen specific items
+
+// Re-export integration items (if the feature is enabled)
+#[cfg(feature = "integration")]
+pub use crate::integration::{
+    context_sharing::SharedContext,
+    event_forwarding::SharedMachineRef,
+    hierarchical::ChildMachine,
+    Error as IntegrationError,
+    Result as IntegrationResult,
+};
+
+// Re-export serde_json for convenience
+pub use serde_json;
+
+// --- Consider creating or merging a `prelude` module ---
+/*
+pub mod prelude {
+    // Combine re-exports from both original lib.rs files
+    pub use crate::actor::Actor; // From core
+    pub use crate::actor::ActorError; // From core
+    pub use crate::actor_ref::ActorRef; // From core
+    pub use crate::logic::ActorLogic; // From core
+    pub use crate::spawn::spawn; // From core
+    pub use crate::system::ActorSystem; // From core
+
+    // From obsolete
+    pub use crate::{action::Action, action::IntoAction};
+    pub use crate::context::Context;
+    pub use crate::error::Result;
+    pub use crate::error::StateError as Error;
+    pub use crate::event::{Event, EventTrait, IntoEvent};
+    pub use crate::guard::{Guard, IntoGuard};
+    pub use crate::machine::{Machine, MachineBuilder};
+    pub use crate::state::{State, StateTrait, StateType};
+    pub use crate::transition::Transition;
+
+    // ... add conditional exports for features (wasm, codegen, integration, test) ...
+
+    pub use async_trait::async_trait;
+    pub use serde_json;
+}
+*/
 
 // Tests module
 #[cfg(test)]

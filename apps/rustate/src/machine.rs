@@ -1,18 +1,25 @@
 use crate::{
-    action::{Action, ActionMap},
+    action::{Action, ActionMap, IntoAction},
     actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
     context::Context,
-    error::{Result, StateError},
-    event::{Event, EventTrait, IntoEvent},
+    error::{Result, StateError as Error},
+    event::{Event, EventTrait},
     guard::{Guard, GuardMap},
-    state::{State, StateCollection, StateType},
+    state::{State, StateCollection, StateTrait, StateType},
     transition::{Transition, TransitionMap, TransitionType},
 };
+use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display};
+use std::hash::Hash;
+use std::marker::PhantomData;
 use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, trace, warn};
+use serde_json::Value;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -265,7 +272,7 @@ where
         let target_states = match &transition.target {
             Some(target) => {
                 if !self.states.contains(target) {
-                    return Err(StateError::StateNotFound(target.to_string()).into());
+                    return Err(Error::StateNotFound(target.to_string()).into());
                 }
                 Some(target.clone())
             }
@@ -427,7 +434,7 @@ where
         context: Arc<RwLock<C>>,
     ) -> Result<()> {
         if !self.states.contains(state_id) {
-            return Err(StateError::StateNotFound(state_id.to_string()).into());
+            return Err(Error::StateNotFound(state_id.to_string()).into());
         }
 
         // Add state to current states (assuming Machine has current_states: HashSet<S>)
@@ -693,7 +700,7 @@ where
 
     /// Serializes the machine definition to a JSON string.
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).map_err(|e| StateError::Serialization(e.to_string()))
+        serde_json::to_string_pretty(self).map_err(|e| Error::Serialization(e.to_string()))
     }
 
     /// Get the depth of a state in the hierarchy
