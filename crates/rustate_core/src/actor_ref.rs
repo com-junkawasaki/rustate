@@ -56,20 +56,6 @@ impl<A: Actor> ActorRef<A> {
         })
     }
 
-    /// Retrieves the current state of the actor.
-    ///
-    /// Note: This functionality often requires a request-response pattern (ask pattern)
-    /// involving temporary channels, which is not implemented here by default.
-    /// It might be provided by higher-level abstractions or specific actor system implementations.
-    // pub async fn ask_state(&self) -> Result<A::State, ActorError> { unimplemented!() }
-
-    /// Attempts to signal the actor to stop processing.
-    ///
-    /// Note: Graceful shutdown typically involves sending a specific `Stop` event
-    /// or using a dedicated signal mechanism managed by the actor system.
-    /// A direct `stop` method on the `ActorRef` might not be the standard approach.
-    // pub async fn stop(&self) -> Result<(), ActorError> { unimplemented!() }
-
     /// Internal constructor used by the actor system (or spawning mechanism).
     ///
     /// Creates a new `ActorRef` linked to an actor's mailbox sender.

@@ -117,3 +117,51 @@ pub fn generate_rust_code(machine: &rustate::machine::Machine) -> String {
 
     code
 }
+
+pub fn machine_to_rust_code(machine: &EditorMachine) -> String {
+    let mut code = String::new();
+    code.push_str("use rustate::{MachineBuilder, State, Transition, StateType, Action, Guard};\n");
+    code.push_str("use serde_json::json;\n\n");
+
+    code.push_str("fn create_state_machine() -> rustate::Machine {\n");
+    code.push_str("    let mut builder = MachineBuilder::new(\"");
+    code.push_str(&machine.id);
+    code.push_str("\");\n");
+
+    // Add states
+    for (id, state) in &machine.states {
+        match state.state_type {
+            StateType::Normal => {
+                code.push_str(&format!("    let {} = State::new(\"{}\");\n", id, id));
+            }
+            StateType::Final => {
+                code.push_str(&format!("    let {} = State::new_final(\"{}\");\n", id, id));
+            }
+            StateType::Compound => {
+                code.push_str("    let ");
+                code.push_str(&id);
+                code.push_str(" = State::new_compound(\"");
+                code.push_str(id);
+                code.push_str("\");\n");
+                if state.initial.is_none() {
+                    code.push_str("    // Warning: Compound state without initial state\n");
+                }
+            }
+            StateType::Parallel => {
+                code.push_str(&format!("    let {} = State::new_parallel(\"{}\");\n", id, id));
+            }
+            StateType::History => {
+                code.push_str(&format!("    let {} = State::new_history(\"{}\");\n", id, id));
+            }
+            StateType::DeepHistory => {
+                code.push_str(&format!("    let {} = State::new_deep_history(\"{}\");\n", id, id));
+            }
+        }
+    }
+
+    code.push('\n');
+    code.push_str("    builder.build().unwrap()\n");
+    code.push_str("}\n");
+
+    code
+}

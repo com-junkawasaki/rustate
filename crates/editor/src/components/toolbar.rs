@@ -50,10 +50,9 @@ pub fn toolbar(props: &ToolbarProps) -> Html {
                     new_editor_state.machine.states.remove(element_id);
 
                     new_editor_state.machine.transitions.retain(|t| {
-                        t.source != *element_id
-                            && t.target
-                                .as_ref()
-                                .map_or(true, |target| target != element_id)
+                        t.source == *element_id
+                            || (t.target
+                                .as_ref() != Some(element_id))
                     });
                 } else if element_id.starts_with("transition-") {
                     if let Some(index_str) = element_id.strip_prefix("transition-") {

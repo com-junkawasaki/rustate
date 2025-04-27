@@ -59,8 +59,7 @@ pub fn canvas(props: &CanvasProps) -> Html {
             .map(|(id, state)| {
                 let is_selected = editor_state
                     .selected_element
-                    .as_ref()
-                    .map_or(false, |selected_id| selected_id == id);
+                    .as_ref() == Some(id);
 
                 let state_class = if is_selected {
                     "state state-selected"
@@ -110,14 +109,11 @@ pub fn canvas(props: &CanvasProps) -> Html {
         machine
             .transitions
             .iter()
-            .enumerate()
-            .map(|(index, transition)| {
-                let transition_id = format!("transition-{}", index);
-
+            .map(|(id, transition)| {
+                let transition_id = id.to_string();
                 let is_selected = editor_state
                     .selected_element
-                    .as_ref()
-                    .map_or(false, |selected_id| selected_id == &transition_id);
+                    .as_ref() == Some(&transition_id);
 
                 let transition_class = if is_selected {
                     "transition transition-selected"

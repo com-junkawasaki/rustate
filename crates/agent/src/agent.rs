@@ -351,12 +351,23 @@ where
                 }
             }
 
-            let current_state = self.step().await?;
+            // Get current state first
+            let current_state = self.current_state()?;
+
+            // Check if the current state is already the goal before taking a step
+            if self.is_goal_reached(&current_state)? {
+                // Ensure the episode is marked successful even if it starts at the goal
+                self.complete_episode(true).await?; 
+                return Ok(true);
+            }
+
+            // If not already at goal, take a step
+            let next_state = self.step().await?;
             steps += 1;
 
-            // Check if the current state is the goal state after the step
-            if self.is_goal_reached(&current_state)? {
-                // step() already calls complete_episode if goal is reached
+            // Check if the goal was reached after the step
+            if self.is_goal_reached(&next_state)? {
+                // step() already called complete_episode
                 return Ok(true);
             }
 
@@ -366,17 +377,12 @@ where
                     machine
                         .states
                         .get(s_id)
-                        .map_or(false, |s| s.state_type == RuStateType::Final)
+                        .is_some_and(|s| s.state_type == RuStateType::Final)
                 });
                 if is_final {
-                    // Check if this final state matches the goal
-                    if self.is_goal_reached(&current_state)? {
-                        return Ok(true);
-                    } else {
-                        // Reached a final state, but not the goal
-                        self.complete_episode(false).await?;
-                        return Ok(false);
-                    }
+                    // Reached a final state, but not the goal
+                    self.complete_episode(false).await?;
+                    return Ok(false);
                 }
             }
             // Need similar check for SharedMachineRef if possible
@@ -394,7 +400,7 @@ where
                 .unwrap_or_default()
         };
 
-        let result = if let Some(ref sm_ref) = self.machine_ref {
+        if let Some(ref _sm_ref) = self.machine_ref { // prefixed with _
             // TODO: Call transition method on SharedMachineRef if available
             // sm_ref.transition(event.into_event(), context).await?
             Err(AgentError::NotSupported(
@@ -407,13 +413,7 @@ where
                 .map_err(AgentError::MachineError)
         } else {
             Err(AgentError::NotInitialized)
-        };
-
-        // TODO: Update the owned machine state if the transition succeeded
-        // We cannot easily do this with the current structure as transition needs &mut self
-        // This suggests the Agent should perhaps always own the machine or use SharedMachineRef fully.
-
-        result
+        }
     }
 
     /// Add an insight to the agent's knowledge base.
@@ -477,11 +477,10 @@ where
     }
 
     /// Internal method to generate insights from an episode.
-    pub async fn generate_insights(&self, episode: &Episode<S, E>) -> Result<Vec<Insight>> {
+    pub async fn generate_insights(&self, _episode: &Episode<S, E>) -> Result<Vec<Insight>> { // prefixed with _
         // TODO: Verify Storage has get_trace and Policy has analyze_episode_trace
         // let trace = self.storage.get_trace(&episode.id).await?;
         // let insights = self.policy.analyze_episode_trace(&trace).await?;
-        // Ok(insights)
         Ok(vec![]) // Placeholder
     }
 

@@ -1,5 +1,4 @@
 //! WASM bindings for the rustate library.
-#![cfg(feature = "wasm")]
 use crate::{
     action::{Action, ActionType},
     context::Context,
@@ -437,7 +436,9 @@ pub fn send_music_player_event(event_str: &str) -> Result<(), JsValue> {
                 // likely involving message passing back to the main thread_local context.
             });
         } else {
-            web_sys::console::log_1(&JsValue::from_str("Music machine not initialized or already moved"));
+            web_sys::console::log_1(&JsValue::from_str(
+                "Music machine not initialized or already moved",
+            ));
         }
         Ok(())
     })

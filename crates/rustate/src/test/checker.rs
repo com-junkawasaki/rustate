@@ -87,7 +87,9 @@ impl<'a> ModelChecker<'a> {
                 .filter(|t| t.target.is_some())
                 .map(|t| {
                     // Convert Option<Event> to String using event_type
-                    let event_str = t.event.as_ref()
+                    let event_str = t
+                        .event
+                        .as_ref()
                         .map_or_else(|| "".to_string(), |e| e.event_type().to_string());
                     (event_str, t.target.clone().unwrap())
                 })

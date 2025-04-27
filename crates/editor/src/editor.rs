@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 // エディタのメインクラス
 #[wasm_bindgen]
 pub struct Editor {
-    state: EditorState,
+    pub state: EditorState,
 }
 
 #[wasm_bindgen]
@@ -33,6 +33,12 @@ impl Editor {
             }
             Err(err) => Err(JsValue::from_str(&format!("JSON解析エラー: {}", err))),
         }
+    }
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

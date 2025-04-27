@@ -202,7 +202,8 @@ where
     }
 }
 
-/// 現在のUNIXタイムスタンプを返します
+/// Helper function to get the current timestamp.
+#[allow(dead_code)]
 fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -210,7 +211,8 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-/// エピソード用の一意な識別子を生成します
+/// Helper function to generate a unique ID.
+#[allow(dead_code)]
 fn generate_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);

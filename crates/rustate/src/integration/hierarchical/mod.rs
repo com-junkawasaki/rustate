@@ -187,7 +187,12 @@ impl ChildMachine for DefaultChildMachine {
     }
 
     fn current_states(&self) -> Vec<String> {
-        self.machine.blocking_lock().current_states.iter().cloned().collect()
+        self.machine
+            .blocking_lock()
+            .current_states
+            .iter()
+            .cloned()
+            .collect()
     }
 
     fn to_json(&self) -> Result<String> {

@@ -109,7 +109,7 @@ pub struct Region {
     pub id: String,
     pub region_type: RegionType,
     pub size: f32, // Use f32 or f64 based on precision needs
-    #[serde(skip)] // Don't serialize the DOM element reference
+    #[allow(dead_code)]
     element: Option<Element>, // Optional DOM element associated with the region
 }
 
@@ -117,11 +117,12 @@ pub struct Region {
 pub struct Layout {
     pub id: String,
     pub regions: HashMap<String, Region>,
-    #[serde(skip)] // Don't serialize the container element reference
+    #[allow(dead_code)]
     container: Option<Element>, // Optional reference to the container element
 }
 
 impl Layout {
+    #[allow(dead_code)]
     pub fn new(id: impl Into<String>) -> Self {
         Layout {
             id: id.into(),
@@ -130,6 +131,7 @@ impl Layout {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add_region(&mut self, id: impl Into<String>, region_type: RegionType, size: f32) {
         let id_str = id.into();
         let region = Region {
@@ -142,6 +144,7 @@ impl Layout {
         // TODO: If container exists, maybe re-render?
     }
 
+    #[allow(dead_code)]
     pub fn remove_region(&mut self, id: &str) {
         if let Some(region) = self.regions.remove(id) {
             if let Some(element) = region.element {
@@ -153,6 +156,7 @@ impl Layout {
         // TODO: If container exists, maybe re-render?
     }
 
+    #[allow(dead_code)]
     pub fn update_region_size(&mut self, id: &str, new_size: f32) {
         if let Some(region) = self.regions.get_mut(id) {
             region.size = new_size;
@@ -161,7 +165,7 @@ impl Layout {
         // TODO: If container exists, maybe re-render?
     }
 
-    // Simplified render logic - creates divs, doesn't handle complex CSS yet
+    #[allow(dead_code)]
     pub fn render(&mut self, container: &Element) -> Result<(), JsValue> {
         self.container = Some(container.clone());
         container.set_inner_html(""); // Clear previous content
@@ -203,6 +207,7 @@ impl Layout {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn get_region_element(&self, id: &str) -> Option<&Element> {
         self.regions.get(id).and_then(|r| r.element.as_ref())
     }

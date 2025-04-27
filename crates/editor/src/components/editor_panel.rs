@@ -9,8 +9,9 @@ pub struct EditorPanelProps {
 }
 
 #[function_component(EditorPanel)]
-pub fn editor_panel(props: &EditorPanelProps) -> Html {
-    let json_text = use_state(|| String::new());
+pub fn editor_panel() -> Html {
+    let editor_state = use_context::<UseReducerHandle<EditorState>>().expect("EditorState context not found");
+    let json_text = use_state(String::new);
 
     let on_json_change = {
         let json_text = json_text.clone();
@@ -23,7 +24,7 @@ pub fn editor_panel(props: &EditorPanelProps) -> Html {
 
     let on_load_json = {
         let json_text = json_text.clone();
-        let editor_state = props.editor_state.clone();
+        let editor_state = editor_state.clone();
 
         Callback::from(
             move |_: MouseEvent| match serde_json::from_str::<Machine>(&json_text) {
@@ -42,7 +43,7 @@ pub fn editor_panel(props: &EditorPanelProps) -> Html {
     };
 
     let on_export_json = {
-        let editor_state = props.editor_state.clone();
+        let editor_state = editor_state.clone();
         let json_text = json_text.clone();
 
         Callback::from(move |_: MouseEvent| {

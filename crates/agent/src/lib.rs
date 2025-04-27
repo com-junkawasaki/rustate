@@ -47,11 +47,11 @@ pub mod prelude {
     pub use rustate::{Context, Event, EventTrait, Machine, State, StateTrait};
 
     // rustate integration の型も再エクスポートする
-    #[cfg(feature = "integration")]
-    pub use rustate::integration::{
-        context_sharing, event_forwarding, hierarchical, ChildMachine, SharedContext,
-        SharedMachineRef,
-    };
+    // #[cfg(feature = "integration")]
+    // pub use rustate::integration::{
+    //     context_sharing, event_forwarding, hierarchical, ChildMachine, SharedContext,
+    //     SharedMachineRef,
+    // };
 }
 
 // ユーティリティ関数

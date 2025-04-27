@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid;
 
 /// 観測データは、状態遷移に関する情報を記録します。
 /// 前の状態、イベント、結果の状態、メタデータなどを含みます。
@@ -65,7 +66,8 @@ where
     }
 }
 
-/// 現在のUNIXタイムスタンプを返します
+/// Utility function to get the current timestamp in milliseconds.
+#[allow(dead_code)]
 fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -73,7 +75,8 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-/// 一意なIDを生成します
+/// Utility function to generate a UUID.
+#[allow(dead_code)]
 fn uuid() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
