@@ -87,6 +87,7 @@ fn next_track_action() -> Action<Context, MusicEvent> {
             let next_track = current_track + 1;
             println!("ACTION: Playing next track ({})", next_track);
             let _ = ctx_arc.write().await.set("track", next_track);
+            Ok(())
         })
     })
 }
@@ -107,6 +108,7 @@ fn prev_track_action() -> Action<Context, MusicEvent> {
             };
             println!("ACTION: Playing previous track ({})", prev_track);
             let _ = ctx_arc.write().await.set("track", prev_track);
+            Ok(())
         })
     })
 }
@@ -171,29 +173,32 @@ async fn create_player() -> rustate::Result<Machine<Context, MusicEvent, PlayerS
     // Create actions first
     let log_power_on = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-            println!("Power ON - Player ready")
+            println!("Power ON - Player ready");
+            Ok(())
         },
     );
     let log_power_off = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Power OFF") },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Power OFF"); Ok(()) },
     );
     let log_playing = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Playing track") },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Playing track..."); Ok(()) },
     );
     let log_stopped = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Stopped") },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Stopped"); Ok(()) },
     );
     let log_paused = Action::from_fn(
-        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Paused") },
+        |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move { println!("Paused"); Ok(()) },
     );
     let log_double_speed = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-            println!("Playing at double speed")
+            println!("Playing at double speed");
+            Ok(())
         },
     );
     let log_normal_speed = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &MusicEvent| async move {
-            println!("Playing at normal speed")
+            println!("Playing at normal speed");
+            Ok(())
         },
     );
     let next_track_action = next_track_action();

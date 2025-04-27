@@ -141,8 +141,8 @@ mod tests {
         println!("ActorSystem created: {:?}", system);
 
         println!("Spawning CounterActor using system...");
-        // Use spawn_default for convenience
-        let counter_ref = system.spawn_default(CounterActor::default());
+        // Use spawn and the async constructor, provide buffer size, remove incorrect await
+        let counter_ref = system.spawn(CounterActor::new().await, 100); // Add buffer size, remove trailing .await
         println!("CounterActor spawned with ref: {:?}", counter_ref);
 
         // Allow time for the actor to start

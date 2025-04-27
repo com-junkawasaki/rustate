@@ -118,6 +118,7 @@ use crate::integration::error::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 use tracing::{trace, warn};
+use futures::FutureExt;
 
 /// A thread-safe, shareable context container.
 ///
@@ -249,6 +250,26 @@ impl SharedContext {
         let data_guard = self.data.read().lock_err()?;
         Ok(data_guard.clone())
     }
+
+    /// Increments a value in the shared context.
+    ///
+    /// Acquires a write lock on the data.
+    ///
+    /// # Arguments
+    /// * `key` - The key of the value to increment.
+    ///
+    /// # Returns
+    /// * `Ok(())` if incrementing the value is successful.
+    /// * `Err(IntegrationError::Serialization)` if serialization fails.
+    /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
+    pub fn increment(&self, key: &str) -> IntegrationResult<()> {
+        trace!(key = key, "Attempting to increment value in shared context");
+        let data_guard = self.data.write().lock_err()?;
+        let current_value: Option<i32> = self.get(key)?;
+        let new_value = current_value.unwrap_or(0) + 1;
+        self.set(key, new_value)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -262,7 +283,9 @@ mod tests {
         state::State,
         transition::{Transition, TransitionType},
         Context,
+        Machine,
     };
+    use futures::future::join_all;
 
     // Helper function to create machines for testing
     fn create_machines(
@@ -299,7 +322,7 @@ mod tests {
                 .state(idle_state_a) // Use owned state
                 .state(done_state_a)
                 .build()
-                .now_or_never() // Use now_or_never after importing FutureExt
+                .await
                 .expect("Machine A sync build failed")
                 .unwrap();
 
@@ -341,7 +364,7 @@ mod tests {
         .state(waiting_state_b) // Use owned state
         .state(processed_state_b)
         .build()
-        .now_or_never() // Use now_or_never after importing FutureExt
+        .await
         .expect("Machine B sync build failed")
         .unwrap();
 

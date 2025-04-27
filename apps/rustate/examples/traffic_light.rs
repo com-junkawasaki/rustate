@@ -70,19 +70,22 @@ async fn create_traffic_light() -> rustate::Result<Machine<Context, TrafficEvent
     // Define some actions
     let log_green = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &TrafficEvent| async move {
-            println!("Entering GREEN state - Go!")
+            println!("Entering GREEN state - Go!");
+            Ok(())
         },
     );
 
     let log_yellow = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &TrafficEvent| async move {
-            println!("Entering YELLOW state - Slow down!")
+            println!("Entering YELLOW state - Slow down!");
+            Ok(())
         },
     );
 
     let log_red = Action::from_fn(
         |_ctx_arc: Arc<RwLock<Context>>, _evt: &TrafficEvent| async move {
-            println!("Entering RED state - Stop!")
+            println!("Entering RED state - Stop!");
+            Ok(())
         },
     );
 

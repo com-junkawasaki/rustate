@@ -52,7 +52,7 @@ impl IntoEvent for CounterEvent {
 }
 
 /// Define the actor state
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct CounterState {
     /// The current count value.
     pub count: i32,
