@@ -18,11 +18,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tokio::sync::mpsc as tokio_mpsc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn}; // Use tracing macros
 use uuid::Uuid;
-use tokio::sync::mpsc as tokio_mpsc;
 
 // --- Actor Options ---
 
@@ -792,9 +792,7 @@ mod tests {
     impl ActorLogic<TestState, Context, TestEvent, (), TestQuery, TestResponse> for TestActorLogic {
         fn initial(&self) -> (TestState, Context) {
             (
-                TestState {
-                    value: 0,
-                },
+                TestState { value: 0 },
                 Context::default(), // Assuming Context::default() exists
             )
         }
@@ -830,8 +828,12 @@ mod tests {
     async fn test_create_actor() {
         let logic = TestActorLogic;
         let initial_context = Context::new();
-        let (_actor_ref, snapshot_res) =
-            create_actor::<_, _, _, _, _, _, (), _>(logic, initial_context, Some("test-create"), 32); // Specify R = ()
+        let (_actor_ref, snapshot_res) = create_actor::<_, _, _, _, _, _, (), _>(
+            logic,
+            initial_context,
+            Some("test-create"),
+            32,
+        ); // Specify R = ()
 
         // Wait for the initial snapshot
         let snapshot_result = snapshot_res.await;
@@ -878,7 +880,8 @@ mod tests {
     #[tokio::test]
     async fn test_send_query() {
         let logic = TestActorLogic;
-        let (actor_ref, _initial_snapshot) = create_actor::<_, _, _, _, _, _, (), _>(logic, Context::new(), Some("test-query"), 32); // Specify R = ()
+        let (actor_ref, _initial_snapshot) =
+            create_actor::<_, _, _, _, _, _, (), _>(logic, Context::new(), Some("test-query"), 32); // Specify R = ()
 
         let query = TestQuery("get_value".to_string());
         let response = actor_ref.query(query).await;

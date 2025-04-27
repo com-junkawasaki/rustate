@@ -1,6 +1,23 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+pub enum ConversionError {
+    #[error("Missing field: {0}")]
+    MissingField(String),
+    #[error("Invalid value: {0}")]
+    InvalidValue(String),
+    #[error("Type mismatch: {0}")]
+    TypeMismatch(String),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("State conversion error: {0}")]
+    StateConversion(String),
+    #[error("Event conversion error: {0}")]
+    EventConversion(String),
+    // Add other specific conversion errors as needed
+}
+
+#[derive(Debug, Error)]
 pub enum GrpcError {
     #[error("State machine error: {0}")]
     StateMachine(#[from] rustate::Error),

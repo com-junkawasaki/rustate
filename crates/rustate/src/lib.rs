@@ -135,12 +135,12 @@
 //! ```
 
 // Private modules
-mod action;
-mod actor;
-mod context;
-mod error;
-mod event;
-mod guard;
+pub mod action;
+pub mod actor;
+pub mod context;
+pub mod error;
+pub mod event;
+pub mod guard;
 #[cfg(any(feature = "mbt", feature = "property-testing"))]
 mod test;
 

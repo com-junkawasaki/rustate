@@ -57,7 +57,7 @@ pub fn init_editor(container_id: &str) -> Result<(), JsValue> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use wasm_bindgen_test::*;
     use yew::prelude::*;
     use yew::Component;
@@ -74,7 +74,7 @@ mod tests {
             .expect("could not create element")
     }
 
-    // --- Mock Component for testing Editor --- 
+    // --- Mock Component for testing Editor ---
     #[derive(Clone, Properties, PartialEq)]
     struct MockComponentProps {
         #[prop_or_default]

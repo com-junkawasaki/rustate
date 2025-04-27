@@ -505,18 +505,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        decision::Decision,
-        goal::Goal,
-        policy::Policy,
-        storage::MemoryStorage,
-    };
+    use crate::{decision::Decision, goal::Goal, policy::Policy, storage::MemoryStorage};
     use async_trait::async_trait;
     use rustate::{Event, EventTrait, MachineBuilder, State, StateTrait, StateType, Transition};
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
     use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
-    
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
     enum TestState {

@@ -46,12 +46,12 @@ pub enum StateError {
     /// An error occurred during serialization (e.g., context to JSON).
     /// Contains the underlying serialization error message.
     #[error("Serialization error: {0}")]
-    SerializationError(String),
+    Serialization(String),
 
     /// An error occurred during deserialization (e.g., JSON to context).
     /// Contains the underlying deserialization error message.
     #[error("Deserialization error: {0}")]
-    DeserializationError(String),
+    Deserialization(String),
 
     /// An actor's command mailbox/channel was full when trying to send a message.
     /// Contains the ID or description of the actor.
@@ -203,7 +203,7 @@ impl From<serde_json::Error> for StateError {
     fn from(err: serde_json::Error) -> Self {
         // Distinguish between serialization and deserialization if possible based on context,
         // otherwise, use a general variant.
-        StateError::SerializationError(err.to_string())
+        StateError::Serialization(err.to_string())
     }
 }
 

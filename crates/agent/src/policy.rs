@@ -115,7 +115,7 @@ pub type PolicyBox<S, E> = Arc<dyn Policy<S, E>>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use rustate::{EventTrait, StateTrait, StateType};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
