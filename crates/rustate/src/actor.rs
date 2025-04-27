@@ -23,6 +23,12 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn}; // Use tracing macros
 use uuid::Uuid;
+use serde_json::json; // Import json macro
+use crate::{EventData, StateMachine};
+use js_sys::Promise;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
+use serde::de::DeserializeOwned;
 
 // --- Actor Options ---
 
@@ -428,7 +434,7 @@ where
     // /// The starting context value.
     // context: C,
     // /// Optional actor ID passed during creation (unused currently).
-    // actor_id: Option<Uuid>,
+    // actor_id: Some(Uuid),
     /// Size of the command buffer.
     buffer_size: usize,
     /// Sender part of the command channel (cloned to create ActorRefImpl).
@@ -604,25 +610,33 @@ where
     }
 
     /// Creates a snapshot of the current actor state.
-    fn create_snapshot(&self, status_override: Option<ActorStatus>) -> Result<Snapshot<C, R>, StateError> {
+    fn create_snapshot<C2, R2, S2>(
+        state: &S2,
+        context: &Arc<RwLock<C2>>,
+        output: &Option<R2>,
+        status: &Arc<RwLock<ActorStatus>>,
+        status_override: Option<ActorStatus>,
+    ) -> Result<Snapshot<C2, R2>, StateError>
+    where
+        S2: StateTrait + Clone + Send + Sync + 'static,
+        C2: Clone + Send + Sync + 'static + Debug,
+        R2: Clone + Send + Sync + 'static + Debug,
+    {
         // Clone necessary parts: context needs read lock then clone
-        let context_clone = self.context.read().blocking_read().clone(); // Use blocking read in sync context if needed
+        let context_clone = context.blocking_read().clone(); // Use blocking read for sync fn
         // State needs Clone trait
-        let state_clone = self.state.clone(); // Assuming S implements Clone
+        let state_clone = state.clone(); 
         // Output needs Clone
-        let output_clone = self.output.clone();
+        let output_clone = output.clone();
 
         // Convert current state (S) to serde_json::Value
-        // This assumes S is simple enough to be represented by its ID or similar.
-        // If S is complex, this might need `serde_json::to_value(state_clone)`
-        // which requires S: Serialize.
         let current_value = json!(state_clone.id()); // Use state ID as the value representation
 
         Ok(Snapshot {
             value: current_value,
             context: context_clone,
             output: output_clone,
-            status: status_override.unwrap_or(*self.status.read().blocking_read()),
+            status: status_override.unwrap_or(*status.blocking_read()), // Use blocking_read
         })
     }
 }
@@ -751,6 +765,7 @@ where
 mod tests {
     use super::*;
     use crate::context::Context; // Use the crate's Context if applicable
+    use serde_json::json; // Import json macro
     use std::fmt::Display;
     use tokio::time::{sleep, Duration};
 
@@ -851,7 +866,7 @@ mod tests {
     async fn test_create_actor() {
         let logic = TestActorLogic;
         let initial_context = Context::new();
-        let (_actor_ref, snapshot_res) = create_actor::<_, _, _, _, _, _, (), _>(
+        let (actor_ref, snapshot_res) = create_actor::<_, _, _, _, _, _, (), _>(
             logic,
             initial_context,
             Some("test-create"),

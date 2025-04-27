@@ -451,9 +451,7 @@ where
         if let Some(state) = self.states.get(state_id) {
             if state.state_type == StateType::Compound {
                 if let Some(initial_child_id) = &state.initial {
-                    // Need to convert initial_child_id (&String) to &S
-                    // Assuming S: From<String>
-                    let initial_child_s = S::from(initial_child_id.clone());
+                    let initial_child_s = S::from(initial_child_id.to_string());
                     self.enter_state(&initial_child_s, event, context.clone())
                         .await?;
                 } else if let Some(history_child_id) =
@@ -462,13 +460,29 @@ where
                     // If history state exists, enter it
                     self.enter_state(history_child_id, event, context.clone())
                         .await?; // Pass event
+                } else {
+                    // If a compound state has no initial, it might be an error or ignorable
+                    log::warn!("Compound state '{}' has no initial child", state_id);
                 }
-                // Handle parallel states if necessary (enter all children)
             } else if state.state_type == StateType::Parallel {
-                for child_id_str in &state.children {
-                    let child_id_s = S::from(child_id_str.clone());
-                    self.enter_state(&child_id_s, event, context.clone())
-                        .await?;
+                // Enter all child regions concurrently
+                let child_states = state.children.clone(); 
+                let results: Vec<_> = stream::iter(child_states)
+                    .map(|child_id_str: String| { // Explicitly type the closure argument
+                        let context_clone = context.clone();
+                        let event_clone = event.cloned();
+                        async move {
+                            let child_id_s = S::from(child_id_str); // Convert String child ID to S
+                            self.enter_state(&child_id_s, event_clone.as_ref(), context_clone).await
+                        }
+                    })
+                    .buffer_unordered(state.children.len()) 
+                    .collect()
+                    .await;
+
+                // Check for errors during parallel entry
+                for result in results {
+                    result?; // Propagate the first error
                 }
             }
         }
@@ -688,38 +702,34 @@ where
     /// Get the depth of a state in the hierarchy
     fn get_state_depth(&self, state_id: &S) -> usize {
         let mut depth = 0;
-        let mut current_id = Some(state_id.clone());
-        while let Some(id) = current_id {
-            if let Some(parent_id) = self.get_parent_id(&id) {
-                depth += 1;
-                current_id = Some(parent_id);
-            } else {
-                break;
-            }
+        let mut current = state_id.clone();
+        while let Some(parent_id_str) = self.states.get(&current).and_then(|s| s.parent()) {
+            let parent_id = S::from(parent_id_str.to_string()); // Convert &str to String before From
+            current = parent_id;
+            depth += 1;
         }
         depth
     }
 
+    /// Check if state `descendant_id` is a descendant of `ancestor_id`
     fn is_descendant(&self, descendant_id: &S, ancestor_id: &S) -> bool {
-        let mut current = Some(descendant_id);
-        while let Some(id) = current {
-            if id == ancestor_id {
+        if descendant_id == ancestor_id {
+            return false; // A state is not its own descendant
+        }
+        let mut current = descendant_id.clone();
+        while let Some(parent_id_str) = self.states.get(&current).and_then(|s| s.parent()) {
+            let parent_id = S::from(parent_id_str.to_string()); // Convert &str to String before From
+            if parent_id == *ancestor_id {
                 return true;
             }
-            current = self.states.get(id).and_then(|s| s.parent.as_ref());
+            current = parent_id;
         }
         false
     }
 
+    /// Check if state `ancestor_id` is an ancestor of `descendant_id`
     fn is_ancestor(&self, ancestor_id: &S, descendant_id: &S) -> bool {
-        let mut current = Some(ancestor_id);
-        while let Some(id) = current {
-            if id == descendant_id {
-                return true;
-            }
-            current = self.states.get(id).and_then(|s| s.parent.as_ref());
-        }
-        false
+        self.is_descendant(descendant_id, ancestor_id)
     }
 
     /// Returns the serialization result as a string.

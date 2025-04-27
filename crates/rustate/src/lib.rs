@@ -176,7 +176,7 @@ pub mod integration;
 
 /// Represents a side effect to be executed.
 /// See [`action::Action`] and [`action::IntoAction`].
-pub use action::{Action, IntoAction};
+pub use action::{Action, ActionType, IntoAction};
 /// Represents the data associated with a state machine.
 /// See [`context::Context`].
 pub use context::Context;
@@ -193,24 +193,21 @@ pub use event::{Event, EventTrait, IntoEvent};
 pub use guard::{Guard, IntoGuard};
 /// The main state machine structure and its builder.
 /// See [`machine::Machine`] and [`machine::MachineBuilder`].
-pub use machine::{Machine, MachineBuilder};
+pub use machine::{Machine, MachineBuilder, MachineSnapshot};
 /// Represents a state within the machine.
 /// See [`state::State`], [`state::StateTrait`], and [`state::StateType`].
-pub use state::{State, StateTrait, StateType};
+pub use state::{State, StateCollection, StateTrait, StateType, HistoryType};
 /// Represents a transition between states.
 /// See [`transition::Transition`].
-pub use transition::Transition;
+pub use transition::{Transition, TransitionType};
 
 // Actor model related re-exports
 /// Encapsulates the logic of an actor (often a state machine).
 /// See [`actor::ActorLogic`].
-pub use actor::ActorLogic;
+pub use actor::{ActorRefImpl, ActorStatus, Snapshot as ActorSnapshot, create_actor, ActorLogic};
 /// Represents the possible statuses of an actor.
 /// See [`actor::ActorStatus`].
-pub use actor::ActorStatus;
-/// A snapshot of an actor's state and context at a point in time.
-/// See [`actor::Snapshot`].
-pub use actor::Snapshot;
+// pub use actor::ActorStatus; // Removed duplicate export
 
 // Testing features re-exports
 #[cfg(any(feature = "mbt", feature = "property-testing"))]
@@ -264,7 +261,7 @@ pub mod prelude {
 
     // Core components (always included)
     pub use crate::serde_json;
-    pub use crate::state_machine::{
+    pub use crate::machine::{
         Action, ActionExt, Context, Data, Error as StateMachineError, Event, EventExt,
         Result as StateMachineResult, State, StateExt, StateMachine, StateMachineBuilder,
         StateMachineExt, StateMachineImpl, TickEvent, TimeoutEvent, Transition,

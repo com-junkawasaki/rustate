@@ -20,7 +20,6 @@ The RuState project is organized as a Cargo workspace consisting of several crat
 - **`crates/rustate_macros`**: Provides procedural macros (`#[derive(StateMachine)]`, etc.) to simplify state machine definition.
 - **`crates/editor`**: (Work in Progress) A web-based visual editor for creating and visualizing RuState state machines. Code exists but functionality may be incomplete.
 - **`crates/agent`**: (Work in Progress/Planned) Implements agent logic (policies, decisions, learning). Initial code exists but functionality is likely under development.
-- **`crates/grpc`**: Provides gRPC server/client implementations and protocol definitions (`.proto`) for communication between different components (e.g., editor talking to a backend, or inter-machine communication).
 - **`crates/demo`**: Contains the source code for the live demo showcasing RuState features.
 
 *(Consider adding a diagram illustrating the interaction between these crates)*
@@ -60,9 +59,9 @@ RuState incorporates the principles of model-based testing within the `rustate_c
 
 ### Cross-Crate State Machine Integration
 
-RuState supports integrating multiple state machines across different crates. While the examples below show direct Rust integration using shared memory (`Arc<Mutex>`, `Arc<RwLock>`), the **`crates/grpc`** crate provides an alternative mechanism for communication between potentially separate processes or components using gRPC.
+RuState supports integrating multiple state machines across different crates using shared memory (`Arc<Mutex>`, `Arc<RwLock>`).
 
-*(Consider adding specific examples or link to documentation within `crates/grpc/README.md` or `crates/grpc/examples/` demonstrating how to use gRPC for inter-machine communication.)*
+*(The following design patterns use shared memory. Previous versions used gRPC via the now-removed `crates/grpc` for inter-process communication.)*
 
 #### Design Patterns for State Machine Integration
 
