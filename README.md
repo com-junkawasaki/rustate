@@ -16,13 +16,10 @@ The demo features:
 
 The RuState project is organized as a Cargo workspace consisting of several crates:
 
-- **`crates/rustate_core`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.). Also includes actor pattern implementations. (Status: Actively Developed - MBT features mentioned previously need verification)
+- **`crates/rustate`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.). Also includes actor pattern implementations. (Status: Actively Developed - MBT features mentioned previously need verification)
 - **`crates/rustate_macros`**: Provides procedural macros (`#[derive(StateMachine)]`, etc.) to simplify state machine definition. (Status: Appears Stable)
 - **`crates/editor`**: A web-based visual editor (WASM/Yew) for creating and visualizing RuState state machines. (Status: Work in Progress - Basic structure exists)
 - **`crates/agent`**: Implements agent logic (policies, decisions, storage, etc.). (Status: Actively Developed - Significant implementation exists)
-- **`crates/demo`**: Contains the source code for the live demo showcasing RuState features. (Status: Functional - May require updates for latest core features)
-
-*(TODO: Add a diagram illustrating the interaction between these crates)*
 
 ## Overview
 
