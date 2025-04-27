@@ -172,10 +172,11 @@ impl DefaultChildMachine {
 
 #[async_trait::async_trait]
 impl ChildMachine for DefaultChildMachine {
-    async fn handle_parent_event<E: IntoEvent + Send>(&mut self, event: E) -> Result<bool> {
-        let event = event.into_event();
-        let mut machine = self.machine.lock().await;
-        machine.send(event).await
+    async fn handle_parent_event<E: IntoEvent + Send>(
+        &mut self,
+        event: E,
+    ) -> Result<bool> {
+        self.machine.send(event.into_event()).await.map_err(Into::into)
     }
 
     fn is_in_final_state(&self) -> bool {

@@ -59,7 +59,7 @@ pub use spawn::spawn;
 pub use system::ActorSystem;
 
 // Add re-exports for types needed by machine.rs or others
-pub use actor::{ActorStatus, Snapshot as ActorSnapshot}; // Added for MachineSnapshot
+// pub use actor::{ActorStatus, Snapshot as ActorSnapshot}; // Added for MachineSnapshot - COMMENTED OUT
 pub use event::{Event, IntoEvent}; // Removed duplicate EventTrait
 
 // --- Add re-exports from obsolete crate (Review and merge carefully) ---

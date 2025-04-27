@@ -9,6 +9,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
+use futures::FutureExt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,8 +18,9 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, trace, warn};
+use uuid::Uuid;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -469,18 +471,18 @@ where
                 // Enter all child regions concurrently
                 let child_states = state.children.clone();
                 let results: Vec<_> = stream::iter(child_states)
-                    .map(|child_id_str: String| {
+                    .map(|(child_id_str, child_state): (String, State<S, C, E>)| {
                         // Explicitly type the closure argument
                         let context_clone = context.clone();
-                        let event_clone = event.cloned();
+                        let state_id = S::from(child_id_str); // Convert String to S
                         async move {
-                            let child_id_s = S::from(child_id_str); // Convert String child ID to S
-                            self.enter_state(&child_id_s, event_clone.as_ref(), context_clone)
-                                .await
+                            self.enter_state(&state_id, event, context_clone).await
+                            // Use state_id of type S
                         }
+                        .boxed()
                     })
                     .buffer_unordered(state.children.len())
-                    .collect()
+                    .collect::<Vec<_>>()
                     .await;
 
                 // Check for errors during parallel entry
@@ -872,8 +874,8 @@ where
 /// Snapshot of the machine state for actors
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "S: Serialize, C: Serialize, O: Serialize",
-    deserialize = "S: StateTrait, C: DeserializeOwned, O: DeserializeOwned"
+    serialize = "S: Serialize",
+    deserialize = "S: StateTrait"
 ))]
 pub struct MachineSnapshot<C, S, O>
 where
@@ -881,11 +883,13 @@ where
     S: StateTrait + Send + Sync + 'static,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Debug,
 {
-    #[serde(flatten)]
-    pub inner: ActorSnapshot<C, O>,
+    // #[serde(flatten)] // COMMENTED OUT
+    // pub inner: ActorSnapshot<C, O>, // COMMENTED OUT
     pub current_states: HashSet<S>,
     pub history_states: HashMap<String, S>,
     _phantom_s: PhantomData<S>,
+    _phantom_c: PhantomData<C>,
+    _phantom_o: PhantomData<O>,
 }
 
 impl<C, S, O> MachineSnapshot<C, S, O>
@@ -894,18 +898,18 @@ where
     S: StateTrait + Send + Sync + 'static,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Debug,
 {
-    pub fn value(&self) -> &Value {
-        &self.inner.value
-    }
-    pub fn context(&self) -> &C {
-        &self.inner.context
-    }
-    pub fn output(&self) -> Option<&O> {
-        self.inner.output.as_ref()
-    }
-    pub fn status(&self) -> &ActorStatus {
-        &self.inner.status
-    }
+    // pub fn value(&self) -> &Value { // COMMENTED OUT - Depends on inner
+    //     &self.inner.value
+    // }
+    // pub fn context(&self) -> &C { // COMMENTED OUT - Depends on inner
+    //     &self.inner.context
+    // }
+    // pub fn output(&self) -> Option<&O> { // COMMENTED OUT - Depends on inner
+    //     self.inner.output.as_ref()
+    // }
+    // pub fn status(&self) -> &ActorStatus { // COMMENTED OUT
+    //     &self.inner.status
+    // }
     pub fn is_in(&self, state_id: &S) -> bool {
         self.current_states.contains(state_id)
     }

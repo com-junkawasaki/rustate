@@ -153,7 +153,7 @@ impl SharedContext {
     /// * `Ok(None)` if the key does not exist or the underlying data is not a JSON object.
     /// * `Err(IntegrationError::Serialization)` if deserialization fails.
     /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
-    pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+    pub fn get<T: DeserializeOwned>(&self, key: &str) -> IntegrationResult<Option<T>> {
         trace!(key = key, "Attempting to get value from shared context");
         let data_guard = self.data.read().lock_err()?;
         match &*data_guard {
@@ -188,7 +188,7 @@ impl SharedContext {
     /// * `Ok(())` if setting the value is successful.
     /// * `Err(IntegrationError::Serialization)` if serialization fails.
     /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
-    pub fn set<T: Serialize>(&self, key: &str, value: T) -> Result<()> {
+    pub fn set<T: Serialize>(&self, key: &str, value: T) -> IntegrationResult<()> {
         trace!(key = key, "Attempting to set value in shared context");
         let mut data_guard = self.data.write().lock_err()?;
         let json_value = serde_json::to_value(value)?; // Handle serialization error
@@ -215,7 +215,7 @@ impl SharedContext {
     /// * `Ok(true)` if the key exists.
     /// * `Ok(false)` if the key does not exist or the context is not a JSON object.
     /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
-    pub fn contains_key(&self, key: &str) -> Result<bool> {
+    pub fn contains_key(&self, key: &str) -> IntegrationResult<bool> {
         trace!(key = key, "Checking if key exists in shared context");
         let data_guard = self.data.read().lock_err()?;
         match &*data_guard {
@@ -232,7 +232,7 @@ impl SharedContext {
     /// * `Ok(Some(serde_json::Value))` if the key existed and was removed.
     /// * `Ok(None)` if the key did not exist or the context was not a JSON object.
     /// * `Err(IntegrationError::Lock)` if the write lock is poisoned.
-    pub fn remove(&self, key: &str) -> Result<Option<serde_json::Value>> {
+    pub fn remove(&self, key: &str) -> IntegrationResult<Option<serde_json::Value>> {
         trace!(key = key, "Attempting to remove key from shared context");
         let mut data_guard = self.data.write().lock_err()?;
         match &mut *data_guard {
@@ -248,7 +248,7 @@ impl SharedContext {
     /// # Returns
     /// * `Ok(serde_json::Value)` containing the cloned data.
     /// * `Err(IntegrationError::Lock)` if the read lock is poisoned.
-    pub async fn dump(&self) -> Result<serde_json::Value> {
+    pub async fn dump(&self) -> IntegrationResult<serde_json::Value> {
         let data_guard = self.data.read().lock_err()?;
         Ok(data_guard.clone())
     }
@@ -282,7 +282,8 @@ mod tests {
         });
 
         // Specify the Output type O as () for MachineBuilder
-        let idle_state_a = State::new("idle".to_string()).add_transition(
+        let mut idle_state_a = State::new("idle".to_string());
+        idle_state_a = idle_state_a.add_transition(
             "EVENT_A",
             Transition::new(
                 "idle".to_string(),
@@ -297,7 +298,7 @@ mod tests {
 
         let machine_a =
             MachineBuilder::<(), Event, String, ()>::new("idle".to_string(), "idle".to_string())
-                .state(idle_state_a) // Pass owned state
+                .state(idle_state_a) // Use owned state
                 .state(done_state_a)
                 .build()
                 .now_or_never()
@@ -307,42 +308,49 @@ mod tests {
         // Machine B uses the default `rustate::Context`
         let read_action = Action::from_fn({
             let ctx_reader = shared_context.clone();
-            move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
+            move |ctx: Arc<RwLock<Context>>, _evt: &Event| {
                 let ctx_reader_clone = ctx_reader.clone();
                 async move {
                     println!("Reader Action: Reading shared context");
-                    if let Some(status) = ctx_reader_clone.get::<String>("status")? {
-                        local_ctx.write().await.set("local_status", status)?;
+                    let status = ctx_reader_clone.get::<String>("status")?;
+                    let counter = ctx_reader_clone.get::<i32>("counter")?;
+                    println!("Reader Action: Read status={:?}, counter={:?}", status, counter);
+
+                    let mut ctx_guard = ctx.write().await;
+                    if let Some(s) = status {
+                        ctx_guard.set("local_status", s)?;
                     }
-                    if let Some(counter) = ctx_reader_clone.get::<i32>("counter")? {
-                        local_ctx.write().await.set("local_counter", counter)?;
+                    if let Some(c) = counter {
+                        ctx_guard.set("local_counter", c)?;
                     }
                     Ok(())
                 }
+                .boxed() // Box the future
             }
         });
 
-        // Adjust state building for Machine B
-        let waiting_state_b = State::new("waiting".to_string()).add_transition(
+        // Introduce let bindings for states to fix E0716
+        let mut waiting_state_b = State::new("waiting".to_string());
+        waiting_state_b = waiting_state_b.add_transition(
             "EVENT_B",
             Transition::new(
                 "waiting".to_string(),
-                Some("finished".to_string()),
+                Some("processed".to_string()),
                 Some(Event::from("EVENT_B")),
                 None,
                 vec![read_action.clone()], // Clone action
                 TransitionType::External,
             ),
         );
-        let finished_state_b = State::new("finished".to_string());
+        let processed_state_b = State::new("processed".to_string());
 
-        // Specify the Output type O as () for MachineBuilder
+        // Use the default context type Context for MachineBuilder
         let machine_b = MachineBuilder::<Context, Event, String, ()>::new(
             "waiting".to_string(),
             "waiting".to_string(),
         )
-        .state(waiting_state_b) // Pass owned state
-        .state(finished_state_b)
+        .state(waiting_state_b) // Use owned state
+        .state(processed_state_b)
         .build()
         .now_or_never()
         .expect("Machine B build failed")
@@ -356,53 +364,65 @@ mod tests {
         let shared_context = SharedContext::new();
         let (mut machine_a, mut machine_b) = create_machines(shared_context.clone());
 
-        println!("Shared context before: {:?}", shared_context.dump().await?);
-        machine_a.send(Event::from("EVENT_A")).await?;
-        println!("Shared context after A: {:?}", shared_context.dump().await?);
-        machine_b.send(Event::from("EVENT_B")).await?;
-        println!("Shared context after B: {:?}", shared_context.dump().await?);
+        println!("Initial state A: {:?}", machine_a.current_states);
+        println!("Initial state B: {:?}", machine_b.current_states);
+        println!("Initial shared context: {:?}", shared_context.dump().await?);
 
-        // Adjust assertions to compare unwrapped results
+        // Machine A writes to shared context
+        println!("Sending EVENT_A to Machine A...");
+        let changed_a = machine_a.send(Event::from("EVENT_A")).await?;
+        assert!(changed_a);
+        println!("State A after EVENT_A: {:?}", machine_a.current_states);
+        assert!(machine_a.is_in(&"done".to_string()));
+        println!("Shared context after A write: {:?}", shared_context.dump().await?);
         assert_eq!(
-            shared_context.get::<String>("status")?, // Returns Result<Option<T>>
-            Some("active".to_string())
+            shared_context.get::<String>("status")?.unwrap(),
+            "active"
+        );
+        assert_eq!(shared_context.get::<i32>("counter")?.unwrap(), 1);
+
+        // Machine B reads from shared context
+        println!("Sending EVENT_B to Machine B...");
+        let changed_b = machine_b.send(Event::from("EVENT_B")).await?;
+        assert!(changed_b);
+        println!("State B after EVENT_B: {:?}", machine_b.current_states);
+        assert!(machine_b.is_in(&"processed".to_string()));
+
+        // Check Machine B's local context
+        let ctx_b = machine_b.context.read().await;
+        println!("Machine B local context: {:?}", ctx_b);
+        assert_eq!(
+            ctx_b.get::<String>("local_status")
+                .ok_or_else(|| StateError::Unknown("Missing local_status".into()))?? // Use StateError::Unknown
+                .unwrap(),
+            "active"
         );
         assert_eq!(
-            shared_context.get::<i32>("counter")?, // Returns Result<Option<T>>
-            Some(1)
+            ctx_b.get::<i32>("local_counter")
+                .ok_or_else(|| StateError::Unknown("Missing local_counter".into()))?? // Use StateError::Unknown
+                .unwrap(),
+            1
         );
-
-        let ctx_b_guard = machine_b.context.read().await;
-        let ctx_b = (*ctx_b_guard).clone();
-        drop(ctx_b_guard);
-
-        // Adjust assertions for local context
-        assert_eq!(
-            ctx_b.get::<String>("local_status")?.unwrap(),
-            "active".to_string()
-        );
-        assert_eq!(ctx_b.get::<i32>("local_counter")?.unwrap(), 1);
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_contains_remove() -> RuStateResult<()> {
-        let ctx = SharedContext::new();
+        let shared_context = SharedContext::new();
+        shared_context.set("key1", "value1")?;
+        shared_context.set("key2", 123)?;
 
-        assert!(!ctx.contains_key("test")?);
-        ctx.set("test", 123)?;
-        assert!(ctx.contains_key("test")?);
+        assert!(shared_context.contains_key("key1")?);
+        assert!(shared_context.contains_key("key2")?);
+        assert!(!shared_context.contains_key("key3")?);
 
-        // Fix ? on Option: Convert Option to Result before using ?
-        let removed = ctx.remove("test")?.ok_or_else(|| {
-            StateError::Other("Key 'test' unexpectedly missing after remove".to_string())
-        })?;
-        assert_eq!(removed, serde_json::json!(123));
-        assert!(!ctx.contains_key("test")?);
+        let removed = shared_context.remove("key1")?;
+        assert_eq!(removed, Some(serde_json::json!("value1")));
+        assert!(!shared_context.contains_key("key1")?);
 
-        let removed_again = ctx.remove("test")?;
-        assert!(removed_again.is_none());
+        let removed_none = shared_context.remove("key3")?;
+        assert!(removed_none.is_none());
 
         Ok(())
     }
