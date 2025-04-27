@@ -203,8 +203,12 @@ impl ChildMachine for DefaultChildMachine {
         &mut self,
         event: E,
     ) -> impl Future<Output = Result<bool, StateError>> + Send {
-        let fut = self.machine.send(event.into_event());
-        Box::pin(fut)
+        let machine_arc = Arc::clone(&self.machine);
+        let event_owned = event.into_event();
+        Box::pin(async move {
+            let mut guard = machine_arc.lock().await;
+            guard.send(event_owned).await
+        })
     }
 
     /// 子ステートマシンの現在の状態（またはステータス）を取得します。
@@ -213,8 +217,11 @@ impl ChildMachine for DefaultChildMachine {
     /// * 現在の状態を表す文字列の `Option`。
     /// * エラーが発生した場合は `Err`。
     fn get_status(&self) -> impl Future<Output = IntegrationResult<Option<String>>> + Send {
-        let _guard = self.machine.name.clone();
-        Box::pin(async move { Ok(Some(_guard)) })
+        let machine_arc = Arc::clone(&self.machine);
+        Box::pin(async move {
+            let guard = machine_arc.lock().await;
+            Ok(Some(guard.name.clone()))
+        })
     }
 
     /// 最終状態にあるか確認
@@ -228,8 +235,11 @@ impl ChildMachine for DefaultChildMachine {
     /// 特定の状態にあるか確認
     fn is_in_state(&self, state_id: &str) -> impl Future<Output = Result<bool, StateError>> + Send {
         let state_id_owned = state_id.to_string();
-        let result = self.machine.is_in(&state_id_owned);
-        Box::pin(async move { Ok(result) })
+        let machine_arc = Arc::clone(&self.machine);
+        Box::pin(async move {
+            let guard = machine_arc.lock().await;
+            Ok(guard.is_in(&state_id_owned))
+        })
     }
 
     /// 現在の状態IDのリストを取得

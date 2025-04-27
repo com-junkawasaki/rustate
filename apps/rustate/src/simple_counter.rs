@@ -13,9 +13,10 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 
 /// Represents the state of the `CounterActor`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub enum CounterEvent {
     /// An event instructing the actor to increment its count.
+    #[default]
     Increment,
     /// An event instructing the actor to decrement its count.
     Decrement,

@@ -36,14 +36,16 @@ pub trait EventTrait: Clone + Debug + PartialEq + Eq + Hash + Send + Sync + 'sta
 /// This struct provides a common way to represent events with a string `event_type`
 /// and an optional `serde_json::Value` payload.
 /// It implements [`EventTrait`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 pub struct Event {
     /// The type identifier for the event (e.g., "SUBMIT", "CANCEL").
     /// Renamed to `type` during JSON serialization for convention.
     #[serde(rename = "type")]
+    #[serde(default)]
     pub event_type: String,
     /// Optional data associated with the event, represented as a JSON Value.
     #[serde(skip_serializing_if = "Option::is_none")] // Don't serialize if None
+    #[serde(default)] // Ensure None is used if missing during deserialization
     pub payload: Option<serde_json::Value>,
 }
 

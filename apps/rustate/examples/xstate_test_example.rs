@@ -10,9 +10,6 @@ use tokio::sync::RwLock;
 #[cfg(feature = "codegen")]
 use rustate::{CodegenExt, JsonExportOptions};
 
-#[cfg(feature = "proto")]
-use rustate::ProtoExportOptions;
-
 use std::env;
 
 // Define the event enum
@@ -123,19 +120,6 @@ async fn main() -> rustate::Result<()> {
         };
         machine.export_to_json(Some(json_options)).await?;
         println!("JSON ファイルが生成されました: {}", json_path.display());
-    }
-
-    #[cfg(feature = "proto")]
-    {
-        println!("\nステートマシン定義を Protocol Buffers としてエクスポート中...");
-        let proto_path = current_dir.join("shopping_cart.proto");
-        let proto_options = ProtoExportOptions {
-            output_path: proto_path.to_string_lossy().to_string(),
-            package_name: "shopping".to_string(),
-            message_name: "ShoppingCart".to_string(),
-        };
-        machine.export_to_proto(Some(proto_options)).await?;
-        println!("Proto ファイルが生成されました: {}", proto_path.display());
     }
 
     Ok(())

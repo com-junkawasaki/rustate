@@ -305,7 +305,7 @@ mod tests {
             None::<String>,
             Some(Event::from("EVENT_A")),
             None,                      // Guard
-            vec![write_action.into()], // Action needs .into() here to match Transition trait expectations
+            vec![write_action.clone()], // Use clone() instead of into()
             TransitionType::Internal,
         );
         idle_state_a.add_transition("EVENT_A".to_string(), event_a_transition);
@@ -341,7 +341,7 @@ mod tests {
             None::<String>,
             Some(Event::from("EVENT_B")),
             None,                     // Guard
-            vec![read_action.into()], // Action needs .into() here to match Transition trait expectations
+            vec![read_action.clone()], // Use clone() instead of into()
             TransitionType::Internal,
         );
         waiting_state_b.add_transition("EVENT_B".to_string(), event_b_transition);

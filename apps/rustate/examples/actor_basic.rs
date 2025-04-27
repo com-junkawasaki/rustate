@@ -50,8 +50,8 @@ async fn main() -> Result<()> {
     let off_id = "off".to_string();
     let on_id = "on".to_string();
 
-    let toggle_machine: Machine<ToggleContext, ToggleEvent, String, ()> = MachineBuilder::new(
-        "toggle".to_string(),
+    let _toggle_machine: Machine<ToggleContext, ToggleEvent, String, ()> = MachineBuilder::new(
+        "toggleMachine",
         off_id.clone(), // Initial state
     )
     .state(State::new(off_id.clone()))
