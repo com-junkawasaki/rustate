@@ -81,8 +81,10 @@ impl<'a> ModelChecker<'a> {
             let outgoing_transitions = self
                 .machine
                 .transitions
+                .get(&state)
+                .unwrap_or(&Vec::new())
                 .iter()
-                .filter(|t| t.source == state && t.target.is_some())
+                .filter(|t| t.target.is_some())
                 .map(|t| (t.event.clone(), t.target.clone().unwrap()))
                 .collect::<Vec<_>>();
 
@@ -296,7 +298,7 @@ impl<'a> ModelChecker<'a> {
 
                 while current_state != self.machine.initial {
                     let (prev_state, event) = path_map.get(&current_state).unwrap().clone();
-                    path.push(Event::new(event));
+                    path.push(Event::new(&event));
                     current_state = prev_state;
                 }
 
@@ -352,7 +354,7 @@ impl<'a> ModelChecker<'a> {
             let _ = self.build_graph();
         }
 
-        let all_states: HashSet<_> = self.machine.states.keys().cloned().collect();
+        let all_states: HashSet<_> = self.machine.states.all().map(|s| s.id.clone()).collect();
         let unreachable: Vec<_> = all_states
             .difference(&self.visited_states)
             .cloned()

@@ -1,3 +1,4 @@
+use crate::event::EventTrait;
 use crate::{Event, Machine};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
@@ -55,8 +56,14 @@ impl<'a> TestGenerator<'a> {
             }
 
             // この状態から遷移可能な次の状態を取得
-            for transition in &self.machine.transitions {
-                if transition.source == state_id && transition.target.is_some() {
+            for transition in self
+                .machine
+                .transitions
+                .get(&*state_id)
+                .unwrap_or(&Vec::new())
+                .iter()
+            {
+                if transition.target.is_some() {
                     let target = transition.target.as_ref().unwrap();
                     if !self.visited_states.contains(target) {
                         state_queue.push_back(target.clone());
@@ -72,18 +79,20 @@ impl<'a> TestGenerator<'a> {
     pub fn generate_all_transitions(&mut self) -> Vec<TestCase> {
         let mut test_cases = Vec::new();
 
-        for transition in &self.machine.transitions {
-            if let Some(target) = &transition.target {
-                let test_case = TestCase {
-                    name: format!(
-                        "Transition: {} --{}--> {}",
-                        transition.source, transition.event, target
-                    ),
-                    initial_state: transition.source.clone(),
-                    events: vec![Event::new(transition.event.clone())],
-                    expected_state: target.clone(),
-                };
-                test_cases.push(test_case);
+        for transitions_vec in self.machine.transitions.values() {
+            for transition in transitions_vec.iter() {
+                if let Some(target) = &transition.target {
+                    let test_case = TestCase {
+                        name: format!(
+                            "Transition: {} --{:?}--> {}",
+                            transition.source, transition.event, target
+                        ),
+                        initial_state: transition.source.clone(),
+                        events: vec![transition.event.clone().unwrap_or_else(|| Event::new(""))],
+                        expected_state: target.clone(),
+                    };
+                    test_cases.push(test_case);
+                }
             }
         }
 
@@ -132,13 +141,19 @@ impl<'a> TestGenerator<'a> {
             visited.insert(current_state.clone());
 
             // 現在の状態からすべての遷移を探索
-            for transition in &self.machine.transitions {
-                if transition.source == current_state && transition.target.is_some() {
+            for transition in self
+                .machine
+                .transitions
+                .get(&*current_state)
+                .unwrap_or(&Vec::new())
+                .iter()
+            {
+                if transition.target.is_some() {
                     let next_state = transition.target.as_ref().unwrap();
 
                     if !visited.contains(next_state) {
                         let mut new_events = events.clone();
-                        new_events.push(Event::new(transition.event.clone()));
+                        new_events.push(transition.event.clone().unwrap_or_else(|| Event::new("")));
 
                         queue.push_back((next_state.clone(), new_events));
                     }
@@ -162,7 +177,7 @@ impl<'a> TestGenerator<'a> {
                 if !loop_path.is_empty() {
                     let events: Vec<Event> = loop_path
                         .iter()
-                        .map(|event_name| Event::new(event_name.clone()))
+                        .map(|event_name| Event::new(&event_name))
                         .collect();
 
                     test_cases.push(TestCase {
@@ -209,10 +224,22 @@ impl<'a> TestGenerator<'a> {
 
         visited.insert(current.to_string());
 
-        for transition in &self.machine.transitions {
-            if transition.source == current && transition.target.is_some() {
+        for transition in self
+            .machine
+            .transitions
+            .get(&*current)
+            .unwrap_or(&Vec::new())
+            .iter()
+        {
+            if transition.target.is_some() {
                 let target = transition.target.as_ref().unwrap();
-                path.push(transition.event.clone());
+                path.push(
+                    transition
+                        .event
+                        .as_ref()
+                        .map(|e| e.event_type().to_string())
+                        .unwrap_or_default(),
+                );
 
                 self.dfs_find_loops(start, target, visited, path, loops);
 
@@ -237,8 +264,14 @@ impl<'a> TestGenerator<'a> {
 
             reachable.insert(state.clone());
 
-            for transition in &self.machine.transitions {
-                if transition.source == state && transition.target.is_some() {
+            for transition in self
+                .machine
+                .transitions
+                .get(&*state)
+                .unwrap_or(&Vec::new())
+                .iter()
+            {
+                if transition.target.is_some() {
                     let target = transition.target.as_ref().unwrap();
                     if !reachable.contains(target) {
                         queue.push_back(target.clone());

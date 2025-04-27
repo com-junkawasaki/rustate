@@ -83,6 +83,7 @@ use crate::integration::error::{LockResultExt, Result};
 use crate::{IntoEvent, Machine};
 use futures::FutureExt;
 use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 
 /// 共有ステートマシン参照
 ///
@@ -113,9 +114,8 @@ impl SharedMachineRef {
     }
 
     /// ステートマシンが特定の状態にあるか確認
-    pub fn is_in(&self, state_id: &str) -> Result<bool> {
-        let machine = self.machine.lock().lock_err()?;
-        Ok(machine.is_in(state_id))
+    pub async fn is_in_state(&self, state_id: &str) -> Result<bool> {
+        Ok(self.machine.lock().lock_err()?.is_in(&state_id.to_string()))
     }
 
     /// マシン名を取得
@@ -163,7 +163,7 @@ mod tests {
         println!("Debug: Parent event result: {:?}", result);
 
         // 子マシンの状態を確認
-        let is_activated = shared_child.is_in(&"activated".to_string())?;
+        let is_activated = shared_child.is_in_state(&"activated").await?;
         println!("Debug: Child is in activated state: {:?}", is_activated);
         assert!(is_activated);
         Ok(())

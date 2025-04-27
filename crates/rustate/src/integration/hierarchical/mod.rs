@@ -122,6 +122,9 @@
 
 use crate::integration::error::Result;
 use crate::{IntoEvent, Machine};
+use futures::FutureExt;
+use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 
 /// 子ステートマシンのインターフェース
 ///
@@ -135,7 +138,7 @@ pub trait ChildMachine: Send + Sync {
     fn is_in_final_state(&self) -> bool;
 
     /// 特定の状態にあるか確認
-    fn is_in(&self, state_id: &str) -> bool;
+    fn is_in_state(&self, state_id: &str) -> bool;
 
     /// 現在の状態IDのリストを取得
     fn current_states(&self) -> Vec<String>;
@@ -173,16 +176,16 @@ impl DefaultChildMachine {
 }
 
 impl ChildMachine for DefaultChildMachine {
-    async fn handle_parent_event<E: IntoEvent>(&mut self, event: E) -> Result<bool> {
-        Ok(self.machine.send(event).await?)
+    fn handle_parent_event<E: IntoEvent>(&mut self, event: E) -> Result<bool> {
+        Ok(self.machine.send(event)?)
     }
 
     fn is_in_final_state(&self) -> bool {
         self.machine.is_in(&self.final_state_id)
     }
 
-    fn is_in(&self, state_id: &str) -> bool {
-        self.machine.is_in(state_id)
+    fn is_in_state(&self, state_id: &str) -> bool {
+        self.machine.is_in(&state_id.to_string())
     }
 
     fn current_states(&self) -> Vec<String> {
@@ -255,7 +258,7 @@ pub mod coordination {
                 println!("Debug: Forwarding START event to child");
                 let mut child_guard = child_lock.lock().unwrap();
                 // Await the async handle_parent_event call
-                let result = child_guard.handle_parent_event(Event::from("START")).await;
+                let result = child_guard.handle_parent_event(Event::from("START"));
                 println!("Debug: Child START event result: {:?}", result);
                 result?; // Propagate error
                 Ok(())
