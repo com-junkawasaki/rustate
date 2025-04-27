@@ -33,7 +33,3 @@ rand = "0.8"
 tracing = "0.1"
 proptest = "1.2"
 chrono = "0.4"
-
-# 開発用依存関係
-[workspace.dev-dependencies]
-# テスト用など

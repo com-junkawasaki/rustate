@@ -123,8 +123,8 @@
 use crate::integration::error::Result;
 use crate::{IntoEvent, Machine};
 use futures::FutureExt;
-use std::sync::{Arc, Mutex};
-use tokio::sync::RwLock;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
 
 /// 子ステートマシンのインターフェース
 ///
@@ -132,7 +132,7 @@ use tokio::sync::RwLock;
 /// 操作を抽象化するために使用されます。
 pub trait ChildMachine: Send + Sync {
     /// 親からのイベントを処理
-    fn handle_parent_event<E: IntoEvent>(&mut self, event: E) -> Result<bool>;
+    async fn handle_parent_event<E: IntoEvent + Send>(&mut self, event: E) -> Result<bool>;
 
     /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool;
@@ -150,7 +150,7 @@ pub trait ChildMachine: Send + Sync {
 /// デフォルトの子ステートマシン実装
 pub struct DefaultChildMachine {
     /// 内部ステートマシン
-    machine: Machine,
+    machine: Arc<Mutex<Machine>>,
     /// 最終状態ID
     final_state_id: String,
 }
@@ -159,51 +159,49 @@ impl DefaultChildMachine {
     /// 新しい子ステートマシンを作成
     pub fn new(machine: Machine, final_state_id: impl Into<String>) -> Self {
         Self {
-            machine,
+            machine: Arc::new(Mutex::new(machine)),
             final_state_id: final_state_id.into(),
         }
     }
 
     /// 内部ステートマシンへの参照を取得
-    pub fn machine(&self) -> &Machine {
-        &self.machine
-    }
-
-    /// 内部ステートマシンへの可変参照を取得
-    pub fn machine_mut(&mut self) -> &mut Machine {
-        &mut self.machine
+    pub async fn machine_locked(&self) -> tokio::sync::MutexGuard<'_, Machine> {
+        self.machine.lock().await
     }
 }
 
+#[async_trait::async_trait]
 impl ChildMachine for DefaultChildMachine {
-    fn handle_parent_event<E: IntoEvent>(&mut self, event: E) -> Result<bool> {
-        Ok(self.machine.send(event)?)
+    async fn handle_parent_event<E: IntoEvent + Send>(&mut self, event: E) -> Result<bool> {
+        let event = event.into_event();
+        let mut machine = self.machine.lock().await;
+        machine.send(event).await
     }
 
     fn is_in_final_state(&self) -> bool {
-        self.machine.is_in(&self.final_state_id)
+        self.machine.blocking_lock().is_in(&self.final_state_id)
     }
 
     fn is_in_state(&self, state_id: &str) -> bool {
-        self.machine.is_in(&state_id.to_string())
+        self.machine.blocking_lock().is_in(&state_id.to_string())
     }
 
     fn current_states(&self) -> Vec<String> {
-        self.machine.current_states.iter().cloned().collect()
+        self.machine.blocking_lock().current_states.iter().cloned().collect()
     }
 
     fn to_json(&self) -> Result<String> {
-        Ok(self.machine.to_json()?)
+        Ok(self.machine.blocking_lock().to_json()?)
     }
 }
 
 /// 親子ステートマシン連携を管理するための機能
 pub mod coordination {
     use super::*;
-    use crate::{Action, Context, Event, Guard};
+    use crate::{Action, Context, Event, Guard, MachineBuilder, State, Transition, TransitionType};
     use futures::FutureExt;
-    use std::sync::{Arc, Mutex};
-    use tokio::sync::RwLock;
+    use std::sync::Arc;
+    use tokio::sync::{Mutex, RwLock};
 
     // Helper to simplify child machine creation
     fn create_child_machine() -> Machine<Context, Event, String> {
@@ -230,7 +228,7 @@ pub mod coordination {
 
     // Helper to simplify parent machine creation
     fn create_parent_machine(
-        child: Arc<Mutex<impl ChildMachine + 'static>>,
+        child: Arc<Mutex<impl ChildMachine + Send + 'static>>,
     ) -> Machine<Context, Event, String> {
         // Define States using String
         let monitoring = State::new("monitoring".to_string());
@@ -241,7 +239,7 @@ pub mod coordination {
         let monitor_closure = move |ctx: Arc<RwLock<Context>>, _evt: &Event| {
             let child_lock = child.clone();
             async move {
-                let child_guard = child_lock.lock().unwrap();
+                let child_guard = child_lock.lock().await;
                 if child_guard.is_in_final_state() {
                     let mut context = ctx.write().await;
                     context.set("childComplete", true)?;
@@ -256,11 +254,10 @@ pub mod coordination {
             let child_lock = child.clone();
             async move {
                 println!("Debug: Forwarding START event to child");
-                let mut child_guard = child_lock.lock().unwrap();
-                // Await the async handle_parent_event call
-                let result = child_guard.handle_parent_event(Event::from("START"));
+                let mut child_guard = child_lock.lock().await;
+                let result = child_guard.handle_parent_event(Event::from("START")).await;
                 println!("Debug: Child START event result: {:?}", result);
-                result?; // Propagate error
+                result?;
                 Ok(())
             }
         };
@@ -327,7 +324,7 @@ pub mod coordination {
     async fn test_hierarchical_integration() -> crate::Result<()> {
         let child_machine = create_child_machine();
         let child_wrapper = DefaultChildMachine::new(child_machine, "final".to_string());
-        let child_ref = Arc::new(Mutex::new(child_wrapper)); // Wrap in Mutex for sync access in test
+        let child_ref = Arc::new(Mutex::new(child_wrapper)); // Wrap in Mutex for async access in test
 
         let mut parent_machine = create_parent_machine(child_ref.clone());
 
@@ -336,10 +333,10 @@ pub mod coordination {
         let result = parent_machine.send(Event::from("START")).await?;
         println!("Debug: Parent machine START event result: {:?}", result);
         assert!(result); // Check if the event was handled
-                         // Assert child state (needs lock)
+                         // Assert child state (needs async lock now)
         {
             // Scope for mutex guard
-            let child_guard = child_ref.lock().unwrap();
+            let child_guard = child_ref.lock().await;
             // Child machine should now be in 'working' or 'final' after START is handled internally?
             // Let's assume child START moves it to 'final' for simplicity in this test structure.
             // Check the actual child machine logic to be sure.

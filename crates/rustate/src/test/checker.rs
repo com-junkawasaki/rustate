@@ -85,7 +85,12 @@ impl<'a> ModelChecker<'a> {
                 .unwrap_or(&Vec::new())
                 .iter()
                 .filter(|t| t.target.is_some())
-                .map(|t| (t.event.clone(), t.target.clone().unwrap()))
+                .map(|t| {
+                    // Convert Option<Event> to String using event_type
+                    let event_str = t.event.as_ref()
+                        .map_or_else(|| "".to_string(), |e| e.event_type().to_string());
+                    (event_str, t.target.clone().unwrap())
+                })
                 .collect::<Vec<_>>();
 
             self.transition_graph

@@ -152,13 +152,13 @@ mod tests {
         // Define guards
         let is_timer_expired =
             Guard::new("is_timer_expired", |ctx: &Context, _evt: &Event| -> bool {
-                ctx.get::<i32>("timer").unwrap_or_default() >= 5 // Use unwrap_or_default
+                ctx.get::<i32>("timer").and_then(|r| r.ok()).unwrap_or_default() >= 5 // Use unwrap_or_default
                                                                  // FIXME: Proper Result handling needed
             });
         let is_maintenance_mode = Guard::new(
             "is_maintenance_mode",
             |ctx: &Context, _evt: &Event| -> bool {
-                ctx.get::<bool>("maintenance").unwrap_or_default() // Use unwrap_or_default
+                ctx.get::<bool>("maintenance").and_then(|r| r.ok()).unwrap_or_default() // Use unwrap_or_default
             },
         );
 
@@ -166,7 +166,7 @@ mod tests {
         let increment_timer = Action::from_fn(|ctx, _evt| {
             async move {
                 let mut context_guard = ctx.write().await;
-                let current = context_guard.get::<i32>("timer").unwrap_or_default(); // Use unwrap_or_default for tests
+                let current = context_guard.get::<i32>("timer").and_then(|r| r.ok()).unwrap_or_default(); // Use unwrap_or_default for tests
                 context_guard
                     .set("timer", current + 1)
                     .map_err(|e| Error::ContextError(e.to_string())) // Use ContextError

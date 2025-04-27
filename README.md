@@ -16,11 +16,11 @@ The demo features:
 
 The RuState project is organized as a Cargo workspace consisting of several crates:
 
-- **`crates/rustate_core`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.). Includes basic Model-Based Testing capabilities. (Status: Actively Developed)
-- **`crates/rustate_macros`**: Provides procedural macros (`#[derive(StateMachine)]`, etc.) to simplify state machine definition. (Status: Stable)
-- **`crates/editor`**: A web-based visual editor (WASM/Yew) for creating and visualizing RuState state machines. (Status: Work in Progress - Basic structure exists, functionality limited)
-- **`crates/agent`**: Implements agent logic (policies, decisions, learning). (Status: Planned/Early Development - Minimal code exists)
-- **`crates/demo`**: Contains the source code for the live demo showcasing RuState features. (Status: Functional - Requires updates for latest core features)
+- **`crates/rustate_core`**: The core state machine library providing the fundamental building blocks (states, transitions, actions, guards, context, etc.). Also includes actor pattern implementations. (Status: Actively Developed - MBT features mentioned previously need verification)
+- **`crates/rustate_macros`**: Provides procedural macros (`#[derive(StateMachine)]`, etc.) to simplify state machine definition. (Status: Appears Stable)
+- **`crates/editor`**: A web-based visual editor (WASM/Yew) for creating and visualizing RuState state machines. (Status: Work in Progress - Basic structure exists)
+- **`crates/agent`**: Implements agent logic (policies, decisions, storage, etc.). (Status: Actively Developed - Significant implementation exists)
+- **`crates/demo`**: Contains the source code for the live demo showcasing RuState features. (Status: Functional - May require updates for latest core features)
 
 *(TODO: Add a diagram illustrating the interaction between these crates)*
 
@@ -37,25 +37,12 @@ RuState provides the following features (primarily within the `crates/rustate_co
 - ✅ Type-safe API
 - ✅ Serializable machines
 - ✅ Cross-crate state machine integration
-- ✅ Model-based testing (MBT) support
+- ✅ Actor pattern support
+- ❓ Model-based testing (MBT) support - *(Note: The previously described `src/mbt/` directory was not found; location and status of MBT features need verification)*
 
 ## Model-Based Testing (MBT) Integration
 
-RuState incorporates the principles of model-based testing within the `rustate_core` crate. Basic infrastructure for test generation (`TestGenerator`), test execution (`TestRunner`, `PropertyTestRunner`), and coverage reporting is implemented in `crates/rustate_core/src/mbt/`. *(Path confirmed, implementation details need further review)*
-
-1.  **Model Definition**: Define explicit models using states, transitions, guards, and actions.
-2.  **Test Case Generation**: The `TestGenerator` provides basic capabilities to generate test cases from the model (e.g., based on transitions). *(Needs enhancement for strategies like path coverage, boundary analysis)*.
-3.  **Test Execution**: The `TestRunner` and `PropertyTestRunner` execute defined test cases or properties against the state machine.
-4.  **Coverage Verification**: Basic coverage reporting is available via `TestResults`. *(Needs enhancement for more detailed metrics)*.
-
-*(Current MBT implementation provides foundational elements. Robustness, advanced test generation, and detailed coverage reporting require further development.)*
-
-### Key Features (MBT - Basic Implementation)
-
-- **Test Generator**: Basic test case generation (e.g., all transitions).
-- **Online Testing**: `TestRunner` for direct testing.
-- **Offline Testing**: Potential via serialization, requires verification.
-- **State Coverage Report**: Basic coverage via `TestResults`.
+*(Note: The detailed description of MBT features previously here has been removed as the corresponding `src/mbt/` directory in `rustate_core` was not found during the latest review. The existence, location, and status of MBT features need to be verified within the current codebase before this section can be accurately updated.)*
 
 ### Cross-Crate State Machine Integration
 
@@ -253,7 +240,7 @@ fn setup_parent_machine(mut child: impl ChildMachine + 'static) -> Machine {
 4. **Event Namespacing**: Prefix events with module or crate names to avoid collisions
 5. **Minimize Coupling**: Design machines to be as independent as possible
 6. **Error Handling**: Use Result types for robust cross-machine communication
-7. **Testing**: Test integrated machines as a whole system using MBT techniques
+7. **Testing**: Test integrated machines as a whole system. *(Note: Utilizing Model-Based Testing (MBT) techniques is a goal, pending verification of MBT feature status).*
 
 This approach allows you to build complex applications with modular, type-safe state management across multiple crates, perfect for large Rust applications with distinct domains.
 
@@ -264,7 +251,7 @@ This approach allows you to build complex applications with modular, type-safe s
 1.  **Foundation & Cleanup:**
     *   [ ] Run `cargo fmt`, `cargo clippy`, `cargo test --workspace` and fix issues.
 2.  **Core Library (`rustate_core`) Enhancement:**
-    *   [ ] Enhance MBT: Implement advanced test generation (path coverage, etc.) and detailed coverage metrics.
+    *   [ ] Verify and potentially implement/enhance MBT features based on project goals.
     *   [ ] Refine API: Improve ergonomics based on usage in other crates.
     *   [ ] Documentation: Add comprehensive rustdoc comments and examples.
 3.  **Editor (`editor`) Development:**
@@ -272,15 +259,15 @@ This approach allows you to build complex applications with modular, type-safe s
     *   [ ] Implement core visualization logic (using Yew/WASM).
     *   [ ] Implement loading/saving machines via `rustate_core` serialization.
 4.  **Agent (`agent`) Development:**
-    *   [ ] Define agent architecture and interaction model with `rustate_core`.
-    *   [ ] Implement basic agent policy execution state machine.
+    *   [ ] Refine agent architecture and integrate advanced features (e.g., LLM interaction).
+    *   [ ] Improve storage and decision-making logic based on testing.
 5.  **Demo (`demo`) Update:**
     *   [ ] Update demo to use the latest `rustate_core` features and API.
     *   [ ] Refresh the live demo deployment.
 6.  **Testing & QA (`qa`):**
-    *   [ ] Increase unit test coverage in `rustate_core`.
+    *   [ ] Increase unit test coverage in `rustate_core` and `agent`.
     *   [ ] Add integration tests between `rustate_core` and other crates (`editor`, `demo`, `agent`).
-    *   [ ] Develop formal MBT test suites using the enhanced MBT features.
+    *   [ ] Develop comprehensive test suites, potentially including MBT if verified and implemented.
 7.  **Documentation & Presentation:**
     *   [ ] Create crate interaction diagram for README.
     *   [ ] Update `docs/` directory with more detailed guides.
@@ -310,9 +297,7 @@ This approach allows you to build complex applications with modular, type-safe s
 - **Action**: Side effects executed during state transitions
 - **Context**: Stores the extended state of the machine
 - **Cross-Crate Integration**: Patterns for connecting state machines across different crates
-- **TestGenerator**: Generates test cases from the model
-- **TestRunner**: Executes test cases
-- **CoverageReport**: Analyzes test coverage
+- **Actor Pattern**: Concepts related to actor-based concurrency and state management within `rustate_core`.
 
 ## Getting Started
 
@@ -324,16 +309,15 @@ MIT
 
 ### 機能実装状況 (Implementation Status)
 
-| モジュール (Module)          | 進捗状況 (Progress) | 備考 (Notes)                                                                |
-|---------------------------|-------------------|-----------------------------------------------------------------------------|
-| `rustate_core`            | 95%               | 基本機能は実装済み、最適化と拡張機能を追加中                                         |
-| `rustate_macros`          | 95%               | 基本的なマクロ機能は実装済み                                                         |
-| テスト機能 (MBT in core) | 90%               | MBT、プロパティベーステストなど実装済み                                                |
-| `editor`                  | 80%               | 基本的な編集機能は実装済み、UI改善の余地あり                                        |
-| `demo`                    | 85%               | トラフィックライト、階層状態機械の例は完成                                          |
-| `agent`                   | 30%               | 基本構造は定義済み、実装は初期段階                                                    |
-| ドキュメント (Documentation)  | 75%               | 主要機能の説明はあるが、APIドキュメントの拡充が必要                                  |
-| CI/CD                     | 70%               | GitHub Actionsで基本的なワークフロー設定済み                                         |
+| モジュール (Module)          | 進捗状況 (Progress) | 備考 (Notes)                                                                    |
+|---------------------------|-------------------|---------------------------------------------------------------------------------| 
+| `rustate_core`            | 95%               | 基本機能は実装済み、Actorパターン含む。最適化と拡張機能を追加中                      |
+| `rustate_macros`          | 95%               | 基本的なマクロ機能は実装済み                                                             |
+| `editor`                  | 80%               | 基本的な編集機能は実装済み、UI改善の余地あり                                            |
+| `demo`                    | 85%               | トラフィックライト、階層状態機械の例は完成                                              |
+| `agent`                   | 65%               | 主要機能実装中、LLM連携など高度化進行中                                                 |
+| ドキュメント (Documentation)  | 75%               | 主要機能の説明はあるが、APIドキュメントの拡充が必要                                      |
+| CI/CD                     | 70%               | GitHub Actionsで基本的なワークフロー設定済み                                             |
 
 ### 次のステップ (Next Steps)
 

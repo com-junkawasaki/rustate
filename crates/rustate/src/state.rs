@@ -13,11 +13,16 @@ use uuid::Uuid;
 pub trait StateTrait:
     Serialize + DeserializeOwned + Clone + Debug + Display + Hash + Eq + Send + Sync + 'static
 {
-    // Methods related to hierarchy and type are now part of State<S>
+    /// Returns the unique identifier of the state.
+    fn id(&self) -> &Self;
 }
 
 // Implement StateTrait for String, a common use case for state IDs
-impl StateTrait for String {}
+impl StateTrait for String {
+    fn id(&self) -> &Self {
+        self
+    }
+}
 
 // Implement StateTrait for simple static strings if needed
 // impl StateTrait for &'static str {} // Requires DeserializeOwned, tricky for &'static str

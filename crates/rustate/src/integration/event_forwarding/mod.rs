@@ -82,8 +82,8 @@
 use crate::integration::error::{LockResultExt, Result};
 use crate::{IntoEvent, Machine};
 use futures::FutureExt;
-use std::sync::{Arc, Mutex};
-use tokio::sync::RwLock;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
 
 /// 共有ステートマシン参照
 ///
@@ -108,14 +108,16 @@ impl SharedMachineRef {
     }
 
     /// ステートマシンにイベントを送信
-    pub async fn send_event<E: IntoEvent>(&self, event: E) -> Result<bool> {
-        let mut machine = self.machine.lock().lock_err()?;
+    pub async fn send_event<E: IntoEvent + Send>(&self, event: E) -> Result<bool> {
+        let event = event.into_event();
+        let mut machine = self.machine.lock().await;
         Ok(machine.send(event).await?)
     }
 
     /// ステートマシンが特定の状態にあるか確認
     pub async fn is_in_state(&self, state_id: &str) -> Result<bool> {
-        Ok(self.machine.lock().lock_err()?.is_in(&state_id.to_string()))
+        let machine = self.machine.lock().await;
+        Ok(machine.is_in(&state_id.to_string()))
     }
 
     /// マシン名を取得
@@ -125,14 +127,16 @@ impl SharedMachineRef {
 }
 
 /// ステートマシン間のイベント転送を管理するためのトレイト
+#[async_trait::async_trait]
 pub trait EventForwarder {
     /// イベントを転送
-    fn forward_event<E: IntoEvent>(&self, event: E) -> Result<bool>;
+    async fn forward_event<E: IntoEvent + Send>(&self, event: E) -> Result<bool>;
 }
 
+#[async_trait::async_trait]
 impl EventForwarder for SharedMachineRef {
-    fn forward_event<E: IntoEvent>(&self, event: E) -> Result<bool> {
-        self.send_event(event)
+    async fn forward_event<E: IntoEvent + Send>(&self, event: E) -> Result<bool> {
+        self.send_event(event).await
     }
 }
 
