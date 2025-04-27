@@ -58,6 +58,7 @@ where
         + Serialize
         + for<'de> Deserialize<'de>
         + Default
+        + PartialEq
         + 'static,
     E: RuEventTrait
         + Clone
@@ -100,6 +101,7 @@ where
         + Serialize
         + for<'de> Deserialize<'de>
         + Default
+        + PartialEq
         + 'static,
     E: RuEventTrait
         + Clone
@@ -284,7 +286,7 @@ where
             // TODO: get_observation/get_insight return single items, but DecisionContext expects Vec.
             // Need to adjust storage trait/impls or how context is built.
             // For now, wrapping in vec! as placeholder.
-            let decision_context = DecisionContext::new(
+            let _decision_context = DecisionContext::new(
                 current_state.clone(), // Clone current state for context
                 goal_state.clone(),    // Pass goal_state directly (already cloned)
                 vec![observations],    // Placeholder
@@ -485,7 +487,7 @@ where
 
     /// Applies a decision by sending the event to the state machine.
     async fn apply_decision(&self, decision: &Decision<E>) -> Result<S> {
-        let event_to_send = decision.action.clone(); // Assuming Decision.action is the event
+        let event_to_send = decision.event.clone(); // Use .event instead of .action
         self.process_event(event_to_send).await
     }
 
@@ -493,7 +495,7 @@ where
     fn is_goal_reached(&self, current_state: &S) -> Result<bool> {
         if let Some(episode) = &self.current_episode {
             // Compare current state with the target state in the Goal struct
-            Ok(current_state == &episode.goal.target_state)
+            Ok(current_state == &episode.goal.target_state) // Comparison now works with PartialEq
         } else {
             Err(AgentError::NoActiveEpisode)
         }

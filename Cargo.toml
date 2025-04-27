@@ -5,7 +5,7 @@ members = [
     "crates/rustate_macros",
     "crates/agent",
     "crates/editor",
-    "crates/demo",
+    # "crates/demo", // Temporarily excluded due to API incompatibility
 ]
 
 [workspace.package]
