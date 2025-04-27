@@ -1,12 +1,11 @@
 use crate::{
-    action::{Action, ActionMap, IntoAction},
-    actor::{ActorLogic, ActorStatus, Snapshot as ActorSnapshot},
+    action::{Action, ActionFn, IntoAction},
     context::Context,
     error::{Result, StateError as Error},
-    event::{Event, EventTrait},
-    guard::{Guard, GuardMap},
+    event::{Event, EventTrait, IntoEvent},
+    guard::{Guard},
     state::{State, StateCollection, StateTrait, StateType},
-    transition::{Transition, TransitionMap, TransitionType},
+    transition::{Transition, TransitionType},
 };
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};

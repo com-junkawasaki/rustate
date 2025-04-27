@@ -11,10 +11,6 @@ pub mod logic;
 pub mod simple_counter;
 pub mod spawn;
 pub mod system;
-pub mod macros;
-
-// Add the macros module
-pub mod macros;
 
 // Add modules from obsolete crate
 pub mod action;
@@ -30,9 +26,10 @@ pub mod transition;
 pub mod wasm;
 #[cfg(feature = "codegen")]
 pub mod codegen;
-// integration is already declared in rustate_core's original lib.rs
-// #[cfg(feature = "integration")]
-// pub mod integration;
+
+// Add integration module declaration (assuming it should always be present for now)
+// If it should be optional based on the 'integration' feature, wrap with #[cfg(feature = "integration")]
+pub mod integration;
 
 // Public re-exports for easier access by users of the crate.
 
