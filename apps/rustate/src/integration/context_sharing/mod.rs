@@ -115,11 +115,8 @@
 use crate::integration::error::{
     Error as IntegrationError, LockResultExt, Result as IntegrationResult,
 };
-use crate::state::State;
-use crate::{Context, Event, Machine};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
-use thiserror::Error;
 use tracing::{trace, warn};
 
 /// A thread-safe, shareable context container.

@@ -1,10 +1,9 @@
 use crate::{
-    action::{Action, ActionFn, IntoAction},
+    action::{Action, IntoAction},
     context::Context,
     error::{Result as StateResult, StateError},
     event::{Event, EventTrait, IntoEvent},
-    guard::{Guard, IntoGuard},
-    state::{State, StateCollection, StateId, StateTrait, StateType},
+    state::{State, StateCollection, StateTrait, StateType},
     transition::{Transition, TransitionType},
 };
 use serde::de::DeserializeOwned;
@@ -16,7 +15,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use futures::stream::{self, StreamExt};
 use tokio::sync::RwLock;
-use crate::action::ActionType;
+use futures::FutureExt;
+use log;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -104,7 +104,7 @@ where
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new state machine instance from a builder
-    pub async fn new(builder: MachineBuilder<C, E, S, O>) -> Result<Self> {
+    pub async fn new(builder: MachineBuilder<C, E, S, O>) -> StateResult<Self> {
         let MachineBuilder {
             name,
             states,
@@ -122,14 +122,14 @@ where
         for t in transitions {
             // Validate source and target states
             if !states.contains(&t.source) {
-                return Err(Error::StateNotFound(format!(
+                return Err(StateError::StateNotFound(format!(
                     "Transition source '{}' not found",
                     t.source
                 )));
             }
             if let Some(target) = &t.target {
                 if !states.contains(target) {
-                    return Err(Error::StateNotFound(format!(
+                    return Err(StateError::StateNotFound(format!(
                         "Transition target '{}' not found",
                         target
                     )));
@@ -144,11 +144,11 @@ where
         // --- Group Transitions by Source State --- End
 
         if states.is_empty() {
-            return Err(Error::InvalidConfiguration("No states defined".into()));
+            return Err(StateError::InvalidConfiguration("No states defined".into()));
         }
 
         if !states.contains(&initial) {
-            return Err(Error::StateNotFound(initial.to_string()));
+            return Err(StateError::StateNotFound(initial.to_string()));
         }
 
         // Wrap context in Arc<RwLock>
@@ -177,7 +177,7 @@ where
             name,
             states,
             transitions: grouped_transitions,
-            initial: initial.clone(),
+            initial: Some(initial.clone()),
             entry_actions: final_entry_actions,
             exit_actions: final_exit_actions,
             history: HashMap::new(),
@@ -193,7 +193,7 @@ where
     }
 
     /// Initialize the machine by entering the initial state
-    async fn initialize(&mut self, initial_state_id: &S) -> Result<()> {
+    async fn initialize(&mut self, initial_state_id: &S) -> StateResult<()> {
         self.enter_state(initial_state_id, None, self.context.clone())
             .await?;
         Ok(())
@@ -201,7 +201,7 @@ where
 
     /// Send an event to the machine
     #[tracing::instrument(skip(self, event), fields(machine_id = %self.name, event = ?event))]
-    pub async fn send(&mut self, event: E) -> Result<bool> {
+    pub async fn send(&mut self, event: E) -> StateResult<bool> {
         let event = event.clone();
         let current_state_ids = self.current_states.clone();
         let mut executed = false;
@@ -265,11 +265,11 @@ where
         transition: &Transition<S, C, E>,
         current_state_ids: &HashSet<S>,
         event: &E,
-    ) -> Result<()> {
+    ) -> StateResult<()> {
         let target_states = match &transition.target {
             Some(target) => {
                 if !self.states.contains(target) {
-                    return Err(Error::StateNotFound(target.to_string()).into());
+                    return Err(StateError::StateNotFound(target.to_string()).into());
                 }
                 Some(target.clone())
             }
@@ -332,18 +332,12 @@ where
             }
         }
 
-        // 3. Execute exit actions and recursive exit
-        let mut exit_futures = Vec::new();
+        // 3. Execute exit actions and recursive exit - Execute sequentially to avoid Send issues
         let context_clone_for_exit = self.context.clone(); // Clone Arc for exit states
         for id in &exit_states {
-            exit_futures.push(
-                self.exit_state(id, event, context_clone_for_exit.clone())
-                    .boxed(),
-            );
-        }
-        let exit_results = futures::future::join_all(exit_futures).await;
-        for result in exit_results {
-            result?;
+            // Execute sequentially instead of using join_all + boxed()
+            self.exit_state(id, event, context_clone_for_exit.clone()).await?;
+            // Propagate errors immediately
         }
 
         // 3.5 Update history for exited states *after* exiting
@@ -429,9 +423,9 @@ where
         state_id: &S,
         event: Option<&E>,
         context: Arc<RwLock<C>>,
-    ) -> Result<()> {
+    ) -> StateResult<()> {
         if !self.states.contains(state_id) {
-            return Err(Error::StateNotFound(state_id.to_string()).into());
+            return Err(StateError::StateNotFound(state_id.to_string()).into());
         }
 
         // Add state to current states (assuming Machine has current_states: HashSet<S>)
@@ -491,31 +485,33 @@ where
     }
 
     /// Exit a state and its active children recursively
-    async fn exit_state(&self, state_id: &S, event: &E, context: Arc<RwLock<C>>) -> Result<()> {
+    async fn exit_state(&self, state_id: &S, event: &E, context: Arc<RwLock<C>>) -> StateResult<()> {
         log::debug!("Exiting state: {}", state_id);
         // --- Handle exiting child states first (recursion/iteration needed) --- Start
         // Find currently active states that are direct children of state_id
         // Need immutable borrow of self.current_states and self.states here
-        let active_children_to_exit = self
-            .current_states
+        let current_states_clone = self.current_states.clone();
+        let active_children_to_exit = current_states_clone
             .iter()
-            .filter(|current_id| self.get_parent_id(current_id).as_ref() == Some(state_id))
-            .cloned()
-            .collect::<Vec<_>>();
+            .filter(|&active_id| {
+                if active_id == state_id {
+                    return false; // Don't exit self if it happens to be in current_states (shouldn't occur here)
+                }
+                match self.get_parent_id(active_id) {
+                    Some(parent_id) => &parent_id == state_id,
+                    None => false, // No parent or state not found
+                }
+            })
+            .cloned() // Clone the S IDs
+            .collect::<Vec<_>>(); // Collect into a Vec<S>
 
-        // Clone context for recursive calls
-        let context_clone = context.clone();
-        let event_clone = event.clone(); // Clone event for the loop
-
-        // Execute child exits sequentially to avoid potential Send issues with join_all
+        // Recursively exit active children first - Execute sequentially
+        let context_clone_for_children = context.clone(); // Clone Arc for children exit
         for child_id in active_children_to_exit {
-            log::debug!("Exiting child {} of {}", child_id, state_id);
-            // Pass context down recursively
-            self.exit_state(&child_id, &event_clone, context_clone.clone())
-                .await?;
+            // Call recursively and await directly, boxing the future
+            Box::pin(self.exit_state(&child_id, event, context_clone_for_children.clone())).await?;
             // Propagate errors immediately
         }
-        log::debug!("Finished exiting children of {}", state_id);
         // --- Handle exiting child states first --- End
 
         // Ensure state exists (immutable check)
@@ -545,24 +541,19 @@ where
         state_id: &S,
         event: Option<&E>,
         context: Arc<RwLock<C>>,
-    ) -> Result<(), Error> {
-        if let Some(actions) = self.entry_actions.get(state_id.to_string().as_str()) {
-            // If event is None (during initialization), maybe skip actions that need it?
-            // Or Action::execute needs to handle Option<&E>.
-            // For now, assume actions might not need the event or handle None.
+    ) -> StateResult<()> {
+        if let Some(actions) = self.entry_actions.get(&state_id.to_string()) {
+            log::debug!("Executing entry actions for state: {}", state_id);
+            // Only execute if event is Some, as execute expects &E
             if let Some(actual_event) = event {
                 for action in actions {
-                    action.execute(context.clone(), actual_event).await;
+                    action.execute(context.clone(), actual_event).await; // Pass &E
                 }
             } else {
-                // Handle case where event is None (e.g., during initialization)
-                // Maybe log a warning, or filter actions, or modify Action::execute
-                // For simplicity now, let's assume actions called during init don't need the event
-                for action in actions {
-                    // How should Action::execute handle None event?
-                    // Let's assume it needs an event reference, so we skip if None for now.
-                    // A better solution might be needed.
-                }
+                // If event is None (e.g., initial entry), potentially skip actions
+                // or actions should be designed to handle this possibility.
+                // For now, we skip calling execute if event is None.
+                log::debug!("Skipping entry actions for state {} due to missing event (initialization?)", state_id);
             }
         }
         Ok(())
@@ -572,17 +563,15 @@ where
     async fn execute_exit_actions(
         &self,
         state_id: &S,
-        event: &E,
+        event: &E, // Exit actions always have an event context
         context: Arc<RwLock<C>>,
-    ) -> Result<(), Error> {
-        let id_str = state_id.to_string();
-        if let Some(actions) = self.exit_actions.get(&id_str) {
-            log::debug!("Executing exit actions for {}", state_id);
-            let actions_to_run = actions.clone();
-            for action in actions_to_run {
+    ) -> StateResult<()> { // Changed Result to StateResult
+        if let Some(actions) = self.exit_actions.get(&state_id.to_string()) {
+            log::debug!("Executing exit actions for state: {}", state_id);
+            for action in actions {
+                // Pass the event directly as &E
                 action.execute(context.clone(), event).await;
             }
-            log::debug!("Finished exit actions for {}", state_id);
         }
         Ok(())
     }
@@ -696,8 +685,8 @@ where
     }
 
     /// Serializes the machine definition to a JSON string.
-    pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).map_err(|e| Error::Serialization(e.to_string()))
+    pub fn to_json(&self) -> StateResult<String> { // Changed Result to StateResult
+        serde_json::to_string_pretty(self).map_err(|e| StateError::Serialization(e.to_string())) // Use correct variant name
     }
 
     /// Get the depth of a state in the hierarchy
@@ -735,28 +724,40 @@ where
 
     /// Returns the serialization result as a string.
     /// Errors during serialization are wrapped in `Error::Serialization`.
-    pub fn serialize_state(&self) -> Result<String> {
+    pub fn serialize_state(&self) -> StateResult<String> {
+        let context_guard = futures::executor::block_on(self.context.read()); // Block for sync method
         let serializable_state = SerializableMachineState {
             current_states: self.current_states.clone(),
-            context: self.context.blocking_read().clone(), // Clone context data
+            context: (*context_guard).clone(), // Clone the inner C
             history: self.history.clone(),
         };
-        serde_json::to_string(&serializable_state).map_err(|e| Error::Serialization(e.to_string()))
-        // Use correct variant
+        serde_json::to_string(&serializable_state)
+            .map_err(|e| StateError::Serialization(e.to_string())) // Use correct variant name
     }
 
     /// Serializes the machine's *definition* (states, transitions) to JSON.
     /// Excludes runtime state like current_states and context.
     /// Errors during serialization are wrapped in `Error::Serialization`.
-    pub fn serialize_definition(&self) -> Result<String> {
-        // Use the derived Serialize on Machine itself, which skips runtime fields
-        serde_json::to_string(self).map_err(|e| Error::Serialization(e.to_string()))
-        // Use correct variant
+    pub fn serialize_definition(&self) -> StateResult<String> {
+        // We only need the definition parts: name, states, transitions, initial
+        let definition_data = (
+            &self.name,
+            &self.states,
+            &self.transitions,
+            &self.initial,
+            // Don't include context, current_states, history, actions here
+        );
+        serde_json::to_string(&definition_data)
+            .map_err(|e| StateError::Serialization(e.to_string())) // Use correct variant name
     }
 }
 
 /// Builder for creating Machine instances
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "S: Serialize, C: Serialize",
+    deserialize = "S: StateTrait + DeserializeOwned, C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static"
+))]
 pub struct MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
@@ -862,7 +863,7 @@ where
     }
 
     /// Build the Machine instance
-    pub async fn build(self) -> Result<Machine<C, E, S, O>> {
+    pub async fn build(self) -> StateResult<Machine<C, E, S, O>> {
         Machine::new(self).await
     }
 }

@@ -1,17 +1,17 @@
 use crate::actor::{Actor, ActorError};
+use crate::context::Context;
+use crate::event::{Event, EventTrait, IntoEvent};
+use crate::state::State;
+use crate::machine::Machine;
+use crate::MachineBuilder;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Represents the state of the `CounterActor`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CounterState {
-    /// The current count value.
-    pub count: i32,
-}
-
-/// Represents the events that the `CounterActor` can process.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CounterEvent {
     /// An event instructing the actor to increment its count.
     Increment,
@@ -24,50 +24,138 @@ pub enum CounterEvent {
     Print,
 }
 
+/// Implement EventTrait for CounterEvent
+impl EventTrait for CounterEvent {
+    fn event_type(&self) -> &str {
+        match self {
+            CounterEvent::Increment => "INCREMENT",
+            CounterEvent::Decrement => "DECREMENT",
+            CounterEvent::Print => "PRINT",
+        }
+    }
+
+    fn payload(&self) -> Option<&serde_json::Value> {
+        None // CounterEvent has no payload
+    }
+
+    fn name(&self) -> &str {
+        self.event_type() // Use the event type as the name
+    }
+}
+
+/// Implement IntoEvent for CounterEvent
+impl IntoEvent for CounterEvent {
+    fn into_event(self) -> Event {
+        // Convert CounterEvent to a payload-less Event using its type name
+        Event::new(self.event_type())
+    }
+}
+
+/// Define the actor state
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CounterState {
+    /// The current count value.
+    pub count: i32,
+}
+
 /// A simple actor that maintains an integer counter.
 ///
 /// This actor demonstrates the basic implementation of the `Actor` trait.
 /// It manages a `CounterState` and responds to `CounterEvent`s
 /// (`Increment`, `Decrement`, `Print`).
-#[derive(Debug, Clone, Default)] // Default derive is convenient for initial_state
-pub struct CounterActor;
+#[derive(Debug, Clone)]
+pub struct CounterActor {
+    state: Arc<Mutex<CounterState>>,
+    machine: Arc<Mutex<Machine<Context, CounterEvent, String, ()>>>,
+}
 
-#[async_trait]
-impl Actor for CounterActor {
-    type State = CounterState;
-    type Event = CounterEvent;
-    /// This actor does not produce specific external output, so `Output` is `()`.
-    type Output = ();
+impl CounterActor {
+    /// Constructor now async to allow building the machine
+    pub async fn new() -> Self {
+        let initial_state = CounterState::default();
 
-    /// Returns the initial state of the counter (count = 0).
-    fn initial_state(&self) -> Self::State {
-        CounterState { count: 0 }
-    }
+        // Attempt to build a minimal machine - still needs proper config
+        let machine_result = MachineBuilder::<Context, CounterEvent, String, ()>::new(
+            "counter_machine".to_string(),
+            "Idle".to_string(),
+        )
+        .state(State::new("Idle".to_string())) // Need at least one state
+        .context(Context::new())
+        .build()
+        .await;
 
-    /// Handles incoming `CounterEvent`s and updates the state.
-    async fn receive(
-        &self,
-        mut state: Self::State, // `mut` is needed to modify the count
-        event: Self::Event,
-    ) -> Result<Self::State, ActorError> {
-        println!(
-            "CounterActor received event: {:?}, current state: {:?}",
-            event, state
-        ); // Basic logging
-        match event {
-            CounterEvent::Increment => {
-                state.count += 1;
-                Ok(state) // Return the updated state
+        let machine = match machine_result {
+            Ok(m) => m,
+            Err(e) => {
+                // Handle error properly - maybe panic or return Result<Self, _>
+                panic!("Failed to build dummy machine: {}", e);
             }
-            CounterEvent::Decrement => {
-                state.count -= 1;
-                Ok(state) // Return the updated state
-            }
-            CounterEvent::Print => {
-                println!("Current count: {}", state.count); // Perform side-effect
-                                                            // State doesn't change, return the current state
-                Ok(state)
-            }
+        };
+
+        Self {
+            state: Arc::new(Mutex::new(initial_state)),
+            machine: Arc::new(Mutex::new(machine)),
         }
     }
 }
+
+#[async_trait]
+impl Actor for CounterActor {
+    type Context = Context;
+    type StateId = String;
+    type Event = CounterEvent;
+    type Output = ();
+    type State = CounterState;
+
+    /// Implement initial_state from Actor trait
+    fn initial_state(&self) -> Self::State {
+        CounterState::default()
+    }
+
+    /// Implement receive from Actor trait
+    async fn receive(
+        &self,
+        state: Self::State, // Current state passed in
+        event: Self::Event,
+    ) -> Result<Self::State, ActorError> {
+        log::debug!(
+            "CounterActor executing receive for event: {:?} with state: {:?}",
+            event,
+            state
+        );
+
+        // --- Machine Interaction (Optional based on design) ---
+        // If state transitions are driven by the machine:
+        // 1. Convert specific event to generic Event if needed by machine.
+        // 2. Send event to machine.
+        // 3. Machine executes actions/transitions which might update context.
+        // 4. Potentially read updated context from machine to influence state update.
+        // NOTE: The current structure with both `receive` and an internal `machine`
+        // might be redundant or indicate a different pattern is needed.
+        // For now, `receive` will directly update the state like `handle_event` did.
+        // If machine should drive state, this logic needs refactoring.
+
+        let mut new_state = state.clone(); // Clone current state to modify
+
+        match event {
+            CounterEvent::Increment => {
+                new_state.count += 1;
+                log::info!("Counter incremented: {}", new_state.count);
+            }
+            CounterEvent::Decrement => {
+                new_state.count -= 1;
+                log::info!("Counter decremented: {}", new_state.count);
+            }
+            CounterEvent::Print => {
+                log::info!("Current count (in receive): {}", new_state.count);
+                // Print doesn't change state
+            }
+        }
+
+        // Return the potentially modified state
+        Ok(new_state)
+    }
+
+    // Removed send, get_state, handle_event as they are not part of Actor trait
+}
+

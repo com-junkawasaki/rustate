@@ -3,7 +3,6 @@
 //!
 //! Events are occurrences that can trigger state transitions within a state machine.
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::Hash;

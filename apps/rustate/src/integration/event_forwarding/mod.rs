@@ -80,7 +80,7 @@
 //! - 大量のイベント転送が発生する場合、パフォーマンスに影響する可能性があります。
 
 use crate::integration::error::Result as IntegrationResult;
-use crate::{Context, Event, IntoEvent, Machine};
+use crate::{IntoEvent, Machine};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
