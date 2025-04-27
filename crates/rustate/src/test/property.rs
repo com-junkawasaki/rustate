@@ -4,11 +4,15 @@
 #[cfg(feature = "property-testing")]
 extern crate proptest;
 
-use crate::{Context, EventTrait, IntoEvent, Machine, Result, StateTrait};
+use crate::{Context, Event, EventTrait, Machine, Result, StateTrait};
 use proptest::strategy::{BoxedStrategy, Strategy};
+use proptest::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::hash::Hash;
+use std::fmt::Display;
+use crate::IntoEvent;
 
 /// Property-basedテストの検証プロパティを定義するトレイト
 pub trait StateMachineProperty<S, E>

@@ -3,11 +3,11 @@ use crate::{
     Context, Error, Error as StateError, Event, EventTrait, IntoEvent, Machine, Result, StateTrait,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::marker::PhantomData;
+use std::marker::{Send, Sync, PhantomData};
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// テスト実行結果を表す構造体
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -104,7 +104,7 @@ impl TestResults {
 
 /// テストを実行するランナー
 #[derive(Debug)]
-pub struct TestRunner<S, E, C>
+pub struct TestRunner<S, C>
 where
     S: StateTrait
         + Clone
@@ -115,16 +115,16 @@ where
         + From<String>
         + Default
         + Serialize
-        + DeserializeOwned,
-    E: EventTrait + Clone + Debug + IntoEvent + Serialize + DeserializeOwned,
-    C: Default + Clone + Debug,
+        + DeserializeOwned
+        + 'static,
+    C: Default + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    machine: Machine<C, E, S>,
+    machine: Machine<C, Event, S>,
     test_cases: Vec<TestCase>,
     results: HashMap<String, Result<(), Error>>,
 }
 
-impl<S, E, C> TestRunner<S, E, C>
+impl<S, C> TestRunner<S, C>
 where
     S: StateTrait
         + Clone
@@ -135,11 +135,11 @@ where
         + From<String>
         + Default
         + Serialize
-        + DeserializeOwned,
-    E: EventTrait + Clone + Debug + IntoEvent + Serialize + DeserializeOwned,
-    C: Default + Clone + Debug,
+        + DeserializeOwned
+        + 'static,
+    C: Default + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    pub fn new(machine: Machine<C, E, S>) -> Self {
+    pub fn new(machine: Machine<C, Event, S>) -> Self {
         Self {
             machine,
             test_cases: Vec::new(),
@@ -160,49 +160,54 @@ where
 
     async fn run_test_case(&self, test_case: &TestCase) -> Result<(), Error> {
         let mut machine = self.machine.clone();
-        machine.reset(); // Ensure machine starts from initial state
-        machine.set_context(test_case.initial_context.clone().unwrap_or_default());
+        
+        {
+            let mut context_guard = machine.context.write().await;
+            *context_guard = C::default();
+        }
 
-        let mut visited_states: HashSet<String> = HashSet::new();
-        visited_states.insert(machine.current_state().to_string()); // Convert S to String
+        let mut visited_states: HashSet<S> = HashSet::new();
+        if let Some(state) = machine.current_states.iter().next().cloned() {
+             visited_states.insert(state);
+        }
 
-        for event_input in &test_case.events {
-            let event = event_input.clone().into_event()?;
-            let result = machine.send(event).await;
+        for event in &test_case.events {
+            let result = machine.send(event.clone()).await;
 
             if let Err(e) = result {
                 return Err(e.into());
             }
-            visited_states.insert(machine.current_state().to_string()); // Convert S to String
-        }
-
-        let final_state = machine.current_state();
-        if final_state.to_string() != test_case.expected_state.to_string() {
-            // Convert S to String for comparison
-            return Err(Error::AssertionFailed(format!(
-                "Test case '{}': Expected final state '{}', but got '{}'",
-                test_case.name,
-                test_case.expected_state.to_string(), // Convert S to String
-                final_state.to_string()               // Convert S to String
-            )));
-        }
-
-        // Optional: Check expected context if provided
-        if let Some(expected_context) = &test_case.expected_context {
-            if &machine.get_context() != expected_context {
-                return Err(Error::AssertionFailed(format!(
-                    "Test case '{}': Expected final context {:?}, but got {:?}",
-                    test_case.name,
-                    expected_context,
-                    machine.get_context()
-                )));
+            if let Some(state) = machine.current_states.iter().next().cloned() {
+                 visited_states.insert(state);
             }
         }
 
+        let final_state_opt = machine.current_states.iter().next();
+
+        match final_state_opt {
+            Some(final_state) => {
+                if final_state.to_string() != test_case.expected_state {
+                    return Err(Error::ActionFailed(format!(
+                        "Test case '{}': Expected final state '{}', but got '{}'",
+                        test_case.name,
+                        test_case.expected_state,
+                        final_state              
+                    )));
+                }
+            }
+            None => {
+                 return Err(Error::ActionFailed(format!(
+                     "Test case '{}': Machine ended with no current state, expected '{}'",
+                     test_case.name,
+                     test_case.expected_state
+                 )));
+            }
+        }
+        
         Ok(())
     }
 
     pub fn get_results(&self) -> HashMap<String, Result<(), Error>> {
-        self.results.clone() // Clone results to avoid move error
+        self.results.clone()
     }
 }

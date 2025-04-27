@@ -258,6 +258,7 @@ mod tests {
     use super::*;
     use crate::error::StateError;
     use crate::serde_json;
+    use crate::{Action, Context, Event, MachineBuilder, State, Transition, TransitionType};
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -265,14 +266,14 @@ mod tests {
     fn create_machines(
         shared_context: SharedContext,
     ) -> (
-        Machine<String, String, ()>,
-        Machine<String, String, Context>,
+        Machine<(), Event, String>,
+        Machine<Context, Event, String>,
     ) {
         let ctx_writer = shared_context.clone();
         let ctx_reader = shared_context;
 
         // Machine A writes to shared context
-        let write_action = Action::from_fn(move |_ctx: Arc<RwLock<()>>, _evt: &String| {
+        let write_action = Action::from_fn(move |_ctx: Arc<RwLock<()>>, _evt: &Event| {
             let writer = ctx_writer.clone();
             async move {
                 writer.set("status", "active_from_a")?;
@@ -280,9 +281,9 @@ mod tests {
                 Ok(())
             }
         });
-        let machine_a = MachineBuilder::<String, String, ()>::new("idle".to_string())
+        let machine_a = MachineBuilder::<(), Event, String>::new("idle".to_string(), "idle".to_string())
             .state("idle".to_string(), |s| {
-                s.on("WRITE".to_string(), |t| {
+                s.on(Event::new("WRITE"), |t| {
                     t.target("done".to_string()).actions([write_action])
                 })
             })
@@ -291,7 +292,7 @@ mod tests {
             .expect("Failed to build machine A");
 
         // Machine B reads from shared context and writes to its *local* context
-        let read_action = Action::from_fn(move |local_ctx: Arc<RwLock<Context>>, _evt: &String| {
+        let read_action = Action::from_fn(move |local_ctx: Arc<RwLock<Context>>, _evt: &Event| {
             let reader = ctx_reader.clone();
             async move {
                 if let Some(status) = reader.get::<String>("status")? {
@@ -303,9 +304,9 @@ mod tests {
                 Ok(())
             }
         });
-        let machine_b = MachineBuilder::<String, String, Context>::new("waiting".to_string())
+        let machine_b = MachineBuilder::<Context, Event, String>::new("waiting".to_string(), "waiting".to_string())
             .state("waiting".to_string(), |s| {
-                s.on("READ".to_string(), |t| {
+                s.on(Event::new("READ"), |t| {
                     t.target("finished".to_string()).actions([read_action])
                 })
             })
@@ -330,7 +331,7 @@ mod tests {
 
         // 3. Trigger Machine A to write
         println!("Sending WRITE to Machine A...");
-        machine_a.send("WRITE".to_string()).await?;
+        machine_a.send(Event::new("WRITE")).await?;
         println!("Machine A state: {:?}", machine_a.current_state());
         assert_eq!(machine_a.current_state().value, serde_json::json!("done"));
 
@@ -351,7 +352,7 @@ mod tests {
             machine_b.current_state().value,
             serde_json::json!("waiting")
         );
-        machine_b.send("READ".to_string()).await?;
+        machine_b.send(Event::new("READ")).await?;
         println!("Machine B state: {:?}", machine_b.current_state());
         assert_eq!(
             machine_b.current_state().value,
