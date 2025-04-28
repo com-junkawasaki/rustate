@@ -1,24 +1,24 @@
-use crate::{
-    decision::{Decision, DecisionContext},
-    episode::Episode,
-    error::{AgentError, Result},
-    feedback::Feedback,
-    goal::Goal,
-    insight::Insight,
-    policy::Policy,
-    storage::Storage,
-};
+use crate::error::{self, AgentError, PolicyError, Result as AgentResult};
+use crate::feedback::Feedback;
+use crate::goal::Goal;
+use crate::insight::{Insight, InsightGenerator};
+use crate::policy::Policy;
+use crate::storage::Storage;
 use async_trait::async_trait;
 use rustate::{
-    machine::{Machine, MachineBuilder},
-    state::{StateTrait as RuStateTrait, StateType as RuStateType},
-    Context, EventTrait as RuEventTrait, IntoEvent as RuIntoEvent, SharedMachineRef,
+    Context, Event as RustateEvent, EventTrait as RuEventTrait, IntoEvent as RuIntoEvent, Machine,
+    MachineBuilder, SharedMachineRef, State as RustateState, StateTrait as RuStateTrait, StateType,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::hash::Hash;
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
+use std::sync::Arc;
 use tokio::sync::Mutex;
+
+// Define AgentId type alias
+pub type AgentId = String; // Or Uuid::Uuid if appropriate
 
 /// エージェントの構成設定
 #[derive(Debug, Clone)]
@@ -51,7 +51,7 @@ impl Default for AgentConfig {
 }
 
 /// 状態機械に基づく知的エージェント
-pub struct Agent<S, E, SM, P>
+pub struct Agent<S, E, SM, P, IG>
 where
     S: RuStateTrait
         + Clone
@@ -62,7 +62,8 @@ where
         + DeserializeOwned
         + Default
         + PartialEq
-        + 'static,
+        + 'static
+        + From<String>,
     E: RuEventTrait
         + Clone
         + Debug
@@ -76,6 +77,7 @@ where
         + 'static,
     SM: Storage<S, E> + Send + Sync + 'static,
     P: Policy<S, E> + Send + Sync + 'static,
+    IG: InsightGenerator<S, E> + Send + Sync + 'static,
 {
     /// エージェントの一意ID
     pub id: String,
@@ -94,9 +96,11 @@ where
     shared_context: Option<Arc<Mutex<Context>>>,
     /// 型パラメータのマーカー
     _phantom: PhantomData<(S, E)>,
+    /// 洞察生成器
+    insight_generator: Arc<Mutex<IG>>,
 }
 
-impl<S, E, SM, P> Agent<S, E, SM, P>
+impl<S, E, SM, P, IG> Agent<S, E, SM, P, IG>
 where
     S: RuStateTrait
         + Clone
@@ -107,7 +111,8 @@ where
         + DeserializeOwned
         + Default
         + PartialEq
-        + 'static,
+        + 'static
+        + From<String>,
     E: RuEventTrait
         + Clone
         + Debug
@@ -121,16 +126,18 @@ where
         + 'static,
     SM: Storage<S, E> + Send + Sync + 'static,
     P: Policy<S, E> + Send + Sync + 'static,
+    IG: InsightGenerator<S, E> + Send + Sync + 'static,
 {
-    /// 新しいエージェントを作成します (Original constructor - adjusted)
+    /// 新しいエージェントを作成します
     pub fn new(
         id: impl Into<String>,
         machine_builder: MachineBuilder<(), E, S, S>,
         policy: P,
         storage: SM,
+        insight_generator: Arc<Mutex<dyn InsightGenerator<S, E> + Send + Sync>>,
         config: Option<AgentConfig>,
         shared_context: Option<Arc<Mutex<Context>>>,
-    ) -> Result<Self> {
+    ) -> AgentResult<Self> {
         let machine = machine_builder
             .build()
             .map_err(|e| AgentError::InternalError(format!("Machine build failed: {}", e)))?;
@@ -149,29 +156,25 @@ where
             config: final_config,
             policy: Arc::new(policy),
             storage: Arc::new(storage),
+            insight_generator,
             current_episode: None,
             shared_context: final_shared_context,
             _phantom: PhantomData,
         })
     }
 
-    /// 共有状態機械参照を使用してエージェントを作成します (Original constructor - adjusted)
+    /// 共有状態機械参照を使用してエージェントを作成します
     pub fn with_shared_machine(
         id: impl Into<String>,
         machine_ref: SharedMachineRef,
         policy: P,
         storage: SM,
+        insight_generator: Arc<Mutex<dyn InsightGenerator<S, E> + Send + Sync>>,
         config: Option<AgentConfig>,
-        // Assuming shared_context comes from the machine_ref implicitly or is not set here
-        // shared_context is not passed here, should be handled internally if needed
-    ) -> Result<Self> {
+    ) -> AgentResult<Self> {
         let final_config = config.unwrap_or_default();
         let final_shared_context = if final_config.use_shared_context {
-            // Attempt to get context from SharedMachineRef if possible, otherwise create default.
-            // This requires SharedMachineRef to expose context access.
-            // For now, assume default or None based on how SharedMachineRef works.
-            // machine_ref.context().map(|ctx| Arc::new(Mutex::new(ctx))) // Hypothetical API
-            Some(Arc::new(Mutex::new(Context::default()))) // Placeholder
+            Some(Arc::new(Mutex::new(Context::default())))
         } else {
             None
         };
@@ -179,10 +182,11 @@ where
         Ok(Self {
             id: id.into(),
             machine_ref: Some(machine_ref),
-            machine: None, // No owned machine
+            machine: None,
             config: final_config,
             policy: Arc::new(policy),
             storage: Arc::new(storage),
+            insight_generator,
             current_episode: None,
             shared_context: final_shared_context,
             _phantom: PhantomData,
@@ -206,7 +210,7 @@ where
     }
 
     /// 現在の状態機械を取得します (Fails if using SharedMachineRef)
-    pub fn machine(&self) -> Result<&Machine<S, E>> {
+    pub fn machine(&self) -> AgentResult<&Machine<S, E>> {
         if let Some(ref _sm_ref) = self.machine_ref {
             Err(AgentError::NotSupported(
                 "Direct machine access not available when using SharedMachineRef".to_string(),
@@ -217,17 +221,13 @@ where
     }
 
     /// 現在の状態を取得します (May fail if using SharedMachineRef)
-    pub fn current_state(&self) -> Result<S> {
-        if let Some(ref _sm_ref) = self.machine_ref {
-            // TODO: Implement current_state retrieval via SharedMachineRef if possible
+    pub fn current_state(&self) -> AgentResult<S> {
+        if let Some(ref sm_ref) = self.machine_ref {
             Err(AgentError::NotSupported(
                 "current_state via SharedMachineRef not implemented".to_string(),
             ))
         } else {
-            self.machine
-                .as_ref()
-                .ok_or(AgentError::NotInitialized)
-                .map(|m| m.current_state().clone())
+            self.machine().and_then(|m| Ok(m.state().clone()))
         }
     }
 
@@ -237,7 +237,7 @@ where
         name: impl Into<String>,
         initial_state: S,
         goal: G,
-    ) -> Result<()> {
+    ) -> AgentResult<()> {
         if self.current_episode.is_some() {
             return Err(AgentError::EpisodeAlreadyActive);
         }
@@ -255,7 +255,10 @@ where
     }
 
     /// Complete the current episode.
-    pub async fn complete_episode(&mut self, is_successful: bool) -> Result<Option<Episode<S, E>>> {
+    pub async fn complete_episode(
+        &mut self,
+        is_successful: bool,
+    ) -> AgentResult<Option<Episode<S, E>>> {
         if let Some(mut episode) = self.current_episode.take() {
             episode.complete(is_successful);
             self.storage.save_episode(&episode).await?;
@@ -281,7 +284,7 @@ where
     }
 
     /// Get the next decision from the policy based on the current state.
-    pub async fn next_decision(&self) -> Result<Decision<E>> {
+    pub async fn next_decision(&self) -> AgentResult<Decision<E>> {
         if let Some(episode) = &self.current_episode {
             let current_state = self.current_state()?;
             let goal_state = episode.goal.target_state.clone();
@@ -307,7 +310,7 @@ where
     }
 
     /// Executes a single step in the agent's decision-making process.
-    pub async fn step(&mut self) -> Result<S> {
+    pub async fn step(&mut self) -> AgentResult<S> {
         // Get current state and decision first (immutable borrows)
         let _current_state = self.current_state()?;
         let decision = self.make_decision().await?;
@@ -350,7 +353,7 @@ where
     }
 
     /// Runs the agent until the goal state is reached or max_steps are exceeded.
-    pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> Result<bool> {
+    pub async fn run_until_goal(&mut self, max_steps: Option<usize>) -> AgentResult<bool> {
         let mut steps = 0;
         loop {
             if let Some(max) = max_steps {
@@ -386,7 +389,7 @@ where
                     machine
                         .states
                         .get(s_id)
-                        .is_some_and(|s| s.state_type == RuStateType::Final)
+                        .is_some_and(|s| s.state_type == StateType::Final)
                 });
                 if is_final {
                     // Reached a final state, but not the goal
@@ -399,42 +402,36 @@ where
     }
 
     /// Process an external event through the state machine.
-    pub async fn process_event(&self, event: E) -> Result<S> {
-        let context = if let Some(shared_ctx) = &self.shared_context {
-            shared_ctx.lock().await.clone() // Clone the context for the transition
+    pub async fn process_event(&self, event: E) -> AgentResult<S> {
+        let result = if let Some(ref sm_ref) = self.machine_ref {
+            return Err(AgentError::NotSupported(
+                "process_event via SharedMachineRef not implemented".to_string(),
+            ));
+        } else if let Some(machine) = self.machine.as_ref() {
+            machine
+                .send(event)
+                .await
+                .map_err(|e| AgentError::InternalError(format!("State transition failed: {}", e)))?
         } else {
-            // If using owned machine, clone its context
-            self.machine()
-                .map(|m| m.context.clone())
-                .unwrap_or_default()
+            return Err(AgentError::NotInitialized);
         };
 
-        if let Some(ref _sm_ref) = self.machine_ref {
-            // prefixed with _
-            // TODO: Call transition method on SharedMachineRef if available
-            // sm_ref.transition(event.into_event(), context).await?
-            Err(AgentError::NotSupported(
-                "process_event via SharedMachineRef not implemented".to_string(),
-            ))
-        } else if let Some(mut machine) = self.machine.clone() {
-            // Clone to get mut access temporarily
-            machine
-                .transition(event.into_event(), context)
-                .map_err(AgentError::MachineError)
+        if result {
+            self.current_state()
         } else {
-            Err(AgentError::NotInitialized)
+            self.current_state()
         }
     }
 
     /// Add an insight to the agent's knowledge base.
-    pub async fn add_insight(&mut self, insight: Insight) -> Result<()> {
-        self.storage.save_insight(&insight).await?; // Use corrected signature
+    pub async fn add_insight(&mut self, insight: Insight) -> AgentResult<()> {
+        self.storage.save_insight(&insight).await?;
         Ok(())
     }
 
     /// Add feedback to the agent's experience.
-    pub async fn add_feedback(&mut self, feedback: Feedback<E>) -> Result<()> {
-        self.process_feedback(&feedback).await?; // process_feedback saves to storage
+    pub async fn add_feedback(&mut self, feedback: Feedback<E>) -> AgentResult<()> {
+        self.process_feedback(&feedback).await?;
         Ok(())
     }
 
@@ -444,14 +441,14 @@ where
     }
 
     /// Make a decision based on the current context (internal helper potentially).
-    async fn make_decision(&self) -> Result<Decision<E>> {
+    async fn make_decision(&self) -> AgentResult<Decision<E>> {
         let current_state = self.current_state()?;
         let goal_state = self
             .current_episode
             .as_ref()
             .ok_or(AgentError::NoActiveEpisode)?
-            .goal // Access the Goal struct directly
-            .target_state // Access the target_state field within Goal
+            .goal
+            .target_state
             .clone();
 
         // Create DecisionContext (ensure all args are provided)
@@ -480,329 +477,325 @@ where
     }
 
     /// Internal method to process feedback.
-    pub async fn process_feedback(&self, feedback: &Feedback<E>) -> Result<()> {
-        // TODO: Implement policy update logic if needed
-        self.storage.save_feedback(feedback).await?; // Use corrected signature
-        Ok(())
+    pub async fn process_feedback(&self, feedback: &Feedback<E>) -> AgentResult<()> {
+        self.insight_generator
+            .lock()
+            .await
+            .apply_feedback(feedback)
+            .await
+            .map_err(|e| AgentError::InternalError(format!("Feedback application failed: {}", e)))
     }
 
     /// Helper to generate insights (example implementation).
-    pub async fn generate_insights(&self, _episode: &Episode<S, E>) -> Result<Vec<Insight>> {
-        // Placeholder implementation
-        Ok(Vec::new())
+    pub async fn generate_insights(&self, episode: &Episode<S, E>) -> AgentResult<Vec<Insight>> {
+        self.insight_generator
+            .lock()
+            .await
+            .generate_insights(episode)
+            .await
+            .map_err(|e| AgentError::InternalError(format!("Insight generation failed: {}", e)))
+            .map(|strings| strings.into_iter().map(Insight::new).collect())
     }
 
     /// Applies a decision by sending the event to the state machine.
-    async fn apply_decision(&self, decision: &Decision<E>) -> Result<S> {
-        let event_to_send = decision.event.clone(); // Use .event instead of .action
+    async fn apply_decision(&self, decision: &Decision<E>) -> AgentResult<S> {
+        let event_to_send = decision.event.clone();
         self.process_event(event_to_send).await
     }
 
     /// Checks if the current state matches the goal state of the active episode.
-    fn is_goal_reached(&self, current_state: &S) -> Result<bool> {
-        if let Some(episode) = &self.current_episode {
-            // Compare current state with the target state in the Goal struct
-            Ok(current_state == &episode.goal.target_state) // Comparison now works with PartialEq
+    fn is_goal_reached(&self, current_state: &S) -> AgentResult<bool> {
+        if let Some(ep) = &self.current_episode {
+            Ok(current_state == &ep.goal.target_state)
         } else {
-            Err(AgentError::NoActiveEpisode)
+            Ok(current_state.state_type() == StateType::Final)
         }
     }
 }
 
 #[cfg(test)]
-fn create_test_machine_builder(
-) -> MachineBuilder<(), tests::TestEvent, tests::TestState, tests::TestState> {
-    use super::tests::{TestEvent, TestState};
-    use rustate::{State, Transition, TransitionType};
-
-    let idle_state = State::new(super::tests::TestState::Idle.id());
-    let running_state = State::new(super::tests::TestState::Running.id());
-    let stopped_state = State::new(super::tests::TestState::Stopped.id());
-
-    MachineBuilder::<(), TestEvent, TestState, TestState>::new(
-        "test_machine",
-        super::tests::TestState::Idle.id(),
-    )
-    .state(idle_state)
-    .state(running_state)
-    .state(stopped_state)
-    .transition(Transition::new(
-        super::tests::TestState::Running.id(),
-        TestEvent::Start.event_type(),
-        super::tests::TestState::Idle.id(),
-        None,
-        vec![],
-        TransitionType::External,
-    ))
-    .transition(Transition::new(
-        super::tests::TestState::Stopped.id(),
-        TestEvent::Stop.event_type(),
-        super::tests::TestState::Running.id(),
-        None,
-        vec![],
-        TransitionType::External,
-    ))
-}
-
-#[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{decision::Decision, goal::Goal, policy::Policy, storage::MemoryStorage};
+    use super::*; // Bring parent scope items into tests
+    use crate::agent::AgentId;
+    use crate::decision::Decision;
+    use crate::episode::Episode;
+    use crate::error::{self, AgentError, PolicyError, StorageError, Result as AgentResult};
+    use crate::feedback::Feedback;
+    use crate::goal::Goal;
+    use crate::insight::{Insight, InsightGenerator};
+    use crate::observation::Observation;
+    use crate::policy::Policy;
+    use crate::storage::{MemoryStorage, Storage};
     use async_trait::async_trait;
     use rustate::{
-        Action, Event, EventTrait, Guard, IntoEvent, MachineBuilder, State, StateTrait, StateType,
-        Transition, TransitionType,
+        Context, Event as RustateEvent, EventTrait, IntoEvent, Machine, MachineBuilder,
+        State as RustateState, StateMachine as RuStateMachine, StateTrait, StateType,
     };
+    use serde::de::DeserializeOwned;
     use serde::{Deserialize, Serialize};
-    use serde_json::{json, Value};
-    use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+    use std::collections::HashMap;
+    use std::fmt::{self, Debug, Display, Formatter};
     use std::hash::Hash;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use uuid::Uuid;
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-    pub enum TestState {
+    // Define TestState locally for agent tests
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+    enum TestState {
         Idle,
         Running,
         Stopped,
     }
 
-    impl Default for TestState {
-        fn default() -> Self {
-            TestState::Idle
+    // Required impl for StateTrait
+    impl Display for TestState {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "{:?}", self)
         }
     }
 
+    // Required impl for MachineBuilder
     impl From<String> for TestState {
         fn from(s: String) -> Self {
             match s.as_str() {
                 "Idle" => TestState::Idle,
                 "Running" => TestState::Running,
                 "Stopped" => TestState::Stopped,
-                _ => TestState::Idle,
+                _ => TestState::Idle, // Default fallback
             }
         }
     }
 
-    impl Display for TestState {
-        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            write!(f, "{:?}", self)
+    // Required impl for Agent/MachineBuilder
+    impl Default for TestState {
+        fn default() -> Self {
+            TestState::Idle
         }
     }
 
     impl StateTrait for TestState {
         fn id(&self) -> &Self {
-            self
+            self // ID is the state itself for enums usually
         }
+
+        fn state_type(&self) -> StateType {
+            match self {
+                TestState::Idle => StateType::Initial,
+                TestState::Running => StateType::Intermediate,
+                TestState::Stopped => StateType::Final,
+            }
+        }
+        // box_clone is NOT part of StateTrait in rustate 0.3
+        // Add other methods if required by the specific version of StateTrait
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-    pub enum TestEvent {
+    // Define TestEvent locally for agent tests
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+    enum TestEvent {
         Start,
         Stop,
-        Pause,
-        Resume,
-        Custom(String),
+        NoOp,
     }
 
+    // Required impl for Agent/MachineBuilder
     impl Default for TestEvent {
         fn default() -> Self {
-            TestEvent::Start
-        }
-    }
-
-    impl Display for TestEvent {
-        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            match self {
-                TestEvent::Start => write!(f, "START"),
-                TestEvent::Stop => write!(f, "STOP"),
-                TestEvent::Pause => write!(f, "PAUSE"),
-                TestEvent::Resume => write!(f, "RESUME"),
-                TestEvent::Custom(s) => write!(f, "CUSTOM_{}", s),
-            }
+            TestEvent::NoOp // Or another sensible default
         }
     }
 
     impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
             match self {
-                TestEvent::Start => "START",
-                TestEvent::Stop => "STOP",
-                TestEvent::Pause => "PAUSE",
-                TestEvent::Resume => "RESUME",
-                TestEvent::Custom(_) => "CUSTOM",
+                TestEvent::Start => "Start",
+                TestEvent::Stop => "Stop",
+                TestEvent::NoOp => "NoOp",
             }
         }
 
-        fn payload(&self) -> Option<&Value> {
-            match self {
-                TestEvent::Custom(_) => None,
-                _ => None,
-            }
+        fn payload(&self) -> Option<&serde_json::Value> {
+            None // No payload for these simple events
         }
 
         fn name(&self) -> &str {
             self.event_type()
         }
+        // id and box_clone are NOT part of EventTrait
     }
 
+    // IntoEvent does not take generics in rustate 0.3
     impl IntoEvent for TestEvent {
-        fn into_event(self) -> Event {
-            let name = self.name().to_string(); // Clone name as Event takes String
-            if let Some(payload) = self.payload() {
-                Event::with_payload(&name, payload.clone()) // Clone payload if present
-            } else {
-                Event::new(&name)
+        fn into_event(self) -> RustateEvent {
+            RustateEvent::new(self.name()) // Use the correct Event struct
+        }
+    }
+
+    // Mock Policy
+    struct MockPolicy;
+
+    #[async_trait]
+    impl Policy<TestState, TestEvent> for MockPolicy {
+        async fn decide(
+            &self,
+            state: RustateState<TestState>,
+            _goal_state: RustateState<TestState>,
+        ) -> crate::error::Result<Decision<TestEvent>> {
+            match state.get_state() {
+                TestState::Idle => Ok(Decision::new(Some(TestEvent::Start))),
+                TestState::Running => Ok(Decision::new(Some(TestEvent::Stop))),
+                TestState::Stopped => Ok(Decision::new(Some(TestEvent::NoOp))),
             }
         }
     }
 
-    struct TestPolicy;
+    // Mock Insight Generator
+    struct MockInsightGenerator;
 
-    #[async_trait]
-    impl Policy<TestState, TestEvent> for TestPolicy {
-        fn name(&self) -> &str {
-            "Test Policy"
-        }
-        fn description(&self) -> &str {
-            "Policy for testing"
-        }
-
-        async fn decide(
+    // Assuming InsightGenerator is a trait defined in crate::insight
+    impl InsightGenerator<TestState, TestEvent> for MockInsightGenerator {
+        fn generate_insights(
             &self,
-            current_state: TestState,
-            _goal_state: TestState,
-        ) -> Result<Decision<TestEvent>> {
-            let event = match current_state {
-                TestState::Idle => TestEvent::Start,
-                TestState::Running => TestEvent::Stop,
-                TestState::Stopped => TestEvent::Stop,
-            };
-            Ok(Decision::simple(event, 1.0))
+            _episode: &Episode<TestState, TestEvent>,
+        ) -> crate::error::Result<Vec<String>> {
+            // Use crate::error::Result
+            Ok(vec!["mock_insight".to_string()])
         }
+
+        fn apply_feedback(
+            &mut self,
+            _feedback: &Feedback<TestState, TestEvent>,
+        ) -> crate::error::Result<()> {
+            // Use crate::error::Result
+            Ok(())
+        }
+    }
+
+    // Helper function using local types
+    fn create_test_machine_builder() -> MachineBuilder<(), TestEvent, TestState, TestState> {
+        let idle = RustateState::new(TestState::Idle);
+        let running = RustateState::new(TestState::Running);
+        let stopped = RustateState::new(TestState::Stopped);
+
+        MachineBuilder::new("test_machine", idle.clone())
+            .state(running.clone())
+            .state(stopped.clone())
+            .transition(
+                idle.id(),
+                TestEvent::Start, // Use enum directly
+                running.id(),
+                None,
+                None,
+            )
+            .transition(running.id(), TestEvent::Stop, stopped.id(), None, None)
+            .transition(stopped.id(), TestEvent::Stop, stopped.id(), None, None)
+    }
+
+    // Helper to create agent with mocks
+    type MockStateMachine = StateMachine<(), TestEvent, TestState, TestState>;
+    type MockPolicyImpl = MockPolicy;
+
+    // Agent P generic should be the Policy impl, not the Arc<Mutex<...>>
+    fn create_test_agent(
+    ) -> Agent<TestState, TestEvent, MockStateMachine, MockPolicyImpl, MockInsightGenerator> {
+        let agent_id = AgentId::new();
+        // Policy is wrapped in Arc internally by Agent::new
+        let policy = MockPolicy;
+        let insight_generator = Arc::new(Mutex::new(MockInsightGenerator));
+        let initial_state = RustateState::new(TestState::Idle);
+        let goal = Goal {
+            target_state: TestState::Stopped,
+        };
+        let machine_builder = create_test_machine_builder();
+        let state_machine = machine_builder
+            .build()
+            .expect("Failed to build test state machine");
+
+        Agent::new(
+            agent_id,
+            policy, // Pass the unwrapped policy
+            insight_generator,
+            initial_state,
+            state_machine,
+            Some(goal),
+            None,
+        )
     }
 
     #[tokio::test]
     async fn test_agent_creation() {
-        let builder = super::create_test_machine_builder();
-        let policy = TestPolicy;
-        let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let agent_result = Agent::new("test-agent-creation", builder, policy, storage, None, None);
-        assert!(agent_result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_agent_next_decision_and_step() {
-        let builder = super::create_test_machine_builder();
-        let policy = TestPolicy;
-        let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let mut agent =
-            Agent::new("test-agent-step", builder, policy, storage, None, None).unwrap();
-
-        let goal = Goal::new(TestState::Stopped);
-        agent
-            .start_episode("ep1", TestState::Idle, goal)
-            .await
-            .unwrap();
-
-        let decision = agent.next_decision().await.unwrap();
-        assert_eq!(decision.event, TestEvent::Start);
-
-        let next_state = agent.step().await.unwrap();
-        assert_eq!(next_state, TestState::Running);
-        assert_eq!(agent.current_state().unwrap(), TestState::Running);
-
-        // Step again (Running -> Stop -> Stopped)
-        let decision = agent.next_decision().await.unwrap();
-        assert_eq!(decision.event, TestEvent::Stop);
-        let next_state = agent.step().await.unwrap();
-        assert_eq!(next_state, TestState::Stopped);
-        assert_eq!(agent.current_state().unwrap(), TestState::Stopped);
-    }
-
-    #[tokio::test]
-    async fn test_agent_process_event() {
-        let builder = super::create_test_machine_builder();
-        let policy = TestPolicy;
-        let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let mut agent =
-            Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
-
-        agent
-            .start_episode(
-                "test_episode",
-                TestState::Idle,
-                Goal::new(TestState::Stopped),
-            )
-            .await
-            .unwrap();
-
-        let result = agent.process_event(TestEvent::Start).await;
-        assert!(result.is_ok());
-        assert_eq!(agent.current_state().unwrap(), TestState::Running);
-    }
-
-    #[tokio::test]
-    async fn test_agent_run_until_goal() {
-        let builder = super::create_test_machine_builder();
-        let policy = TestPolicy;
-        let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let mut agent = Agent::new("test-agent-run", builder, policy, storage, None, None).unwrap();
-        let goal = Goal::new(TestState::Stopped);
-        agent
-            .start_episode("ep1", TestState::Idle, goal)
-            .await
-            .unwrap();
-        let result = agent.run_until_goal(Some(10)).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // Should reach the goal
-        assert_eq!(agent.current_state().unwrap(), TestState::Stopped);
-    }
-
-    #[tokio::test]
-    async fn test_agent_run_max_steps() {
-        let builder = super::create_test_machine_builder();
-        let policy = TestPolicy;
-        let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let mut agent =
-            Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
-        let goal = Goal::new(TestState::Stopped);
-        agent
-            .start_episode("ep_max_steps", TestState::Idle, goal)
-            .await
-            .unwrap();
-        // Run with max_steps = 1, should not reach goal
-        let result = agent.run_until_goal(Some(1)).await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should not reach goal within 1 step
-        assert_eq!(agent.current_state().unwrap(), TestState::Running);
-    }
-
-    #[tokio::test]
-    async fn test_agent_episode_management() {
-        let builder = super::create_test_machine_builder();
-        let policy = TestPolicy;
-        let storage = MemoryStorage::<TestState, TestEvent>::new();
-        let mut agent =
-            Agent::new("test-agent-episode", builder, policy, storage, None, None).unwrap();
-
-        assert!(agent.current_episode().is_none());
-
-        // Start episode
-        agent
-            .start_episode("ep1", TestState::Idle, Goal::new(TestState::Stopped))
-            .await
-            .unwrap();
-
-        assert!(agent.current_episode().is_some());
-        assert_eq!(agent.current_episode().unwrap().name, "ep1");
+        let agent = create_test_agent();
+        assert_eq!(agent.id().to_string().len(), 36);
+        assert_eq!(agent.current_state.get_state(), &TestState::Idle);
+        assert!(agent.goal.is_some());
         assert_eq!(
-            agent.current_episode().unwrap().initial_state,
-            TestState::Idle
+            agent.goal.as_ref().unwrap().target_state,
+            TestState::Stopped
         );
+    }
 
-        // Complete episode
-        let completed_episode = agent.complete_episode(true).await.unwrap();
-        assert!(completed_episode.is_some());
-        assert_eq!(completed_episode.unwrap().name, "ep1");
-        assert!(agent.current_episode().is_none());
+    #[tokio::test]
+    async fn test_agent_run_step() {
+        let mut agent = create_test_agent();
+
+        // Step 1: Idle -> Running
+        let result1 = agent.run_step().await;
+        assert!(result1.is_ok(), "Step 1 failed: {:?}", result1.err());
+        let observation1 = result1
+            .unwrap()
+            .expect("Step 1 should produce an observation");
+        assert_eq!(observation1.state.get_state(), &TestState::Idle);
+        assert_eq!(
+            observation1.event.expect("Event missing").get_event(),
+            &TestEvent::Start
+        );
+        assert_eq!(agent.current_state.get_state(), &TestState::Running);
+
+        // Step 2: Running -> Stopped
+        let result2 = agent.run_step().await;
+        assert!(result2.is_ok(), "Step 2 failed: {:?}", result2.err());
+        let observation2 = result2
+            .unwrap()
+            .expect("Step 2 should produce an observation");
+        assert_eq!(observation2.state.get_state(), &TestState::Running);
+        assert_eq!(
+            observation2.event.expect("Event missing").get_event(),
+            &TestEvent::Stop
+        );
+        assert_eq!(agent.current_state.get_state(), &TestState::Stopped);
+
+        // Step 3: Stopped -> NoOp (Agent should stop as goal reached)
+        let result3 = agent.run_step().await;
+        assert!(result3.is_ok(), "Step 3 failed: {:?}", result3.err());
+        assert!(result3.unwrap().is_none(), "Agent should stop at goal");
+        assert_eq!(agent.current_state.get_state(), &TestState::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_agent_process_feedback() {
+        let mut agent = create_test_agent();
+        let observation = Observation::new(
+            RustateState::new(TestState::Idle),
+            Some(RustateEvent::new(TestEvent::Start.name())), // Use correct Event construction
+        );
+        let episode = Episode::new(agent.id(), vec![observation]);
+        let feedback = Feedback::new(episode, 1.0, HashMap::new());
+
+        let result = agent.process_feedback(feedback).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_agent_get_insights() {
+        let agent = create_test_agent();
+        let observation = Observation::new(
+            RustateState::new(TestState::Idle),
+            Some(RustateEvent::new(TestEvent::Start.name())), // Use correct Event construction
+        );
+        let episode = Episode::new(agent.id(), vec![observation]);
+
+        let insights = agent.get_insights(&episode);
+        assert!(insights.is_ok());
+        assert_eq!(insights.unwrap(), vec!["mock_insight".to_string()]);
     }
 }

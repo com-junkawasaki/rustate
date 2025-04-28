@@ -1,6 +1,11 @@
 use thiserror::Error;
+use std::fmt;
+use rustate::Error as RustateError;
 
-/// エージェント関連のエラーを表す型
+/// Result type alias using the library's AgentError.
+pub type Result<T> = std::result::Result<T, AgentError>;
+
+/// Represents errors that can occur within the agent framework.
 #[derive(Error, Debug)]
 pub enum AgentError {
     /// エージェントが初期化されていない
@@ -9,7 +14,7 @@ pub enum AgentError {
 
     /// 状態機械関連のエラー
     #[error("State machine error: {0}")]
-    MachineError(#[from] rustate::Error),
+    MachineError(#[from] RustateError),
 
     /// 永続化/ストレージエラー
     #[error("Storage error: {0}")]
@@ -58,10 +63,55 @@ pub enum AgentError {
     /// エピソードが既にアクティブである
     #[error("Episode is already active")]
     EpisodeAlreadyActive,
+
+    /// 無効な設定
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
+
+    /// I/Oエラー
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    /// 不明なエラー
+    #[error("Unknown error")]
+    Unknown,
 }
 
-/// Result type for operations that can fail
-pub type Result<T> = std::result::Result<T, AgentError>;
+/// Errors related to policy decisions.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum PolicyError {
+    /// 決定に失敗しました
+    #[error("Decision failed: {0}")]
+    DecisionFailed(String),
+
+    /// 利用可能なイベントがありません
+    #[error("No possible events")]
+    NoPossibleEvents,
+
+    /// ゴールの状態が無効です
+    #[error("Invalid goal state")]
+    InvalidGoalState,
+}
+
+/// Errors related to data storage.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum StorageError {
+    /// Mutexがポイズンされました
+    #[error("Mutex poisoned: {0}")]
+    MutexPoisoned(String),
+
+    /// アイテムが見つかりません
+    #[error("Item not found: {0}")]
+    NotFound(String),
+
+    /// ストレージバックエンドエラー
+    #[error("Storage backend error: {0}")]
+    BackendError(String),
+
+    /// I/Oエラー
+    #[error("I/O error: {0}")]
+    IoError(String),
+}
 
 impl From<serde_json::Error> for AgentError {
     fn from(error: serde_json::Error) -> Self {

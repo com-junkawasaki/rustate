@@ -9,6 +9,7 @@ use uuid as uuid_crate;
 /// 観測データは、状態遷移に関する情報を記録します。
 /// 前の状態、イベント、結果の状態、メタデータなどを含みます。
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound(deserialize = "S: StateTrait + DeserializeOwned, E: EventTrait + DeserializeOwned"))]
 pub struct Observation<S, E>
 where
     S: StateTrait + DeserializeOwned,

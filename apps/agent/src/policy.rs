@@ -1,9 +1,11 @@
-use crate::error::AgentError;
-use crate::{decision::Decision, error::Result};
+use crate::agent::AgentId;
+use crate::decision::Decision;
+use crate::error::PolicyError;
 use async_trait::async_trait;
 use rand::seq::SliceRandom;
-use rustate::{EventTrait, StateTrait};
+use rustate::{Event, EventTrait, IntoEvent, State, StateTrait};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
@@ -11,27 +13,28 @@ use std::marker::Send;
 use std::marker::Sync;
 use std::sync::Arc;
 use uuid;
+use crate::error::{PolicyError, Result as AgentResult};
 
 /// ポリシートレイト - エージェントの決定プロセスを定義します
 #[async_trait]
 pub trait Policy<S, E>: Send + Sync
 where
-    S: StateTrait + Clone + Debug + Send + Sync + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + 'static,
+    S: StateTrait + Clone + Debug + Send + Sync + 'static + DeserializeOwned,
+    E: EventTrait + Clone + Debug + Send + Sync + 'static + DeserializeOwned,
 {
     /// ポリシーの名前を返します
-    fn name(&self) -> &str {
-        "基本ポリシー"
-    }
+    fn name(&self) -> &str;
 
     /// ポリシーの説明を返します
-    fn description(&self) -> &str {
-        "基本的な決定ポリシー"
-    }
+    fn description(&self) -> &str;
 
     /// 現在の状態、目標、過去の観測などに基づいて次のアクションを決定します
     /// 現在の状態と文脈に基づいて決定を行います
-    async fn decide(&self, current_state: S, goal_state: S) -> Result<Decision<E>>;
+    async fn decide(
+        &self,
+        current_state: S,
+        goal_state: S,
+    ) -> std::result::Result<Decision<E>, PolicyError>;
 
     /// フィードバックに応じてポリシーを更新します
     fn update(&self, _event: E) {
@@ -86,27 +89,31 @@ where
         &self.description
     }
 
-    async fn decide(&self, current_state: S, goal_state: S) -> Result<Decision<E>> {
+    async fn decide(
+        &self,
+        _current_state: S,
+        _goal_state: S,
+    ) -> std::result::Result<Decision<E>, PolicyError> {
         let mut rng = rand::thread_rng();
 
         if self.available_events.is_empty() {
-            return Err(AgentError::PolicyError(
-                "利用可能なイベントがありません".to_string(),
-            ));
+            return Err(PolicyError::NoPossibleEvents);
         }
 
-        let event = self
-            .available_events
-            .choose(&mut rng)
-            .cloned()
-            .ok_or_else(|| AgentError::PolicyError("イベント選択エラー".to_string()))?;
+        let event =
+            self.available_events
+                .choose(&mut rng)
+                .cloned()
+                .ok_or(PolicyError::DecisionFailed(
+                    "Failed to choose event".to_string(),
+                ))?;
 
         Ok(Decision::new(
             uuid::Uuid::new_v4().to_string(),
             event,
             0.5, // ランダム選択なので信頼度は中程度
-            Some(current_state.clone()),
-            Some(goal_state.clone()),
+            None,
+            None,
         ))
     }
 }
@@ -208,15 +215,15 @@ mod tests {
 
         async fn decide(
             &self,
-            _current_state: TestState,
-            _goal_state: TestState,
-        ) -> Result<Decision<TestEvent>> {
+            current_state: TestState,
+            goal_state: TestState,
+        ) -> std::result::Result<Decision<TestEvent>, PolicyError> {
             Ok(Decision::new(
                 uuid::Uuid::new_v4().to_string(),
                 TestEvent::Mock,
                 1.0,
-                Some(TestState::Initial),
-                Some(TestState::Final),
+                Some(current_state),
+                Some(goal_state),
             ))
         }
     }

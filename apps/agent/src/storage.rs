@@ -1,13 +1,16 @@
-use crate::{
-    decision::Decision, episode::Episode, error::AgentError, feedback::Feedback, insight::Insight,
-    observation::Observation, prelude::Result,
-};
+use crate::{decision::Decision, episode::Episode, observation::Observation};
 use async_trait::async_trait;
-use rustate::{EventTrait, StateTrait};
+use rustate::{Event, EventTrait, IntoEvent, State, StateTrait};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
-use std::hash::Hash;
 use std::sync::{Arc, Mutex};
+use uuid::Uuid;
+use crate::error::StorageError;
+use crate::feedback::Feedback;
+use crate::insight::Insight;
 
 /// エージェントの経験（観測、決定、洞察、エピソード）を保存するためのトレイト
 #[async_trait]
@@ -17,69 +20,96 @@ where
     E: EventTrait + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static + Clone,
 {
     /// 観測データを保存します
-    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()>;
+    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<(), StorageError>;
 
     /// IDで観測データを取得します
-    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>>;
+    async fn get_observation(&self, id: &str) -> Result<Option<Observation<S, E>>, StorageError>;
 
     /// 条件に一致する観測データを検索します
     async fn find_observations(
         &self,
         filter: Option<for<'a> fn(&'a Observation<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Observation<S, E>>>;
+    ) -> Result<Vec<Observation<S, E>>, StorageError>;
 
     /// 決定を保存します
-    async fn save_decision(&self, decision: &Decision<E>) -> Result<()>;
+    async fn save_decision(&self, decision: &Decision<E>) -> Result<(), StorageError>;
 
     /// IDで決定を取得します
-    async fn get_decision(&self, id: &str) -> Result<Decision<E>>;
+    async fn get_decision(&self, id: &str) -> Result<Option<Decision<E>>, StorageError>;
 
     /// 条件に一致する決定を検索します
     async fn find_decisions(
         &self,
         filter: Option<for<'a> fn(&'a Decision<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Decision<E>>>;
+    ) -> Result<Vec<Decision<E>>, StorageError>;
 
     /// 洞察を保存します
-    async fn save_insight(&self, insight: &Insight) -> Result<()>;
+    async fn save_insight(&self, insight: &Insight) -> Result<(), StorageError>;
 
     /// IDで洞察を取得します
-    async fn get_insight(&self, id: &str) -> Result<Insight>;
+    async fn get_insight(&self, id: &str) -> Result<Option<Insight>, StorageError>;
 
     /// 条件に一致する洞察を検索します
     async fn find_insights(
         &self,
         filter: Option<for<'a> fn(&'a Insight) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Insight>>;
+    ) -> Result<Vec<Insight>, StorageError>;
 
     /// エピソードを保存します
-    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<()>;
+    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<(), StorageError>;
 
     /// IDでエピソードを取得します
-    async fn get_episode(&self, id: &str) -> Result<Episode<S, E>>;
+    async fn get_episode(&self, id: &str) -> Result<Option<Episode<S, E>>, StorageError>;
 
     /// 条件に一致するエピソードを検索します
     async fn find_episodes(
         &self,
         filter: Option<for<'a> fn(&'a Episode<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Episode<S, E>>>;
+    ) -> Result<Vec<Episode<S, E>>, StorageError>;
 
     /// フィードバックを保存します
-    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<()>;
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<(), StorageError>;
 
     /// IDでフィードバックを取得します
-    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>>;
+    async fn get_feedback(&self, id: &str) -> Result<Option<Feedback<E>>, StorageError>;
 
     /// 条件に一致するフィードバックを検索します
     async fn find_feedback(
         &self,
         filter: Option<for<'a> fn(&'a Feedback<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Feedback<E>>>;
+    ) -> Result<Vec<Feedback<E>>, StorageError>;
+
+    /// 特定のエピソードIDを持つエピソードを取得します。
+    async fn get_all_episodes(&self) -> Result<Vec<Episode<S, E>>, StorageError>;
+
+    /// 特定の観測IDを持つ観測を取得します。
+    async fn get_observations_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Observation<S, E>>, StorageError>;
+
+    /// 特定の決定IDを持つ決定を取得します。
+    async fn get_decisions_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Decision<E>>, StorageError>;
+
+    /// 特定の洞察IDを持つ洞察を取得します。
+    async fn get_insights_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Insight>, StorageError>;
+
+    /// 特定のフィードバックIDを持つフィードバックを取得します。
+    async fn get_feedbacks_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Feedback<E>>, StorageError>;
 }
 
 /// ストレージのクエリパラメータ
@@ -250,39 +280,38 @@ where
 #[async_trait]
 impl<S, E> Storage<S, E> for MemoryStorage<S, E>
 where
-    S: StateTrait + Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    E: EventTrait + Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    S: StateTrait + Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
+    E: EventTrait + Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static,
 {
-    async fn save_observation(&self, observation: &Observation<S, E>) -> Result<()> {
+    async fn save_observation(
+        &self,
+        observation: &Observation<S, E>,
+    ) -> std::result::Result<(), StorageError> {
         let mut observations = self
             .observations
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|_| StorageError::MutexPoisoned)?;
         observations.push(observation.clone());
         Ok(())
     }
 
-    async fn get_observation(&self, id: &str) -> Result<Observation<S, E>> {
+    async fn get_observation(&self, id: &str) -> Result<Option<Observation<S, E>>, StorageError> {
         let observations = self
             .observations
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
-        observations
-            .iter()
-            .find(|obs| obs.id == id)
-            .cloned()
-            .ok_or_else(|| AgentError::StorageError(format!("観測 ID {} が見つかりません", id)))
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+        Ok(observations.iter().find(|obs| obs.id == id).cloned())
     }
 
     async fn find_observations(
         &self,
         filter: Option<for<'a> fn(&'a Observation<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Observation<S, E>>> {
+    ) -> Result<Vec<Observation<S, E>>, StorageError> {
         let observations = self
             .observations
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
 
         let mut result: Vec<Observation<S, E>> = observations.clone();
 
@@ -297,36 +326,32 @@ where
         Ok(result)
     }
 
-    async fn save_decision(&self, decision: &Decision<E>) -> Result<()> {
+    async fn save_decision(&self, decision: &Decision<E>) -> std::result::Result<(), StorageError> {
         let mut decisions = self
             .decisions
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|_| StorageError::MutexPoisoned)?;
         decisions.push(decision.clone());
         Ok(())
     }
 
-    async fn get_decision(&self, id: &str) -> Result<Decision<E>> {
+    async fn get_decision(&self, id: &str) -> Result<Option<Decision<E>>, StorageError> {
         let decisions = self
             .decisions
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
-        decisions
-            .iter()
-            .find(|dec| dec.id == id)
-            .cloned()
-            .ok_or_else(|| AgentError::StorageError(format!("決定 ID {} が見つかりません", id)))
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+        Ok(decisions.iter().find(|dec| dec.id == id).cloned())
     }
 
     async fn find_decisions(
         &self,
         filter: Option<for<'a> fn(&'a Decision<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Decision<E>>> {
+    ) -> Result<Vec<Decision<E>>, StorageError> {
         let decisions = self
             .decisions
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
 
         let mut result: Vec<Decision<E>> = decisions.clone();
 
@@ -341,36 +366,32 @@ where
         Ok(result)
     }
 
-    async fn save_insight(&self, insight: &Insight) -> Result<()> {
+    async fn save_insight(&self, insight: &Insight) -> std::result::Result<(), StorageError> {
         let mut insights = self
             .insights
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|_| StorageError::MutexPoisoned)?;
         insights.push(insight.clone());
         Ok(())
     }
 
-    async fn get_insight(&self, id: &str) -> Result<Insight> {
+    async fn get_insight(&self, id: &str) -> Result<Option<Insight>, StorageError> {
         let insights = self
             .insights
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
-        insights
-            .iter()
-            .find(|ins| ins.id == id)
-            .cloned()
-            .ok_or_else(|| AgentError::StorageError(format!("洞察 ID {} が見つかりません", id)))
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+        Ok(insights.iter().find(|ins| ins.id == id).cloned())
     }
 
     async fn find_insights(
         &self,
         filter: Option<for<'a> fn(&'a Insight) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Insight>> {
+    ) -> Result<Vec<Insight>, StorageError> {
         let insights = self
             .insights
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
 
         let mut result: Vec<Insight> = insights.clone();
 
@@ -385,42 +406,36 @@ where
         Ok(result)
     }
 
-    async fn save_episode(&self, episode: &Episode<S, E>) -> Result<()> {
+    async fn save_episode(&self, episode: &Episode<S, E>) -> std::result::Result<(), StorageError> {
         let mut episodes = self
             .episodes
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|_| StorageError::MutexPoisoned)?;
         episodes.push(episode.clone());
         Ok(())
     }
 
-    async fn get_episode(&self, id: &str) -> Result<Episode<S, E>> {
+    async fn get_episode(&self, id: &str) -> Result<Option<Episode<S, E>>, StorageError> {
         let episodes = self
             .episodes
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
 
-        for episode in episodes.iter() {
-            if episode.id.to_string() == id {
-                return Ok(episode.clone());
-            }
-        }
-
-        Err(AgentError::StorageError(format!(
-            "エピソード ID {} が見つかりません",
-            id
-        )))
+        Ok(episodes
+            .iter()
+            .find(|episode| episode.id.to_string() == id)
+            .cloned())
     }
 
     async fn find_episodes(
         &self,
         filter: Option<for<'a> fn(&'a Episode<S, E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Episode<S, E>>> {
+    ) -> Result<Vec<Episode<S, E>>, StorageError> {
         let episodes = self
             .episodes
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
 
         let mut result: Vec<Episode<S, E>> = episodes.clone();
 
@@ -435,40 +450,34 @@ where
         Ok(result)
     }
 
-    async fn save_feedback(&self, feedback: &Feedback<E>) -> Result<()> {
+    async fn save_feedback(&self, feedback: &Feedback<E>) -> std::result::Result<(), StorageError> {
         let mut feedbacks = self
-            .feedback
+            .feedbacks
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|_| StorageError::MutexPoisoned)?;
         feedbacks.push(feedback.clone());
         Ok(())
     }
 
-    async fn get_feedback(&self, id: &str) -> Result<Feedback<E>> {
+    async fn get_feedback(&self, id: &str) -> Result<Option<Feedback<E>>, StorageError> {
         let feedbacks = self
-            .feedback
+            .feedbacks
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
-        feedbacks
-            .iter()
-            .find(|f| f.id == id)
-            .cloned()
-            .ok_or_else(|| {
-                AgentError::StorageError(format!("フィードバック ID {} が見つかりません", id))
-            })
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+        Ok(feedbacks.iter().find(|f| f.id == id).cloned())
     }
 
     async fn find_feedback(
         &self,
         filter: Option<for<'a> fn(&'a Feedback<E>) -> bool>,
         limit: Option<usize>,
-    ) -> Result<Vec<Feedback<E>>> {
-        let feedback = self
-            .feedback
+    ) -> Result<Vec<Feedback<E>>, StorageError> {
+        let feedbacks = self
+            .feedbacks
             .lock()
-            .map_err(|e| AgentError::StorageError(format!("ロック取得エラー: {}", e)))?;
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
 
-        let mut result: Vec<Feedback<E>> = feedback.clone();
+        let mut result: Vec<Feedback<E>> = feedbacks.clone();
 
         if let Some(filter_fn) = filter {
             result = result.into_iter().filter(filter_fn).collect();
@@ -476,6 +485,98 @@ where
 
         if let Some(limit) = limit {
             result.truncate(limit);
+        }
+
+        Ok(result)
+    }
+
+    async fn get_all_episodes(&self) -> Result<Vec<Episode<S, E>>, StorageError> {
+        let episodes = self
+            .episodes
+            .lock()
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+        Ok(episodes.clone())
+    }
+
+    async fn get_observations_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Observation<S, E>>, StorageError> {
+        let episodes = self
+            .episodes
+            .lock()
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+
+        let mut result: Vec<Observation<S, E>> = Vec::new();
+
+        for episode in episodes.iter() {
+            if episode.id.to_string() == episode_id {
+                result = episode.observations.clone();
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn get_decisions_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Decision<E>>, StorageError> {
+        let episodes = self
+            .episodes
+            .lock()
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+
+        let mut result: Vec<Decision<E>> = Vec::new();
+
+        for episode in episodes.iter() {
+            if episode.id.to_string() == episode_id {
+                result = episode.decisions.clone();
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn get_insights_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Insight>, StorageError> {
+        let episodes = self
+            .episodes
+            .lock()
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+
+        let mut result: Vec<Insight> = Vec::new();
+
+        for episode in episodes.iter() {
+            if episode.id.to_string() == episode_id {
+                result = episode.insights.clone();
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn get_feedbacks_for_episode(
+        &self,
+        episode_id: &str,
+    ) -> Result<Vec<Feedback<E>>, StorageError> {
+        let episodes = self
+            .episodes
+            .lock()
+            .map_err(|e| StorageError::MutexPoisoned(format!("ロック取得エラー: {}", e)))?;
+
+        let mut result: Vec<Feedback<E>> = Vec::new();
+
+        for episode in episodes.iter() {
+            if episode.id.to_string() == episode_id {
+                result = episode.feedbacks.clone();
+                break;
+            }
         }
 
         Ok(result)

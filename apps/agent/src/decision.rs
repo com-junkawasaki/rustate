@@ -1,14 +1,16 @@
 use crate::feedback::Feedback;
 use crate::insight::Insight;
 use crate::observation::Observation;
+use rustate::{Event, State, StateType};
 use rustate::{EventTrait, StateTrait};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::time::SystemTime;
 
 /// エージェントが行う決定
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "E: EventTrait + DeserializeOwned"))]
 pub struct Decision<E>
 where
     E: EventTrait + Clone + Debug + DeserializeOwned,
@@ -185,7 +187,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{Event, IntoEvent, StateType};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
     use std::fmt::{self, Display, Formatter};

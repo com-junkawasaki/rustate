@@ -6,6 +6,7 @@ use std::fmt::Debug;
 
 // Placeholder Goal struct definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "S: StateTrait + DeserializeOwned"))]
 pub struct Goal<S>
 where
     S: StateTrait + Clone + Debug + Send + Sync + 'static + DeserializeOwned,
