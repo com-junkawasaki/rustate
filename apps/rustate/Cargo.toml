@@ -14,9 +14,13 @@ categories = ["concurrency", "asynchronous", "data-structures"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
-tokio = { version = "1", features = ["full"], optional = true }
+tokio = { version = "1", features = ["full"] }
 thiserror = "1.0"
-uuid = { version = "1.0", features = ["v4", "serde"], optional = true }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+tracing = "0.1"
+futures = "0.3"
+log = "0.4"
+async-recursion = "1.0"
 
 # Actor system dependencies (potentially optional)
 # Example: Riker (consider alternatives or making this generic)
@@ -55,12 +59,12 @@ wasm = [
     "dep:console_error_panic_hook",
     "dep:web-sys",
     "dep:getrandom",
-    "dep:uuid",
     "uuid/js"
 ]
 integration = []
 integration_async = []
-codegen = []
+codegen = ["dep:syn", "dep:quote", "dep:proc-macro2"]
 mbt = []
 property-testing = ["mbt", "dep:proptest"]
 xstate-compat = []
+proto = []

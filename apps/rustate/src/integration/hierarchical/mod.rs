@@ -499,13 +499,12 @@ pub enum HierarchicalError {
     ChildError(String),
 }
 
-// Guard function used in tests
-#[allow(dead_code)] // Allow dead code for guard function potentially only used here
+// Helper function to create a guard that checks the child machine's state via shared context
+#[cfg(feature = "integration")]
 fn create_child_check_guard(shared_context: crate::SharedContext) -> crate::Guard<Context, Event> {
-    let guard_context = shared_context.clone();
-    crate::Guard::new("checkChildComplete", move |_ctx, _evt| {
+    crate::Guard::new("checkChildStateInContext", move |ctx, _event| {
         // Clone inside closure or before block_on
-        let context_clone = guard_context.clone();
+        let context_clone = shared_context.clone();
         futures::executor::block_on(async move {
             context_clone
                 .get::<bool>("childComplete")
