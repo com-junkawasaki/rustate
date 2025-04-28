@@ -86,11 +86,13 @@ pub use crate::wasm::*; // Re-export WASM specific items
 #[cfg(feature = "codegen")]
 pub use crate::codegen::*; // Re-export codegen specific items
 
-// Re-export integration items (if the feature is enabled)
-#[cfg(feature = "integration")]
+// Re-export integration items (no longer conditional)
 pub use crate::integration::{
-    context_sharing::SharedContext, event_forwarding::SharedMachineRef, hierarchical::ChildMachine,
-    Error as IntegrationError, Result as IntegrationResult,
+    context_sharing::SharedContext,
+    event_forwarding::SharedMachineRef, // Assuming SharedMachineRef exists
+    hierarchical::{ChildMachine, DefaultChildMachine}, // Assuming these exist
+    Error as IntegrationError,
+    Result as IntegrationResult,
 };
 
 // Re-export serde_json for convenience

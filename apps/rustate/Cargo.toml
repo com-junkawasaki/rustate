@@ -14,9 +14,9 @@ categories = ["concurrency", "asynchronous", "data-structures"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"], optional = true }
 thiserror = "1.0"
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid = { version = "1.3", features = ["v4", "serde"] }
 tracing = "0.1"
 futures = "0.3"
 log = "0.4"
@@ -35,12 +35,12 @@ wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
-console_error_panic_hook = { version = "0.1.7", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", features = ["console"], optional = true }
 getrandom = { version = "0.2", features = ["js"], optional = true }
 
 # Codegen dependencies (optional)
-syn = { version = "2.0", features = ["full", "parsing"], optional = true }
+syn = { version = "2.0", optional = true }
 quote = { version = "1.0", optional = true }
 proc-macro2 = { version = "1.0", optional = true }
 
@@ -48,23 +48,22 @@ proc-macro2 = { version = "1.0", optional = true }
 # rsty-fork = "0.3.0"
 tempfile = "3"
 pretty_assertions = "1.4.0"
+tokio = { version = "1", features = ["full"] }
 
 [features]
-default = ["codegen"]
+default = ["codegen", "wasm"]
+codegen = ["dep:syn", "dep:quote", "dep:proc-macro2", "dep:serde_json"]
+proto = ["dep:prost", "dep:prost-types", "tokio"]
 wasm = [
     "dep:wasm-bindgen",
     "dep:js-sys",
-    "dep:wasm-bindgen-futures",
-    "dep:serde-wasm-bindgen",
-    "dep:console_error_panic_hook",
     "dep:web-sys",
-    "dep:getrandom",
-    "uuid/js"
+    "dep:console_error_panic_hook",
+    "uuid/js",
 ]
-integration = []
-integration_async = []
-codegen = ["dep:syn", "dep:quote", "dep:proc-macro2"]
 mbt = []
 property-testing = ["mbt", "dep:proptest"]
 xstate-compat = []
-proto = []
+
+# Remove target-specific dependencies sections unless strictly necessary
+# for platform-specific code outside of features.
