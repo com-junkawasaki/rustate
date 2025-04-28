@@ -1,4 +1,3 @@
-use crate::AgentError::PolicyError;
 use rustate::Error as RustateError;
 use std::fmt;
 use thiserror::Error;
@@ -84,6 +83,16 @@ pub enum AgentError {
     /// ゴール到達
     #[error("Goal reached")]
     GoalReached,
+}
+
+/// Errors related to policy decisions.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum PolicyError {
+    #[error("No possible events to choose from")]
+    NoPossibleEvents,
+
+    #[error("Decision failed: {0}")]
+    DecisionFailed(String),
 }
 
 /// Errors related to data storage.

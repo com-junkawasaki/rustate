@@ -23,7 +23,7 @@ where
     fn description(&self) -> &str;
 
     /// Provide a decision based on the given context
-    async fn decide(&self, context: &DecisionContext<S, E>) -> Result<Decision<E>, PolicyError>;
+    async fn decide(&self, context: &DecisionContext<S, E>) -> Result<Decision<E>, AgentError>;
 
     /// フィードバックに応じてポリシーを更新します
     fn update(&self, _event: E) {
@@ -78,7 +78,7 @@ where
         &self.description
     }
 
-    async fn decide(&self, context: &DecisionContext<S, E>) -> Result<Decision<E>, PolicyError> {
+    async fn decide(&self, context: &DecisionContext<S, E>) -> Result<Decision<E>, AgentError> {
         let mut rng = rand::thread_rng();
 
         if self.available_events.is_empty() {

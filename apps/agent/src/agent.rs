@@ -6,15 +6,16 @@ use crate::{
     goal::Goal,
     insight::Insight,
     observation::Observation,
-    policy::{Policy, RuleBasedPolicy},
+    policy::Policy,
     storage::{MemoryStorage, Storage},
 };
 use async_trait::async_trait;
 use futures_util::TryFutureExt;
 use rustate::{
     integration::{SharedContext, SharedMachineRef},
-    machine::{Machine, MachineBuilder, rustate::transition::Transition},
+    machine::{Machine, MachineBuilder},
     Context,
+    StateTrait, EventTrait, IntoEvent,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
