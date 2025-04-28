@@ -1,19 +1,13 @@
 use crate::agent::AgentId;
-use crate::decision::Decision;
+use crate::decision::{Decision, DecisionContext};
 use crate::error::PolicyError;
 use async_trait::async_trait;
-use rand::seq::SliceRandom;
-use rustate::{Event, EventTrait, IntoEvent, State, StateTrait};
+use rustate::{EventTrait, StateTrait};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::fmt::{self, Display, Formatter};
-use std::hash::Hash;
-use std::marker::Send;
-use std::marker::Sync;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::sync::Arc;
-use uuid;
-use crate::error::{PolicyError, Result as AgentResult};
+use rand::seq::SliceRandom;
+use uuid::Uuid;
 
 /// ポリシートレイト - エージェントの決定プロセスを定義します
 #[async_trait]
@@ -28,13 +22,11 @@ where
     /// ポリシーの説明を返します
     fn description(&self) -> &str;
 
-    /// 現在の状態、目標、過去の観測などに基づいて次のアクションを決定します
-    /// 現在の状態と文脈に基づいて決定を行います
+    /// Provide a decision based on the given context
     async fn decide(
         &self,
-        current_state: S,
-        goal_state: S,
-    ) -> std::result::Result<Decision<E>, PolicyError>;
+        context: &DecisionContext<S, E>,
+    ) -> Result<Decision<E>, PolicyError>;
 
     /// フィードバックに応じてポリシーを更新します
     fn update(&self, _event: E) {
@@ -91,9 +83,8 @@ where
 
     async fn decide(
         &self,
-        _current_state: S,
-        _goal_state: S,
-    ) -> std::result::Result<Decision<E>, PolicyError> {
+        context: &DecisionContext<S, E>,
+    ) -> Result<Decision<E>, PolicyError> {
         let mut rng = rand::thread_rng();
 
         if self.available_events.is_empty() {
@@ -109,11 +100,11 @@ where
                 ))?;
 
         Ok(Decision::new(
-            uuid::Uuid::new_v4().to_string(),
+            Uuid::new_v4().to_string(),
             event,
-            0.5, // ランダム選択なので信頼度は中程度
-            None,
-            None,
+            0.5,
+            Some(context.current_state.clone()),
+            Some(context.goal_state.clone()),
         ))
     }
 }
@@ -124,9 +115,11 @@ pub type PolicyBox<S, E> = Arc<dyn Policy<S, E>>;
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use rustate::{EventTrait, StateTrait, StateType};
+    use crate::decision::DecisionContext;
+    use rustate::{StateTrait, EventTrait};
     use serde::{Deserialize, Serialize};
+    use std::fmt::{self, Display, Formatter};
+    use uuid::Uuid;
     use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -138,11 +131,7 @@ mod tests {
 
     impl Display for TestState {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            match self {
-                TestState::Initial => write!(f, "Initial"),
-                TestState::Processing => write!(f, "Processing"),
-                TestState::Final => write!(f, "Final"),
-            }
+            write!(f, "{:?}", self)
         }
     }
 
@@ -189,10 +178,15 @@ mod tests {
         let events = vec![TestEvent::Start, TestEvent::Process, TestEvent::Finish];
         let policy = RandomPolicy::new(events.clone());
 
-        let decision = policy
-            .decide(TestState::Initial, TestState::Final)
-            .await
-            .unwrap();
+        let context = DecisionContext {
+            current_state: TestState::Initial,
+            goal_state: TestState::Final,
+            observations: vec![],
+            feedbacks: vec![],
+            insights: vec![],
+        };
+
+        let decision = policy.decide(&context).await.unwrap();
 
         assert!(events.contains(&decision.event));
         assert_eq!(decision.confidence, 0.5);
@@ -215,15 +209,14 @@ mod tests {
 
         async fn decide(
             &self,
-            current_state: TestState,
-            goal_state: TestState,
-        ) -> std::result::Result<Decision<TestEvent>, PolicyError> {
+            context: &DecisionContext<TestState, TestEvent>,
+        ) -> Result<Decision<TestEvent>, PolicyError> {
             Ok(Decision::new(
-                uuid::Uuid::new_v4().to_string(),
+                Uuid::new_v4().to_string(),
                 TestEvent::Mock,
                 1.0,
-                Some(current_state),
-                Some(goal_state),
+                Some(context.current_state.clone()),
+                Some(context.goal_state.clone()),
             ))
         }
     }
@@ -231,10 +224,14 @@ mod tests {
     #[tokio::test]
     async fn test_simple_policy_decide() {
         let policy = MockPolicy;
-        let decision = policy
-            .decide(TestState::Initial, TestState::Final)
-            .await
-            .unwrap();
+        let context = DecisionContext {
+            current_state: TestState::Initial,
+            goal_state: TestState::Final,
+            observations: vec![],
+            feedbacks: vec![],
+            insights: vec![],
+        };
+        let decision = policy.decide(&context).await.unwrap();
 
         assert_eq!(decision.event, TestEvent::Mock);
         assert_eq!(decision.confidence, 1.0);

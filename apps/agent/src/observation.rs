@@ -1,14 +1,14 @@
-use rustate::{EventTrait, StateTrait};
+use crate::error::{self, Result as AgentResult};
+use rustate::{EventTrait, StateTrait, Event};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::{self, Debug, Display, Formatter};
-use std::hash::Hash;
+use std::fmt::{Debug};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid as uuid_crate;
 
 /// 観測データは、状態遷移に関する情報を記録します。
 /// 前の状態、イベント、結果の状態、メタデータなどを含みます。
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(bound(deserialize = "S: StateTrait + DeserializeOwned, E: EventTrait + DeserializeOwned"))]
 pub struct Observation<S, E>
 where
@@ -91,9 +91,12 @@ fn uuid() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait};
+    use rustate::{EventTrait, StateTrait, Event};
+    use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+    use std::fmt::{self, Display, Formatter};
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestState {
         Initial,
         Processing,
@@ -102,11 +105,7 @@ mod tests {
 
     impl Display for TestState {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            match self {
-                TestState::Initial => write!(f, "Initial"),
-                TestState::Processing => write!(f, "Processing"),
-                TestState::Final => write!(f, "Final"),
-            }
+            write!(f, "{:?}", self)
         }
     }
 
@@ -116,7 +115,7 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestEvent {
         Start,
         Process,

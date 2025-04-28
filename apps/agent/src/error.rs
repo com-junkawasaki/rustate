@@ -1,6 +1,7 @@
-use thiserror::Error;
-use std::fmt;
 use rustate::Error as RustateError;
+use std::fmt;
+use thiserror::Error;
+use crate::{PolicyError, StorageError};
 
 /// Result type alias using the library's AgentError.
 pub type Result<T> = std::result::Result<T, AgentError>;
@@ -18,11 +19,11 @@ pub enum AgentError {
 
     /// 永続化/ストレージエラー
     #[error("Storage error: {0}")]
-    StorageError(String),
+    StorageError(#[from] StorageError),
 
     /// ポリシーエラー
     #[error("Policy error: {0}")]
-    PolicyError(String),
+    PolicyError(#[from] PolicyError),
 
     /// シリアライズ/デシリアライズエラー
     #[error("Serialization error: {0}")]
@@ -34,7 +35,7 @@ pub enum AgentError {
 
     /// 統合エラー
     #[error("Integration error: {0}")]
-    IntegrationError(String),
+    IntegrationError(#[from] rustate::integration::Error),
 
     /// エピソードエラー
     #[error("Episode error: {0}")]
@@ -75,6 +76,14 @@ pub enum AgentError {
     /// 不明なエラー
     #[error("Unknown error")]
     Unknown,
+
+    /// 無効な状態
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+
+    /// ゴール到達
+    #[error("Goal reached")]
+    GoalReached,
 }
 
 /// Errors related to policy decisions.
@@ -116,12 +125,6 @@ pub enum StorageError {
 impl From<serde_json::Error> for AgentError {
     fn from(error: serde_json::Error) -> Self {
         AgentError::SerializationError(error.to_string())
-    }
-}
-
-impl From<rustate::integration::Error> for AgentError {
-    fn from(err: rustate::integration::Error) -> Self {
-        AgentError::IntegrationError(err.to_string())
     }
 }
 

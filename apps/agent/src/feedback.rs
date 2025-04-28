@@ -3,9 +3,9 @@ use async_trait::async_trait;
 use rustate::EventTrait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::fmt::{Debug, Display, Formatter};
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 /// フィードバックの種類
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -19,7 +19,7 @@ pub enum FeedbackType {
 }
 
 /// エージェントのフィードバックを表す構造体
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Feedback<E>
 where
     E: EventTrait + Clone,
@@ -57,7 +57,7 @@ where
         source: impl Into<String>,
     ) -> Self {
         Self {
-            id: format!("feedback-{}", uuid::Uuid::new_v4()),
+            id: format!("feedback-{}", Uuid::new_v4()),
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("時間が取得できませんでした")

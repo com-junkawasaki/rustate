@@ -1,12 +1,10 @@
-use crate::observation::Observation;
-use crate::policy::Policy;
-use rustate::{EventTrait, StateTrait};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt::{self, Display, Formatter};
+use crate::episode::Episode;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::fmt::{Debug};
 use std::time::{SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
+use std::collections::HashMap;
+use rustate::{StateTrait, EventTrait};
+use crate::observation::Observation;
 
 /// 洞察は、観測データに基づく追加情報や解釈を提供します。
 /// 洞察はAIエージェントが状態遷移や観測データから抽出した
@@ -121,10 +119,14 @@ fn generate_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait, StateType};
+    use crate::observation::Observation;
+    use rustate::{EventTrait, StateTrait};
+    use serde::{Deserialize, Serialize};
     use serde_json::Value;
+    use std::fmt::{self, Display, Formatter};
+    use std::collections::HashMap;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestState {
         Initial,
         Processing,
@@ -147,7 +149,7 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Process,
