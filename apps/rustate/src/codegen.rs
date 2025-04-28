@@ -7,18 +7,16 @@
 //! requires the `proto` feature flag in addition to `codegen`.
 
 use crate::{
-    action::{Action, ActionType},
-    context::Context,
-    context::ContextTrait,
-    event::{Event, EventTrait, IntoEvent},
+    action::Action,
+    event::{EventTrait, IntoEvent},
     machine::MachineBuilder,
-    state::{State, StateTrait},
+    state::StateTrait,
     transition::Transition,
     Error, Guard, Machine, Result,
 };
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use serde::Serialize;
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::hash::Hash;
@@ -26,10 +24,9 @@ use std::io::Write;
 use syn::parse_file;
 
 // Conditionally import items needed for specific features
-#[cfg(feature = "codegen")]
-use {};
+// #[cfg(feature = \"codegen\")] // No specific imports needed here for now
 
-// #[cfg(feature = "proto")] // Removed unused import
+// #[cfg(feature = \"proto\")] // Removed unused import
 // use std::collections::HashMap;
 
 /// Options for exporting a state machine definition to JSON format.
@@ -118,10 +115,10 @@ pub trait CodegenExt {
 
 impl<C, E, S, O> CodegenExt for Machine<C, E, S, O>
 where
-    S: StateTrait + Serialize + Send + Sync + 'static,
-    E: EventTrait + Serialize + Send + Sync + 'static,
-    C: ContextTrait + Serialize + Send + Sync + 'static,
-    O: Serialize + Send + Sync + 'static + Default,
+    S: StateTrait + Serialize + Send + Sync + 'static + From<String>,
+    E: EventTrait + Serialize + Send + Sync + 'static + IntoEvent + Default + DeserializeOwned,
+    C: Serialize + DeserializeOwned + Clone + Default + Send + Sync + Debug + 'static,
+    O: Serialize + Send + Sync + 'static + Default + Clone + Debug + DeserializeOwned,
 {
     fn export_to_json(&self, options: Option<JsonExportOptions>) -> Result<()> {
         let options = options.unwrap_or_default();
@@ -199,41 +196,20 @@ where
             Error::InvalidConfiguration(format!("Failed to parse Rust file '{}': {}", file_path, e))
         })?;
 
-        // --- Placeholder Implementation ---
-        // This section needs to traverse the AST (_syntax_tree) and extract the
-        // state machine definition (e.g., from MachineBuilder calls).
-        eprintln!("Warning: parse_from_rust_file currently returns a hardcoded machine.");
+        // --- Placeholder Implementation - AST parsing needed ---
+        println!("Warning: AST parsing not implemented in parse_from_rust_file.");
+        todo!("Implement AST parsing to build MachineBuilder from Rust source");
 
-        // Returning a simple hardcoded machine for now.
-        // Needs concrete types or appropriate generics. Let's use basic ones for placeholder.
-        // IMPORTANT: This placeholder likely doesn't match the expected Self type (Machine<C, E, S, O>).
-        // This function needs significant refinement to be useful.
-        // For now, let's assume C=(), E=String, S=String, O=() to satisfy the placeholder build.
-        // This WILL likely fail if called unless Self is exactly Machine<(), String, String, ()>.
-        let builder =
-            crate::MachineBuilder::<(), String, String, ()>::new("placeholder_machine".to_string())
-                .state("idle".to_string(), |s| {
-                    s.on("START".to_string(), |t| t.target("active".to_string()))
-                })
-                .state("active".to_string(), |s| {
-                    s.on("STOP".to_string(), |t| t.target("idle".to_string()))
-                })
-                .initial("idle".to_string()); // Explicitly set initial state
-
+        // Need to handle potential errors during build
         // The build result must match Self. This is problematic for a generic impl.
-        // This placeholder is fundamentally flawed for a generic CodegenExt impl.
-        // It should likely be a standalone function or specific to a concrete Machine type.
+        // This placeholder likely doesn't match the expected Self type (Machine<C, E, S, O>).
+        // This function needs significant refinement to be useful.
         // Forcing a build that *might* conform to Self (if Self is the specific placeholder type)
-        let _machine = builder.build()?; // Assign to _machine to avoid unused variable warning
-                                         // This is unsafe and likely incorrect. A real implementation needs AST traversal.
-                                         // We'll return an error or a more robust placeholder.
-                                         // Let's return an error indicating it's unimplemented.
-        Err(Error::InvalidConfiguration(
-            "parse_from_rust_file is not fully implemented".to_string(),
-        ))
+        // let _machine = builder.build()?; // Assign to _machine to avoid unused variable warning
 
-        // If we absolutely needed to return *something* matching Self (very risky):
-        // Ok(unsafe { std::mem::transmute_copy(&machine) }) // Extremely unsafe and wrong, DO NOT USE
+        // Ok(Self {..}) // This needs to be constructed based on the parsed data
+        // Return an error or the placeholder machine for now
+        // Err(Error::NotImplemented("AST parsing for Machine creation".to_string()))
     }
 }
 
@@ -296,10 +272,10 @@ pub fn machine_builder_to_json<C, E, S, O>(
     builder: &mut crate::MachineBuilder<C, E, S, O>,
 ) -> Result<String>
 where
-    S: StateTrait + Send + Sync + Clone + 'static + Serialize,
-    E: EventTrait + Send + Sync + Clone + 'static + Serialize,
-    C: ContextTrait + Send + Sync + Clone + 'static + Serialize,
-    O: Default + Send + Sync + Clone + 'static + Serialize,
+    S: StateTrait + Send + Sync + Clone + 'static + Serialize + From<String>,
+    E: EventTrait + Send + Sync + Clone + 'static + Serialize + IntoEvent + Default + DeserializeOwned,
+    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
+    O: Default + Send + Sync + Clone + 'static + Serialize + Debug + DeserializeOwned,
 {
     // Placeholder: serialize the builder directly if possible, or extract data
     println!("Warning: machine_builder_to_json is a placeholder.");
@@ -319,8 +295,8 @@ where
 pub fn machine_builder_to_proto<
     S: crate::StateTrait + Send + Sync + Clone + 'static + Serialize,
     E: crate::EventTrait + Send + Sync + Clone + 'static + Serialize,
-    C: crate::Context + Send + Sync + Clone + 'static + Serialize,
-    O: crate::Context + Send + Sync + Clone + 'static + Serialize,
+    C: Serialize + DeserializeOwned + Clone + Default + Send + Sync + Debug + 'static,
+    O: Serialize + DeserializeOwned + Clone + Default + Send + Sync + Debug + 'static,
 >(
     _builder: &mut crate::MachineBuilder<S, E, C, O>,
     options: Option<ProtoExportOptions>,
@@ -336,22 +312,16 @@ fn generate_rust_actions<C, E>(
     // Correct bounds for C and E needed if Action uses them in Debug/Display etc.
 ) -> Result<String>
 where
-    // S: StateTrait + Send + Sync + Clone + 'static + Serialize, // S not used here
-    // E: EventTrait + Send + Sync + Clone + 'static + Serialize + Debug, // Add Debug if Action name uses it
-    // C: ContextTrait + Clone + Debug + Default + Send + Sync + 'static + Serialize, // Add ContextTrait
-    // Added bounds based on Action usage (assuming Debug for name)
     E: EventTrait + Debug,
-    C: ContextTrait,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned, // Removed ContextTrait
 {
-    let mut code = String::new();
+    let mut actions_code = String::new();
     for action in actions {
-        // Assuming action.name() gives a usable representation
-        code.push_str(&format!("        // Action: {:?}\n", action.name()));
-        // TODO: Generate actual Rust code for the action if possible/needed
-        // This might involve serializing closures or function pointers, which is complex.
-        // For now, just commenting the action name.
+        // Assuming Action can be Debug printed or has a specific format
+        // TODO: Need a proper way to represent actions in generated code (e.g., function calls?)
+        actions_code.push_str(&format!("        // Action: {:?}\n", action)); // Temporary Debug print
     }
-    Ok(code)
+    Ok(actions_code)
 }
 
 #[cfg(feature = "codegen")]
@@ -360,20 +330,15 @@ fn generate_rust_guards<C, E>(
     // Correct bounds for C and E needed if Guard uses them
 ) -> Result<String>
 where
-    // S: StateTrait + Send + Sync + Clone + 'static + Serialize, // S not used
-    // E: EventTrait + Send + Sync + Clone + 'static + Serialize + Debug, // Add Debug if Guard name uses it
-    // C: ContextTrait + Clone + Debug + Default + Send + Sync + 'static + Serialize, // Add ContextTrait
-    // Added bounds based on Guard usage (assuming Debug for name)
     E: EventTrait + Debug,
-    C: ContextTrait + Debug,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned + Debug, // Removed ContextTrait, added Debug
 {
-    let mut code = String::new();
+    let mut guards_code = String::new();
     for guard in guards {
-        // Assuming guard.name gives a usable representation (needs Guard to have a name() method)
-        code.push_str(&format!("        // Guard: {:?}\n", guard.name())); // Assuming guard has name()
-                                                                           // TODO: Generate actual Rust code for the guard if possible/needed. Complex.
+        // Assuming guard has a name field or can be Debug printed
+        guards_code.push_str(&format!("        // Guard: {:?}\n", guard)); // Assuming guard can be debug printed
     }
-    Ok(code)
+    Ok(guards_code)
 }
 
 #[cfg(feature = "codegen")]
@@ -384,35 +349,33 @@ fn generate_rust_transitions<S, E, C>(
 ) -> Result<String>
 where
     S: StateTrait + Debug, // Add Debug for source/target
-    E: EventTrait + Debug, // Add Debug for event
-    C: ContextTrait,
+    E: EventTrait + Debug + Serialize + DeserializeOwned, // Removed Deref bound
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
 {
-    let mut code = String::new();
+    let mut transitions_code = String::new();
     for transition in transitions {
-        let target_code = match &transition.target {
-            Some(target) => format!(".target({:?})", target),
-            None => String::new(), // No target
-        };
-        let guard_code = if let Some(guard) = &transition.guard {
-            // TODO: Generate guard code - complex
-            format!(".guard({:?})", guard.name()) // Assuming guard.name() exists, removed comment
+        // Use Debug representation for the optional event
+        let event_str = format!("{:?}", transition.event);
+        let target_str = transition.target.as_ref().map_or("None".to_string(), |t| format!("Some({})", t));
+        let guard_str = if let Some(guard) = &transition.guard {
+            format!(".guard({})", guard.name) // Use field access
         } else {
-            String::new()
+            "".to_string()
         };
-        let action_code = if let Some(action) = &transition.action {
-            // TODO: Generate action code - complex
-            format!(".action({:?})", action.name()) // Assuming action.name() exists, removed comment
+        let action_code = if !transition.actions.is_empty() {
+            // TODO: How to represent multiple actions? Chain calls?
+            // format!(".action({})", action.name()) // Placeholder
+            format!(".actions({:?})", transition.actions) // Temporary Debug
         } else {
-            String::new()
+            "".to_string()
         };
 
-        code.push_str(&format!(
-            "        .on({:?}, |t| t{}{}{})
-", // Assuming event implements Debug
-            transition.event, target_code, guard_code, action_code
+        transitions_code.push_str(&format!(
+            "        .on({}, |t| t{}{}{})\n", // Use {} for event_str (now a String)
+            event_str, target_str, guard_str, action_code
         ));
     }
-    Ok(code)
+    Ok(transitions_code)
 }
 
 #[cfg(feature = "codegen")]
@@ -421,10 +384,10 @@ pub fn generate_rust_code<C, E, S, O>(
     // Correct bounds for C, E, S, O
 ) -> Result<String>
 where
-    S: StateTrait + Debug + Clone + Eq + Hash, // Added Eq + Hash (used internally by builder likely)
-    E: EventTrait + Debug + Clone + Eq + Hash, // Added Clone + Eq + Hash
-    C: ContextTrait + Debug + Clone + Default, // Added Clone + Default
-    O: Default + Clone + Debug,                // Added Clone + Debug
+    S: StateTrait + Display + Debug + Clone + Eq + Hash + From<String>, // Added Display for state_enum_code
+    E: EventTrait + Display + Debug + Clone + Eq + Hash + Serialize + IntoEvent + Default + DeserializeOwned, // Added Display
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned, // Removed ContextTrait
+    O: Default + Clone + Debug + Serialize + Send + Sync + DeserializeOwned, // Added Serialize, Send, Sync, DeserializeOwned
 {
     let machine_name = &builder.name;
     let mut code = format!(
@@ -454,70 +417,84 @@ where
     ));
 
     // Iterate through states and generate code
+    let state_ids = builder.get_state_ids();
+    let event_ids = builder.get_event_ids(); // Assuming E implements needed traits (Debug, Clone, Eq, Hash)
+
+    let state_enum_name = format!("{}State", machine_name);
+    let event_enum_name = format!("{}Event", machine_name);
+    let context_type_name = std::any::type_name::<C>().split("::").last().unwrap_or("Context");
+
+    let state_enum = generate_state_enum_code(&state_ids);
+    let event_enum = generate_event_enum_code(&event_ids);
+
+    // Generate context struct based on the type C
+    let context_struct = generate_context_struct_code::<C>(context_type_name);
+
+    // Add initial state setting
+    // builder.initial is guaranteed to exist by MachineBuilder::new
+    let initial = &builder.initial;
+    let initial_state_code = format!("{}.into()", initial);
+
+    let builder_init = format!("let mut builder = MachineBuilder::<{}, {}, {}, {}>::new(\"{}\", {});\n",
+        std::any::type_name::<C>(), // C - Use actual type name
+        event_enum_name, // E - Use generated enum name
+        state_enum_name, // S - Use generated enum name
+        std::any::type_name::<O>(), // O - Use actual type name
+        machine_name,
+        initial_state_code // Use the generated initial state code
+    ); // Close format! macro
+
+    // Combine generated parts
+    let mut machine_code = String::new();
+    machine_code.push_str(&builder_init);
+
+    // Add state configurations to builder
     for state_id in builder.get_state_ids() {
-        // Assuming get_state_ids returns Vec<S>
-        if let Some(state_def) = builder.get_state_definition(&state_id) {
-            // Pass borrow
-            // Use Debug formatting for state_id
-            code.push_str(&format!(
-                "    builder = builder.state({:?}, |s| {{
-",
-                state_id
-            ));
+        if let Some(state_def) = builder.get_state(&state_id) {
+            let mut state_config = format!("    builder = builder.state({}.into(), |s| {{\n", state_id);
 
-            // Add transitions
-            let transitions_code = generate_rust_transitions::<S, E, C>(&state_def.transitions)?; // Pass C explicitly
-            code.push_str(&transitions_code);
+            // Add transitions for this state
+            if !state_def.on.is_empty() { // Check if the `on` map itself is empty
+                let transitions_code = generate_rust_transitions(&state_def.on.values().flatten().cloned().collect::<Vec<_>>())?;
+                if !transitions_code.trim().is_empty() { // Only add if transitions were generated
+                    state_config.push_str(&transitions_code);
+                }
+            }
 
-            // Add entry/exit actions (assuming accessible & Action has name())
-            // for action in &state_def.entry_actions {
-            //     code.push_str(&format!("        // Entry Action: {:?}
-            // ", action.name()));
-            // }
-            // for action in &state_def.exit_actions {
-            //     code.push_str(&format!("        // Exit Action: {:?}
-            // ", action.name()));
-            // }
+            // Add entry/exit actions
+            if !state_def.entry.is_empty() {
+                let entry_actions_code = generate_rust_actions(&state_def.entry)?;
+                state_config.push_str(&entry_actions_code.replace("// Action:", "        s.on_entry(/* Action: */")); // Basic wrapping
+            }
+            if !state_def.exit.is_empty() {
+                let exit_actions_code = generate_rust_actions(&state_def.exit)?;
+                state_config.push_str(&exit_actions_code.replace("// Action:", "        s.on_exit(/* Action: */")); // Basic wrapping
+            }
 
-            // Handle nested states recursively? This needs access to nested state definitions.
-            // if let Some(nested_machine_builder) = state_def.nested_machine_builder { ... }
-
-            code.push_str(
-                "    });
-
-",
-            );
+            state_config.push_str("    });\n");
+            machine_code.push_str(&state_config);
         }
     }
 
-    // Set initial state
-    if let Some(initial_state) = &builder.initial_state {
-        // Assuming initial_state is Option<S>
-        // Use Debug formatting for initial_state
-        code.push_str(&format!(
-            "    builder = builder.initial({:?});
-",
-            initial_state
-        ));
-    }
+    machine_code.push_str("    builder.build()\n}");
 
-    code.push_str(
-        "
-    builder.build()
-",
-    );
-    code.push_str(
-        "}
-",
-    );
-
-    Ok(code)
+    Ok(machine_code)
 }
 
 #[cfg(feature = "proto")]
 fn generate_grpc_code<S, E, C>(machine: &Machine<S, E, C>) -> Result<String> {
-    // ... implementation ...
-    Ok("".to_string())
+    // Placeholder implementation for gRPC code generation
+    // This would involve generating .proto files and potentially server/client stubs
+    println!(
+        "Warning: gRPC code generation (generate_grpc_code) for machine '{}' is not yet implemented.",
+        machine.name
+    );
+    Ok("// gRPC code generation placeholder".to_string())
+    // Actual implementation would need bounds on S, E, C for proto generation
+    // Example bounds (adjust as needed for proto library):
+    // S: StateTrait + Serialize + ProtoSerialize,
+    // E: EventTrait + Serialize + ProtoSerialize,
+    // C: Serialize + DeserializeOwned + Clone + Default + Send + Sync + Debug + 'static + ProtoSerialize,
 }
 
 /// Generates Rust code for the state machine definition.
@@ -545,8 +522,9 @@ pub fn generate_machine_code<
         + DeserializeOwned
         + Debug
         + IntoEvent
-        + Display,
-    C: ContextTrait + Send + Sync + Clone + 'static + Serialize + Default + Debug + DeserializeOwned,
+        + Display
+        + Default, // Added Default
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned, // Removed ContextTrait
     O: Default + Debug + Clone + Send + Sync + 'static + Serialize + DeserializeOwned,
 >(
     // Specify generic parameters here
@@ -566,28 +544,26 @@ pub fn generate_machine_struct_code<S, E, C>(
     // Need access to context type definition C
 ) -> Result<String>
 where
-    S: StateTrait, // Add necessary bounds if struct depends on them
-    E: EventTrait,
-    C: ContextTrait,
+    S: StateTrait + Display, // Need Display for state IDs in struct
+    E: EventTrait + Display, // Need Display for event IDs in struct
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
 {
-    println!("Warning: generate_machine_struct_code is a placeholder.");
-    // Sanitize machine_name for struct identifier, replacing non-alphanumeric with hyphen
-    let struct_name = machine_name.replace(|c: char| !c.is_alphanumeric(), '-');
-    // Ensure the first char is valid if it was replaced (e.g., prepend "Machine")
-    let struct_name = if struct_name.starts_with('-') {
-        format!("Machine{}", struct_name)
-    } else {
-        struct_name
-    };
-    // Replace hyphens with underscores for valid identifier
-    let struct_name = struct_name.replace('-', '_'); // Use char '_'
+    let state_enum_name = format!("{}State", machine_name); // Assuming State enum is generated elsewhere
+    let context_type_name_str = std::any::type_name::<C>(); // Get the name of the context type
 
-    // Instead of returning an error, generate a basic struct string
-    // Removed newline character \n temporarily to isolate the issue
-    Ok(format!(
+    // Sanitize machine_name for struct name (simple version)
+    let struct_name = machine_name.replace(|c: char| !c.is_alphanumeric(), "-"); // Use &str
+    let struct_name = struct_name.replace("-", "_"); // Use &str, ensure valid identifier
+    let struct_name = format!("{}Machine", struct_name); // Append Machine
+
+    // Placeholder: Generate fields based on states, context, etc.
+    // This requires introspection into the builder's structure which isn't fully available here.
+    let mut code = String::new();
+    code.push_str(&format!(
         "struct {}Machine {{ /* ... fields ... */ }}",
         struct_name
-    ))
+    ));
+    Ok(code)
 }
 
 pub fn generate_state_enum_code<
@@ -639,7 +615,7 @@ pub enum EventEnum {{
 }
 
 pub fn generate_context_struct_code<
-    C: ContextTrait + Debug + Clone + Default + Serialize + DeserializeOwned,
+    C: Clone + Debug + Default + Serialize + DeserializeOwned + Send + Sync + 'static, // Removed ContextTrait
 >(
     context_type_name: &str, // Name of the context type
 ) -> String {
@@ -654,18 +630,10 @@ pub struct {} {{ /* ... fields ... */ }}
     )
 }
 
-pub fn generate_action_enum_code<C, E>(action_names: &[String]) -> String
+pub fn generate_action_enum_code<E>(action_names: &[String]) -> String
 where
-    C: ContextTrait
-        + Clone
-        + Debug
-        + Default
-        + Send
-        + Sync
-        + 'static
-        + Serialize
-        + DeserializeOwned, // Added ContextTrait, DeserializeOwned
-    E: EventTrait
+    // C bounds removed as C is not used here
+    E: EventTrait // Keep only necessary bounds for E if action names depend on it (currently they don't seem to)
         + Clone
         + Eq
         + Hash
@@ -722,8 +690,9 @@ pub fn generate_builder_code<
         + DeserializeOwned
         + Debug
         + IntoEvent
-        + Display, // Added Display
-    C: ContextTrait + Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned, // Added ContextTrait
+        + Display
+        + Default, // Added Default
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned, // Added ContextTrait
     O: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
 >(
     machine_name: &str,
@@ -742,32 +711,50 @@ pub fn generate_builder_code<
 
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
-    S: StateTrait + Eq + Hash + Clone, // Bounds for HashMap keys
-    E: Eq + Hash + Clone,              // Bounds for HashSet keys
-    C: ContextTrait,                   // Added C bound needed for get_state_definition
-    O: Default,                        // Added O bound needed for get_state_definition
+    S: StateTrait + Display + Clone + Eq + Hash + Send + Sync + 'static + From<String>,
+    E: EventTrait + Clone + Eq + Hash + Send + Sync + 'static + Debug + IntoEvent + Display + Serialize + Default + DeserializeOwned,
+    C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
+    O: Default + Clone + Debug + Send + Sync + 'static + Serialize + DeserializeOwned,
 {
-    // NOTE: These methods assume access to internal fields `states` and potentially others.
-    // They might need adjustment based on the actual MachineBuilder structure.
-    // Consider making these public methods on MachineBuilder if they don't exist.
-
-    // Assuming self.states is HashMap<S, StateDefinition<C, E, S, O>>
-    fn get_state_ids(&self) -> Vec<S> {
-        self.states.keys().cloned().collect()
+    // Helper to get all state IDs, preserving order might be nice but HashMap doesn't guarantee it.
+    pub fn get_state_ids(&self) -> Vec<S> {
+        self.states.all().map(|s| s.id.clone()).collect()
     }
-
+    // Helper to get all unique event types mentioned in transitions
     fn get_event_ids(&self) -> Vec<E> {
-        let mut events = HashSet::new();
-        for state_def in self.states.values() {
-            for transition in &state_def.transitions {
-                events.insert(transition.event.clone());
+        let event_ids = HashSet::new();
+        for state in self.states.all() {
+            for transitions in state.on.values() {
+                for transition in transitions {
+                    if let Some(event_desc) = &transition.event {
+                        // Assuming EventTrait allows conversion or access to the event identifier
+                        // This needs adjustment based on how EventTrait works.
+                        // If EventTrait itself is the ID (like an enum), clone it.
+                        // If it wraps an ID, extract it.
+                        // Placeholder: Need actual event ID extraction/cloning
+                        // Let's assume EventTrait needs Clone + Eq + Hash
+                        // And that the event descriptor *is* the event ID type E
+                        // Attempt to get the event ID from the descriptor string
+                        // E::from_description is not a standard part of EventTrait.
+                        // This logic needs rework based on how event IDs are derived/stored.
+                        // For now, comment out the problematic part.
+                        // if let Ok(event_id) = E::from_description(event_desc) {
+                        //     event_ids.insert(event_id);
+                        // } else {
+                        //     eprintln!(
+                        //         "Warning: Could not convert event description '{}' to event ID.",
+                        //         event_desc
+                        //     );
+                        // }
+                    }
+                }
             }
-            // Also consider events from entry/exit actions if applicable
         }
-        events.into_iter().collect()
+        event_ids.into_iter().collect() // Collect unique event IDs
     }
-    // Assuming get_state_definition exists and is public or accessible
-    fn get_state_definition(&self, state_id: &S) -> Option<&crate::StateDefinition<C, E, S, O>> {
+
+    // Renamed and adjusted return type
+    pub fn get_state(&self, state_id: &S) -> Option<&crate::state::State<S, C, E>> {
         self.states.get(state_id)
     }
 }

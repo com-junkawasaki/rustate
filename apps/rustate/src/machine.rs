@@ -355,6 +355,11 @@ where
             }
         }
 
+        // For external transitions, ensure the source state itself is exited
+        if transition.transition_type == TransitionType::External {
+            exit_states.insert(transition.source.clone());
+        }
+
         // 3. Execute exit actions and recursive exit - Execute sequentially to avoid Send issues
         let context_clone_for_exit = self.context.clone(); // Clone Arc for exit states
         for id in &exit_states {
@@ -846,8 +851,6 @@ where
     fn _get_state_depth(&self, state_id: &S) -> usize {
         self._get_ancestors(state_id).len()
     }
-
-    // ... rest of impl ...
 }
 
 // Move handle_event outside the impl Actor block
@@ -1113,39 +1116,3 @@ pub fn get_ancestors<S: StateTrait + Clone + Eq + Hash>(
     }
     ancestors
 }
-
-impl<C, E, S, O> Machine<C, E, S, O>
-where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + Clone
-        + Send
-        + Sync
-        + 'static
-        + Eq
-        + fmt::Debug
-        + IntoEvent
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
-    O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-{
-    // ... existing methods ...
-
-    // Prefix unused methods with underscore
-    fn _get_ancestors_inclusive(&self, state_id: &S) -> Vec<String> {
-        let mut ancestors = vec![state_id.to_string()];
-        ancestors.extend(self._get_ancestors(state_id).iter().map(|s| s.to_string()));
-        ancestors
-    }
-
-    // Prefix unused methods with underscore
-    fn _get_state_depth(&self, state_id: &S) -> usize {
-        self._get_ancestors(state_id).len()
-    }
-
-    // ... rest of impl ...
-}
-
-// ... MachineBuilder struct and impl ...
