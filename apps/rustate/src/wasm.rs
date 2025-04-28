@@ -2,14 +2,14 @@
 use crate::{
     action::Action,
     context::Context,
-    error::{Error, Result},
+    error::Result,
     event::{Event, EventTrait, IntoEvent},
     guard::Guard,
     machine::{Machine, MachineBuilder},
     state::State,
-    state_registry::StateRegistry,
     transition::{Transition, TransitionType},
 };
+use thiserror::Error;
 use serde::{Deserialize, Serialize};
 use serde_json; // Import the crate itself
 use serde_json::Value; // Add this import
@@ -18,6 +18,17 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
+
+// Define WasmMachineHandle
+#[wasm_bindgen]
+pub struct WasmMachineHandle {
+    // Use Arc<Mutex<...>> for thread-safe sharing if needed, or RefCell for single-threaded WASM
+    // Let's assume RefCell for now, common in single-threaded WASM contexts.
+    // Adjust if multi-threading (e.g., with web workers) is intended.
+    pub(crate) machine: RefCell<Machine>,
+    // Add specific generic types if known, otherwise might need to be generic itself.
+    // Assuming default Context and Event for now.
+}
 
 // Global state machines (consider a better way to manage them)
 thread_local! {

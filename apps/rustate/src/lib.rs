@@ -20,6 +20,7 @@ pub mod event;
 pub mod guard;
 pub mod machine;
 pub mod state;
+// pub mod state_registry; // Removed - seems unused/missing
 pub mod transition;
 
 #[cfg(feature = "codegen")]

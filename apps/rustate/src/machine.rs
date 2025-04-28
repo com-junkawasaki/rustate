@@ -18,6 +18,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use async_recursion::async_recursion;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -32,15 +33,11 @@ where
     history: HashMap<String, S>,
 }
 
-/// Represents a state machine instance
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "S: Serialize, C: Serialize",
-    deserialize = "S: StateTrait, C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static"
-))]
+/// Represents the state machine configuration and runtime.
+#[derive(Clone, Debug, Serialize)]
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
-    C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
+    C: Send + Sync + 'static + Default + Clone + Debug,
     E: EventTrait
         + Serialize
         + DeserializeOwned

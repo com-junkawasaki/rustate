@@ -35,7 +35,7 @@ pub type ActionFn<C, E> = Arc<
 /// The `serde(skip)` attribute is used here. For state persistence involving actions,
 /// a mechanism to serialize action *identifiers* (e.g., strings) and look them up
 /// during deserialization would be required.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 pub struct Action<C = Context, E = crate::Event> {
     /// The specific type and logic of the action.
     #[serde(skip, default = "default_action_type")]
@@ -92,7 +92,7 @@ where
 ///
 /// Currently, only function-based actions are implemented.
 /// Future versions might include actions like emitting specific events.
-#[derive(Clone, Serialize, Deserialize)] // No need for #[serde(skip)] on the enum itself
+#[derive(Clone, Serialize)]
 pub enum ActionType<C, E> {
     /// An action implemented as an asynchronous function.
     #[serde(skip)] // Skip the function field itself during serialization

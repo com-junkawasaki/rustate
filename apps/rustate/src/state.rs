@@ -53,18 +53,12 @@ pub enum HistoryType {
     Deep,
 }
 
-/// Represents a state in a state machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[serde(bound(
-    serialize = "S: Serialize",
-    deserialize = "S: DeserializeOwned + StateTrait"
-))]
-pub struct State<S, C = Context, E = Event>
+/// Represents a state node within the state machine.
+#[derive(Clone, Debug, Serialize)]
+pub struct State<C = Context, E = Event, S = String>
 where
+    C: Send + Sync + 'static + Default + Clone + Debug,
     S: StateTrait + Serialize + Clone + Debug + Display + Hash + Eq + Send + Sync + 'static,
-    C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
-    E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
     /// Unique identifier for the state
     pub id: S,
@@ -76,7 +70,7 @@ where
     /// Child states (for compound and parallel states)
     // Use S directly as key if possible, otherwise String conversion needed.
     // String is simpler for now due to HashMap constraints.
-    pub children: HashMap<String, State<S, C, E>>,
+    pub children: HashMap<String, State<C, E, S>>,
     /// Initial state (for compound states)
     pub initial: Option<S>,
     /// Data associated with this state
