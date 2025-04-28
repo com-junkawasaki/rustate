@@ -1,0 +1,15 @@
+[package]
+name = "agent" # Assuming the project name is 'agent' based on the directory
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustate = "0.3"
+tokio = { version = "1", features = ["full", "sync"] }
+serde = { version = "1.0", features = ["derive"] } # For event/context structures
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Added for LLM integration
+async-openai = "0.25.0" # Or latest compatible version
+dotenvy = "0.15" 
