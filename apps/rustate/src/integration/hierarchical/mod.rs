@@ -83,7 +83,7 @@
 //! });
 //!
 //! // 親ステートマシンを作成
-//! let parent_machine = MachineBuilder::new("workflow".to_string(), "idle".to_string()) // Added initial state
+//! let parent_machine: Machine<Context, Event, String, ()> = MachineBuilder::new("workflow".to_string(), "idle".to_string()) // Added initial state
 //!     .state(State::new("idle".to_string())) // Use String
 //!     .state(State::new("processing".to_string())) // Use String
 //!     .state(State::new("done".to_string())) // Use String

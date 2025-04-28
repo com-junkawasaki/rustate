@@ -54,10 +54,11 @@
 //!
 //! // 親ステートマシンのイベントに応じて子マシンにイベントを転送するアクション
 //! // ActionType::Transition does not exist
-//! let forward_action = Action::from_fn(move |_ctx, evt: &Event| {
+//! let forward_action: Action<Context, Event> = Action::from_fn(move |_ctx, evt: &Event| {
 //!     let shared_child = shared_child_clone.clone(); // Clone Arc for async block
+//!     let owned_evt = evt.clone(); // Clone the event here
 //!     async move {
-//!         if evt.event_type() == "PARENT_EVENT" {
+//!         if owned_evt.event_type() == "PARENT_EVENT" { // Use cloned event
 //!             let _ = shared_child.send_event("ACTIVATE").await;
 //!         }
 //!         Ok(())
@@ -66,7 +67,7 @@
 //! });
 //!
 //! // 親ステートマシンを作成
-//! let mut parent_machine = MachineBuilder::new("parent".to_string(), "ready".to_string()) // Added initial state
+//! let mut parent_machine: Machine<Context, Event, String, ()> = MachineBuilder::new("parent".to_string(), "ready".to_string()) // Added initial state
 //!     .state(State::new("ready".to_string())) // Use String
 //!     // .initial("ready") // Removed - initial is arg to new()
 //!     // .on_entry("ready", forward_action) // on_entry needs state ID as &str
@@ -234,7 +235,7 @@ mod tests {
         let done = State::new_final("done".to_string());
 
         // Action to forward the event to the child
-        let forward_action = Action::from_fn(
+        let forward_action: Action<Context, Event> = Action::from_fn(
             move |_ctx: Arc<tokio::sync::RwLock<Context>>, evt: &Event| {
                 let child_clone: Arc<tokio::sync::Mutex<SharedMachineRef>> = Arc::clone(&child_ref);
                 let event_to_forward = evt.clone();
