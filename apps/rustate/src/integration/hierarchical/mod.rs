@@ -64,21 +64,23 @@
 //!
 //! // 子マシンの状態を監視するアクション
 //! // Use coordination::create_child_monitor_action
-//! let monitor_action = Action::from_fn(|_ctx, _evt| async { Ok(()) }.boxed()); // Placeholder action
+//! let monitor_action = Action::<Context, Event>::from_fn(|_ctx, _evt| async { Ok(()) }.boxed()); // Placeholder action
 //!
 //! // STARTイベントを子マシンに転送するアクション
 //! // Use coordination::create_event_forwarder_action
-//! let start_process = Action::from_fn(|_ctx, _evt| async { Ok(()) }.boxed()); // Placeholder action
+//! let start_process = Action::<Context, Event>::from_fn(|_ctx, _evt| async { Ok(()) }.boxed()); // Placeholder action
 //!
 //! // FINISHイベントを子マシンに転送するアクション
 //! // Use coordination::create_event_forwarder_action
-//! let finish_process = Action::from_fn(|_ctx, _evt| async { Ok(()) }.boxed()); // Placeholder action
+//! let finish_process = Action::<Context, Event>::from_fn(|_ctx, _evt| async { Ok(()) }.boxed()); // Placeholder action
 //!
 //! // 子マシンが完了したかどうかを確認するガード
-//! // ActionType::Guard does not exist, use Guard::from_fn
-//! let is_complete = Guard::from_fn(|ctx: &Context, _evt: &Event| {
-//!     ctx.get::<bool>("childComplete")?.unwrap_or(false)
-//! }).into_guard(); // Convert to Guard
+//! // Use Guard::new instead of from_fn, handle Option<Result> without `?`
+//! let is_complete = Guard::new("checkChildComplete", |ctx: &Context, _evt: &Event| {
+//!     ctx.get::<bool>("childComplete") // Option<Result<bool, Error>>
+//!        .map(|res| res.unwrap_or(false)) // If Some(Result), unwrap Result or default to false
+//!        .unwrap_or(false) // If None, default to false
+//! });
 //!
 //! // 親ステートマシンを作成
 //! let parent_machine = MachineBuilder::new("workflow".to_string(), "idle".to_string()) // Added initial state
@@ -159,15 +161,18 @@ use crate::integration::error::Result as IntegrationResult;
 use crate::{Context, Error as StateError, Event, EventTrait, IntoEvent, Machine};
 use std::fmt::Debug;
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, error};
+use async_trait::async_trait;
 
 /// 子ステートマシンのインターフェース
 ///
 /// このトレイトは親ステートマシンから子ステートマシンへの
 /// 操作を抽象化するために使用されます。
+#[async_trait]
 pub trait ChildMachine: Send + Sync {
     /// 子ステートマシンにイベントを送信します。
     ///
@@ -177,23 +182,23 @@ pub trait ChildMachine: Send + Sync {
     /// # 戻り値
     /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
     /// * エラーが発生した場合は `Err`。
-    fn send_event<E: IntoEvent + Send>(
+    async fn send_event(
         &mut self,
-        event: E,
-    ) -> impl Future<Output = Result<bool, StateError>> + Send;
+        event: Event,
+    ) -> Result<bool, StateError>;
 
     /// 子ステートマシンの現在の状態（またはステータス）を取得します。
     ///
     /// # 戻り値
     /// * 現在の状態を表す文字列の `Option`。
     /// * エラーが発生した場合は `Err`。
-    fn get_status(&self) -> impl Future<Output = IntegrationResult<Option<String>>> + Send;
+    async fn get_status(&self) -> IntegrationResult<Option<String>>;
 
     /// 最終状態にあるか確認
     fn is_in_final_state(&self) -> bool;
 
     /// 特定の状態にあるか確認
-    fn is_in_state(&self, state_id: &str) -> impl Future<Output = Result<bool, StateError>> + Send;
+    async fn is_in_state(&self, state_id: &str) -> Result<bool, StateError>;
 
     /// 現在の状態IDのリストを取得
     fn current_states(&self) -> Vec<String>;
@@ -224,6 +229,7 @@ impl DefaultChildMachine {
     }
 }
 
+#[async_trait]
 impl ChildMachine for DefaultChildMachine {
     /// 子ステートマシンにイベントを送信します。
     ///
@@ -233,16 +239,14 @@ impl ChildMachine for DefaultChildMachine {
     /// # 戻り値
     /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
     /// * エラーが発生した場合は `Err`。
-    fn send_event<E: IntoEvent + Send>(
+    async fn send_event(
         &mut self,
-        event: E,
-    ) -> impl Future<Output = Result<bool, StateError>> + Send {
-        let machine_arc: Arc<Mutex<Machine<Context, Event, String>>> = Arc::clone(&self.machine);
-        let event_owned = event.into_event();
-        Box::pin(async move {
-            let mut guard = machine_arc.lock().await;
-            guard.send(event_owned).await
-        })
+        event: Event,
+    ) -> Result<bool, StateError> {
+        let machine_arc = Arc::clone(&self.machine);
+        let event_owned = event;
+        let mut guard = machine_arc.lock().await;
+        guard.send(event_owned).await
     }
 
     /// 子ステートマシンの現在の状態（またはステータス）を取得します。
@@ -250,12 +254,10 @@ impl ChildMachine for DefaultChildMachine {
     /// # 戻り値
     /// * 現在の状態を表す文字列の `Option`。
     /// * エラーが発生した場合は `Err`。
-    fn get_status(&self) -> impl Future<Output = IntegrationResult<Option<String>>> + Send {
+    async fn get_status(&self) -> IntegrationResult<Option<String>> {
         let machine_arc: Arc<Mutex<Machine<Context, Event, String>>> = Arc::clone(&self.machine);
-        Box::pin(async move {
-            let guard = machine_arc.lock().await;
-            Ok(Some(guard.name.clone()))
-        })
+        let guard = machine_arc.lock().await;
+        Ok(Some(guard.name.clone()))
     }
 
     /// 最終状態にあるか確認
@@ -267,13 +269,11 @@ impl ChildMachine for DefaultChildMachine {
     }
 
     /// 特定の状態にあるか確認
-    fn is_in_state(&self, state_id: &str) -> impl Future<Output = Result<bool, StateError>> + Send {
+    async fn is_in_state(&self, state_id: &str) -> Result<bool, StateError> {
         let state_id_owned = state_id.to_string();
         let machine_arc: Arc<Mutex<Machine<Context, Event, String>>> = Arc::clone(&self.machine);
-        Box::pin(async move {
-            let guard = machine_arc.lock().await;
-            Ok(guard.is_in(&state_id_owned))
-        })
+        let guard = machine_arc.lock().await;
+        Ok(guard.is_in(&state_id_owned))
     }
 
     /// 現在の状態IDのリストを取得
@@ -304,13 +304,17 @@ pub mod coordination {
     // Helper to simplify child machine creation
     #[allow(dead_code)] // Allow dead code for test setup functions
     fn create_child_machine() -> Machine<Context, Event, String> {
+        // Define States with correct generic order <S, C, E>
+        let initial_state: State<String, Context, Event> = State::new("initial".to_string());
+        let final_state: State<String, Context, Event> = State::new_final("final".to_string());
+
         MachineBuilder::<Context, Event, String, ()>::new(
             // Specify O as ()
             "childMachine".to_string(),
             "initial".to_string(),
         )
-        .state(State::new("initial".to_string()))
-        .state(State::new_final("final".to_string())) // Use final state type
+        .state(initial_state)
+        .state(final_state)
         .transition(Transition::new(
             "initial".to_string(),
             Some("final".to_string()),
@@ -330,10 +334,10 @@ pub mod coordination {
     fn create_parent_machine(
         child: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>>,
     ) -> Machine<Context, Event, String> {
-        // Define States using String
-        let monitoring = State::new("monitoring".to_string());
-        let child_complete = State::new("childComplete".to_string());
-        let done = State::new_final("done".to_string());
+        // Define States using String explicitly with correct generic order <S, C, E>
+        let monitoring: State<String, Context, Event> = State::new("monitoring".to_string());
+        let child_complete: State<String, Context, Event> = State::new("childComplete".to_string());
+        let done: State<String, Context, Event> = State::new_final("done".to_string());
 
         let child_arc_for_monitor: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child);
         let child_arc_for_forward: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child);
@@ -369,13 +373,15 @@ pub mod coordination {
 
         let forward_closure = move |_ctx: Arc<RwLock<Context>>, evt: &Event| {
             let child_lock: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child_arc_for_forward);
-            let event_to_forward = evt.clone();
+            // Clone the event to pass to send_event
+            let event_to_forward = evt.clone(); // evt is already &Event
             Box::pin(async move {
                 debug!(
                     "Parent forwarding event '{}' to child",
                     event_to_forward.event_type()
                 );
                 let mut child = child_lock.lock().await;
+                // Pass the cloned concrete Event
                 match child.send_event(event_to_forward).await {
                     Ok(_) => Ok(()),
                     Err(e) => {
@@ -393,7 +399,8 @@ pub mod coordination {
         let check_completion_guard =
             Guard::new("checkChildComplete", |ctx: &Context, _: &Event| {
                 ctx.get::<bool>("childComplete")
-                    .map_or(false, |res| res.unwrap_or(false))
+                    .map(|res| res.unwrap_or(false))
+                    .unwrap_or(false)
             });
 
         // Create the Start Transition Action using the closure
@@ -466,6 +473,7 @@ pub mod coordination {
         println!("Debug: Sending COMPLETE event to child...");
         let child_result = {
             let mut child_guard = child_ref.lock().await;
+            // Convert string to Event before sending
             child_guard.send_event(Event::from("COMPLETE")).await?
         };
         println!(

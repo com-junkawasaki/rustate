@@ -54,10 +54,10 @@
 //!
 //! // 親ステートマシンのイベントに応じて子マシンにイベントを転送するアクション
 //! // ActionType::Transition does not exist
-//! let forward_action = Action::from_fn(move |_ctx, evt| {
+//! let forward_action = Action::from_fn(move |_ctx, evt: &Event| {
 //!     let shared_child = shared_child_clone.clone(); // Clone Arc for async block
 //!     async move {
-//!         if evt.get_type() == "PARENT_EVENT" {
+//!         if evt.event_type() == "PARENT_EVENT" {
 //!             let _ = shared_child.send_event("ACTIVATE").await;
 //!         }
 //!         Ok(())

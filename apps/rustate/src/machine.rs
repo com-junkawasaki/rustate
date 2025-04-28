@@ -3,7 +3,7 @@ use crate::{
     context::Context,
     error::{Result as StateResult, StateError},
     event::{Event, EventTrait, IntoEvent},
-    state::{State, StateCollection, StateTrait, StateType},
+    state::{State, StateCollection, StateTrait, StateType, HistoryType},
     transition::{Transition, TransitionType},
 };
 use crate::{Actor, ActorError};
@@ -37,37 +37,29 @@ where
 #[derive(Clone, Debug, Serialize)]
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
-    C: Send + Sync + 'static + Default + Clone + Debug,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + Clone
-        + Send
-        + Sync
-        + Eq
-        + Hash
-        + IntoEvent
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
+    C: Send + Sync + 'static + Default + Clone + Debug + Serialize + DeserializeOwned,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
     pub name: String,
-    /// Collection of states (Use StateCollection for better management)
+    /// Collection of states (Use StateCollection with correct order)
     #[serde(flatten)]
     pub states: StateCollection<S, C, E>,
     /// Collection of transitions (Grouped by source state ID)
+    #[serde(bound(serialize = "S: Serialize"))]
     pub transitions: HashMap<S, Vec<Transition<S, C, E>>>,
     /// Initial state id
     pub initial: Option<S>,
     /// Current active state IDs
+    #[serde(bound(serialize = "S: Serialize"))]
     pub current_states: HashSet<S>,
     /// Current context data wrapped in Arc<RwLock>
     #[serde(skip)]
     pub context: Arc<RwLock<C>>,
     /// History states mapping (state id -> last active child)
-    #[serde(default)]
+    #[serde(bound(serialize = "S: Serialize"), default)]
     pub(crate) history: HashMap<String, S>,
 
     /// Entry/Exit actions are not typically serialized directly;
@@ -89,25 +81,15 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + Clone
-        + Send
-        + Sync
-        + Eq
-        + Hash
-        + IntoEvent
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new state machine instance from a builder
     pub async fn new(builder: MachineBuilder<C, E, S, O>) -> StateResult<Self> {
         let MachineBuilder {
             name,
-            states,
+            mut states,
             transitions,
             initial,
             entry_actions,
@@ -120,7 +102,7 @@ where
         // --- Group Transitions by Source State --- Start
         let mut grouped_transitions: HashMap<S, Vec<Transition<S, C, E>>> = HashMap::new();
         for t in transitions {
-            // Validate source and target states
+            // Validate source and target states using the mutable states collection
             if !states.contains(&t.source) {
                 return Err(StateError::StateNotFound(format!(
                     "Transition source '{}' not found",
@@ -186,6 +168,18 @@ where
             current_states: HashSet::new(),
             context: context_rw,
         };
+
+        // Fix State parent links *before* initialization
+        let state_ids: Vec<S> = machine.states.all().map(|s| s.id.clone()).collect();
+        for state_id in state_ids {
+            let children_ids: Vec<String> = machine.states.get(&state_id).map_or(Vec::new(), |s| s.children.keys().cloned().collect());
+            for child_key in children_ids {
+                let child_id = S::from(child_key);
+                if let Some(child_state) = machine.states.get_mut(&child_id) {
+                    child_state.parent = Some(state_id.clone());
+                }
+            }
+        }
 
         machine.initialize(&initial).await?;
 
@@ -854,18 +848,8 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + Clone
-        + Send
-        + Sync
-        + Eq
-        + Hash
-        + IntoEvent
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     // ... other methods like new, send, etc. ...
@@ -890,18 +874,8 @@ where
 impl<C, E, S, O> Actor for Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + Clone
-        + Send
-        + Sync
-        + Eq
-        + Hash
-        + IntoEvent
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     // Define the actor's state as the machine's current states
@@ -936,32 +910,18 @@ where
 }
 
 /// Builder for creating Machine instances
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "S: Serialize, C: Serialize",
-    deserialize = "S: StateTrait + DeserializeOwned, C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static"
-))]
+#[derive(Clone, Debug, Serialize)]
+#[serde(bound(serialize = "S: Serialize, C: Serialize"))]
 pub struct MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + IntoEvent
-        + Clone
-        + Eq
-        + Send
-        + Sync
-        + Hash
-        + 'static
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Clone + Eq + Send + Sync + Hash + 'static + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
     pub name: String,
-    /// Collection of states (Use StateCollection for better management)
+    /// Collection of states (Use StateCollection with correct order)
     pub states: StateCollection<S, C, E>,
     /// Collection of transitions (Will be grouped in Machine::new)
     pub transitions: Vec<Transition<S, C, E>>,
@@ -981,19 +941,8 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait
-        + Serialize
-        + DeserializeOwned
-        + fmt::Debug
-        + IntoEvent
-        + Clone
-        + Eq
-        + Send
-        + Sync
-        + Hash
-        + 'static
-        + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq,
+    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Clone + Eq + Send + Sync + Hash + 'static + Default,
+    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new MachineBuilder
@@ -1054,16 +1003,14 @@ where
 }
 
 /// Snapshot of the machine state for actors
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound(serialize = "S: Serialize", deserialize = "S: StateTrait"))]
+#[derive(Clone, Debug, Serialize)]
+#[serde(bound(serialize = "S: Serialize"))]
 pub struct MachineSnapshot<C, S, O>
 where
     C: Clone + Serialize + DeserializeOwned + Send + Sync + 'static + Debug,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + Eq + Hash + Serialize + DeserializeOwned + Clone,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Debug,
 {
-    // #[serde(flatten)] // COMMENTED OUT
-    // pub inner: ActorSnapshot<C, O>, // COMMENTED OUT
     pub current_states: HashSet<S>,
     pub history_states: HashMap<String, S>,
     _phantom_s: PhantomData<S>,
@@ -1074,21 +1021,9 @@ where
 impl<C, S, O> MachineSnapshot<C, S, O>
 where
     C: Clone + Serialize + DeserializeOwned + Send + Sync + 'static + Debug,
-    S: StateTrait + Send + Sync + 'static,
+    S: StateTrait + Send + Sync + 'static + Eq + Hash + Serialize + DeserializeOwned + Clone,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Debug,
 {
-    // pub fn value(&self) -> &Value { // COMMENTED OUT - Depends on inner
-    //     &self.inner.value
-    // }
-    // pub fn context(&self) -> &C { // COMMENTED OUT - Depends on inner
-    //     &self.inner.context
-    // }
-    // pub fn output(&self) -> Option<&O> { // COMMENTED OUT - Depends on inner
-    //     self.inner.output.as_ref()
-    // }
-    // pub fn status(&self) -> &ActorStatus { // COMMENTED OUT
-    //     &self.inner.status
-    // }
     pub fn is_in(&self, state_id: &S) -> bool {
         self.current_states.contains(state_id)
     }
@@ -1097,7 +1032,7 @@ where
     }
 }
 
-pub fn get_ancestors<S: StateTrait + Clone + Eq + Hash>(
+pub fn get_ancestors<S: StateTrait + Clone + Eq + Hash + Serialize + DeserializeOwned + Display>(
     states: &HashMap<S, State<S>>,
     state_id: &S,
 ) -> Vec<S> {

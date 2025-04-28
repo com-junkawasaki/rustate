@@ -89,6 +89,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "async-recursion"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,6 +1285,7 @@ name = "rustate"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "async-trait",
  "console_error_panic_hook",
  "criterion",
@@ -1283,6 +1295,7 @@ dependencies = [
  "getrandom 0.2.16",
  "itertools 0.12.1",
  "js-sys",
+ "log",
  "mockall",
  "proc-macro2",
  "proptest",
