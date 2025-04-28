@@ -1,7 +1,7 @@
+use crate::AgentError::PolicyError;
 use rustate::Error as RustateError;
 use std::fmt;
 use thiserror::Error;
-use crate::{PolicyError, StorageError};
 
 /// Result type alias using the library's AgentError.
 pub type Result<T> = std::result::Result<T, AgentError>;
@@ -84,22 +84,6 @@ pub enum AgentError {
     /// ゴール到達
     #[error("Goal reached")]
     GoalReached,
-}
-
-/// Errors related to policy decisions.
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub enum PolicyError {
-    /// 決定に失敗しました
-    #[error("Decision failed: {0}")]
-    DecisionFailed(String),
-
-    /// 利用可能なイベントがありません
-    #[error("No possible events")]
-    NoPossibleEvents,
-
-    /// ゴールの状態が無効です
-    #[error("Invalid goal state")]
-    InvalidGoalState,
 }
 
 /// Errors related to data storage.

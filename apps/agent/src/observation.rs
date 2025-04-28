@@ -1,8 +1,8 @@
 use crate::error::{self, Result as AgentResult};
-use rustate::{EventTrait, StateTrait, Event};
+use rustate::{Event, EventTrait, StateTrait};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::{Debug};
+use std::fmt::Debug;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid as uuid_crate;
 
@@ -91,7 +91,7 @@ fn uuid() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait, Event};
+    use rustate::{Event, EventTrait, StateTrait};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
     use std::fmt::{self, Display, Formatter};

@@ -1,15 +1,16 @@
+use crate::error::{AgentError, Result as AgentResult};
 use crate::feedback::Feedback;
 use crate::insight::Insight;
 use crate::observation::Observation;
+use rustate::{Event, IntoEvent};
+use rustate::{EventTrait, StateTrait};
 use rustate::{State, StateType};
-use rustate::{EventTrait, StateTrait, IntoEvent};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::time::SystemTime;
-use std::collections::HashMap;
-use rustate::{Event, IntoEvent};
-use serde_json::Value;
 
 /// エージェントが行う決定
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,12 +191,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{EventTrait, StateTrait, Event, IntoEvent};
+    use rustate::{Event, EventTrait, StateTrait};
     use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+    use std::collections::HashMap;
     use std::fmt::{Debug, Display, Formatter};
     use std::time::SystemTime;
-    use std::collections::HashMap;
-    use serde_json::Value;
 
     // テスト用の状態
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

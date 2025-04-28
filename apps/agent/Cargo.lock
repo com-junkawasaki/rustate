@@ -419,6 +419,7 @@ name = "rustate-agent"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-util",
  "rand",
  "rustate",
  "serde",

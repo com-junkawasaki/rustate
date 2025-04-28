@@ -1,12 +1,12 @@
 use crate::agent::AgentId;
 use crate::decision::{Decision, DecisionContext};
-use crate::error::PolicyError;
+use crate::error::AgentError::PolicyError;
 use async_trait::async_trait;
+use rand::seq::SliceRandom;
 use rustate::{EventTrait, StateTrait};
 use serde::de::DeserializeOwned;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::sync::Arc;
-use rand::seq::SliceRandom;
 use uuid::Uuid;
 
 /// ポリシートレイト - エージェントの決定プロセスを定義します
@@ -23,10 +23,7 @@ where
     fn description(&self) -> &str;
 
     /// Provide a decision based on the given context
-    async fn decide(
-        &self,
-        context: &DecisionContext<S, E>,
-    ) -> Result<Decision<E>, PolicyError>;
+    async fn decide(&self, context: &DecisionContext<S, E>) -> Result<Decision<E>, PolicyError>;
 
     /// フィードバックに応じてポリシーを更新します
     fn update(&self, _event: E) {
@@ -81,10 +78,7 @@ where
         &self.description
     }
 
-    async fn decide(
-        &self,
-        context: &DecisionContext<S, E>,
-    ) -> Result<Decision<E>, PolicyError> {
+    async fn decide(&self, context: &DecisionContext<S, E>) -> Result<Decision<E>, PolicyError> {
         let mut rng = rand::thread_rng();
 
         if self.available_events.is_empty() {
@@ -116,11 +110,11 @@ pub type PolicyBox<S, E> = Arc<dyn Policy<S, E>>;
 mod tests {
     use super::*;
     use crate::decision::DecisionContext;
-    use rustate::{StateTrait, EventTrait};
+    use rustate::{EventTrait, StateTrait};
     use serde::{Deserialize, Serialize};
+    use serde_json::Value;
     use std::fmt::{self, Display, Formatter};
     use uuid::Uuid;
-    use serde_json::Value;
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestState {
