@@ -8,12 +8,15 @@ use crate::{
     policy::Policy,
     storage::Storage,
 };
+use async_trait::async_trait;
 use rustate::{
     machine::{Machine, MachineBuilder},
     state::{StateTrait as RuStateTrait, StateType as RuStateType},
     Context, EventTrait as RuEventTrait, IntoEvent as RuIntoEvent, SharedMachineRef,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -56,7 +59,7 @@ where
         + Send
         + Sync
         + Serialize
-        + for<'de> Deserialize<'de>
+        + DeserializeOwned
         + Default
         + PartialEq
         + 'static,
@@ -68,6 +71,8 @@ where
         + Serialize
         + for<'de> Deserialize<'de>
         + RuIntoEvent
+        + Default
+        + Hash
         + 'static,
     SM: Storage<S, E> + Send + Sync + 'static,
     P: Policy<S, E> + Send + Sync + 'static,
@@ -99,7 +104,7 @@ where
         + Send
         + Sync
         + Serialize
-        + for<'de> Deserialize<'de>
+        + DeserializeOwned
         + Default
         + PartialEq
         + 'static,
@@ -111,6 +116,8 @@ where
         + Serialize
         + for<'de> Deserialize<'de>
         + RuIntoEvent
+        + Default
+        + Hash
         + 'static,
     SM: Storage<S, E> + Send + Sync + 'static,
     P: Policy<S, E> + Send + Sync + 'static,
@@ -118,7 +125,7 @@ where
     /// 新しいエージェントを作成します (Original constructor - adjusted)
     pub fn new(
         id: impl Into<String>,
-        machine_builder: MachineBuilder<S, E>,
+        machine_builder: MachineBuilder<(), E, S, S>,
         policy: P,
         storage: SM,
         config: Option<AgentConfig>,
@@ -503,21 +510,76 @@ where
 }
 
 #[cfg(test)]
+fn create_test_machine_builder(
+) -> MachineBuilder<(), tests::TestEvent, tests::TestState, tests::TestState> {
+    use super::tests::{TestEvent, TestState};
+    use rustate::{State, Transition, TransitionType};
+
+    let idle_state = State::new(super::tests::TestState::Idle.id());
+    let running_state = State::new(super::tests::TestState::Running.id());
+    let stopped_state = State::new(super::tests::TestState::Stopped.id());
+
+    MachineBuilder::<(), TestEvent, TestState, TestState>::new(
+        "test_machine",
+        super::tests::TestState::Idle.id(),
+    )
+    .state(idle_state)
+    .state(running_state)
+    .state(stopped_state)
+    .transition(Transition::new(
+        super::tests::TestState::Running.id(),
+        TestEvent::Start.event_type(),
+        super::tests::TestState::Idle.id(),
+        None,
+        vec![],
+        TransitionType::External,
+    ))
+    .transition(Transition::new(
+        super::tests::TestState::Stopped.id(),
+        TestEvent::Stop.event_type(),
+        super::tests::TestState::Running.id(),
+        None,
+        vec![],
+        TransitionType::External,
+    ))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{decision::Decision, goal::Goal, policy::Policy, storage::MemoryStorage};
     use async_trait::async_trait;
-    use rustate::{Event, EventTrait, MachineBuilder, State, StateTrait, StateType, Transition};
+    use rustate::{
+        Action, Event, EventTrait, Guard, IntoEvent, MachineBuilder, State, StateTrait, StateType,
+        Transition, TransitionType,
+    };
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
     use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+    use std::hash::Hash;
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-    enum TestState {
-        #[default]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub enum TestState {
         Idle,
         Running,
         Stopped,
+    }
+
+    impl Default for TestState {
+        fn default() -> Self {
+            TestState::Idle
+        }
+    }
+
+    impl From<String> for TestState {
+        fn from(s: String) -> Self {
+            match s.as_str() {
+                "Idle" => TestState::Idle,
+                "Running" => TestState::Running,
+                "Stopped" => TestState::Stopped,
+                _ => TestState::Idle,
+            }
+        }
     }
 
     impl Display for TestState {
@@ -526,47 +588,25 @@ mod tests {
         }
     }
 
-    // Implement StateTrait for TestState according to v0.2.4 expectations (based on E0046 error)
     impl StateTrait for TestState {
-        fn id(&self) -> &str {
-            // Map enum variant to a string slice identifier
-            match self {
-                TestState::Idle => "Idle",
-                TestState::Running => "Running",
-                TestState::Stopped => "Stopped",
-            }
+        fn id(&self) -> &Self {
+            self
         }
-
-        fn state_type(&self) -> &StateType {
-            // Return a reference to a static StateType
-            match self {
-                TestState::Stopped => &StateType::Final,
-                _ => &StateType::Normal, // Assume Normal for others
-            }
-        }
-
-        // Provide dummy implementations for other required methods
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-        fn children(&self) -> &[String] {
-            &[]
-        }
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-        fn data(&self) -> Option<&Value> {
-            None
-        } // Assuming no specific data for test states
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    enum TestEvent {
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+    pub enum TestEvent {
         Start,
         Stop,
         Pause,
         Resume,
         Custom(String),
+    }
+
+    impl Default for TestEvent {
+        fn default() -> Self {
+            TestEvent::Start
+        }
     }
 
     impl Display for TestEvent {
@@ -581,7 +621,6 @@ mod tests {
         }
     }
 
-    // Implement EventTrait for TestEvent (Remove name method if not in v0.2.4)
     impl EventTrait for TestEvent {
         fn event_type(&self) -> &str {
             match self {
@@ -595,31 +634,23 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             match self {
-                TestEvent::Custom(s) => {
-                    // This still causes lifetime issues because we need to return a reference
-                    // to a value owned by this function. Box::leak might work but isn't ideal.
-                    // Returning owned Value might be better if EventTrait allows.
-                    // For now, returning None for Custom payload in test to avoid E0515.
-                    // Some(&*Box::leak(Box::new(json!(s)))) // Potential fix, but uses leak
-                    None
-                }
+                TestEvent::Custom(_) => None,
                 _ => None,
             }
         }
 
-        // Removed name method - likely not in v0.2.4 EventTrait
+        fn name(&self) -> &str {
+            self.event_type()
+        }
     }
 
-    impl RuIntoEvent for TestEvent {
+    impl IntoEvent for TestEvent {
         fn into_event(self) -> Event {
-            match self {
-                TestEvent::Start => Event::new("START"),
-                TestEvent::Stop => Event::new("STOP"),
-                TestEvent::Pause => Event::new("PAUSE"),
-                TestEvent::Resume => Event::new("RESUME"),
-                TestEvent::Custom(s) => {
-                    Event::with_payload("CUSTOM", json!(s)) // Use json! macro
-                }
+            let name = self.name().to_string(); // Clone name as Event takes String
+            if let Some(payload) = self.payload() {
+                Event::with_payload(&name, payload.clone()) // Clone payload if present
+            } else {
+                Event::new(&name)
             }
         }
     }
@@ -628,6 +659,13 @@ mod tests {
 
     #[async_trait]
     impl Policy<TestState, TestEvent> for TestPolicy {
+        fn name(&self) -> &str {
+            "Test Policy"
+        }
+        fn description(&self) -> &str {
+            "Policy for testing"
+        }
+
         async fn decide(
             &self,
             current_state: TestState,
@@ -636,66 +674,24 @@ mod tests {
             let event = match current_state {
                 TestState::Idle => TestEvent::Start,
                 TestState::Running => TestEvent::Stop,
-                TestState::Stopped => TestEvent::Stop, // Or maybe a different event like Reset?
+                TestState::Stopped => TestEvent::Stop,
             };
             Ok(Decision::simple(event, 1.0))
         }
     }
 
-    // --- Corrected create_test_machine_builder for v0.2.4 API ---
-    // MachineBuilder likely takes <S = State, E = Event> generics
-    fn create_test_machine_builder() -> MachineBuilder<TestState, TestEvent> {
-        // State::new expects impl Into<String>
-        let idle_state = State::new(TestState::Idle.id());
-        let running_state = State::new(TestState::Running.id());
-        // State needs a `type` method or similar in v0.2.4, check API.
-        // Let's assume State::new creates a Normal state by default.
-        // We need a way to mark 'Stopped' as Final.
-        // Maybe MachineBuilder has a method for state types?
-        // For now, create as Normal and hope Machine handles Final logic based on trait impl.
-        let stopped_state = State::new(TestState::Stopped.id());
-
-        // MachineBuilder::new likely takes name: Into<String> only.
-        MachineBuilder::<TestState, TestEvent>::new("test_machine")
-            .state(idle_state)
-            .state(running_state)
-            .state(stopped_state) // How to mark as Final?
-            .initial(TestState::Idle.id()) // initial takes Into<String>
-            // Transition::new(source: Into<String>, event: Into<String>, target: Into<String>)
-            .transition(Transition::new(
-                TestState::Idle.id(),
-                TestEvent::Start.event_type(),
-                TestState::Running.id(),
-            ))
-            .transition(Transition::new(
-                TestState::Running.id(),
-                TestEvent::Stop.event_type(),
-                TestState::Stopped.id(),
-            ))
-        // Missing methods like .guard(), .action() based on v0.2.4 API? Let's assume base transition for now.
-    }
-
     #[tokio::test]
     async fn test_agent_creation() {
-        let builder = create_test_machine_builder();
+        let builder = super::create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
-
-        // Agent::new takes MachineBuilder<S, E> in v0.2.4?
-        let _agent_result = Agent::new(
-            "test-agent-creation",
-            builder, // Pass the builder
-            policy,
-            storage,
-            None,
-            None,
-        );
-        // ... rest of test ...
+        let agent_result = Agent::new("test-agent-creation", builder, policy, storage, None, None);
+        assert!(agent_result.is_ok());
     }
 
     #[tokio::test]
     async fn test_agent_next_decision_and_step() {
-        let builder = create_test_machine_builder();
+        let builder = super::create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
         let mut agent =
@@ -706,23 +702,35 @@ mod tests {
             .start_episode("ep1", TestState::Idle, goal)
             .await
             .unwrap();
-        // ... rest of test ...
+
+        let decision = agent.next_decision().await.unwrap();
+        assert_eq!(decision.event, TestEvent::Start);
+
+        let next_state = agent.step().await.unwrap();
+        assert_eq!(next_state, TestState::Running);
+        assert_eq!(agent.current_state().unwrap(), TestState::Running);
+
+        // Step again (Running -> Stop -> Stopped)
+        let decision = agent.next_decision().await.unwrap();
+        assert_eq!(decision.event, TestEvent::Stop);
+        let next_state = agent.step().await.unwrap();
+        assert_eq!(next_state, TestState::Stopped);
+        assert_eq!(agent.current_state().unwrap(), TestState::Stopped);
     }
 
     #[tokio::test]
     async fn test_agent_process_event() {
-        let builder = create_test_machine_builder();
+        let builder = super::create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
         let mut agent =
             Agent::new("test-agent-process", builder, policy, storage, None, None).unwrap();
 
-        // Start an episode first
         agent
             .start_episode(
                 "test_episode",
                 TestState::Idle,
-                Goal::new(TestState::Stopped), // Removed extra argument
+                Goal::new(TestState::Stopped),
             )
             .await
             .unwrap();
@@ -730,46 +738,47 @@ mod tests {
         let result = agent.process_event(TestEvent::Start).await;
         assert!(result.is_ok());
         assert_eq!(agent.current_state().unwrap(), TestState::Running);
-
-        // TODO: Re-evaluate these lines if they are necessary and how to implement correctly
-        // agent.current_states = [TestState::Stopped.id().to_string()]; // Commented out E0609
-        // agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped; // Commented out E0609
     }
 
     #[tokio::test]
     async fn test_agent_run_until_goal() {
-        let builder = create_test_machine_builder();
+        let builder = super::create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
         let mut agent = Agent::new("test-agent-run", builder, policy, storage, None, None).unwrap();
-
         let goal = Goal::new(TestState::Stopped);
         agent
             .start_episode("ep1", TestState::Idle, goal)
             .await
             .unwrap();
-        // ... rest of test ...
+        let result = agent.run_until_goal(Some(10)).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should reach the goal
+        assert_eq!(agent.current_state().unwrap(), TestState::Stopped);
     }
 
     #[tokio::test]
     async fn test_agent_run_max_steps() {
-        let builder = create_test_machine_builder();
+        let builder = super::create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
         let mut agent =
             Agent::new("test-agent-max-steps", builder, policy, storage, None, None).unwrap();
-
         let goal = Goal::new(TestState::Stopped);
         agent
             .start_episode("ep_max_steps", TestState::Idle, goal)
             .await
             .unwrap();
-        // ... rest of test ...
+        // Run with max_steps = 1, should not reach goal
+        let result = agent.run_until_goal(Some(1)).await;
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Should not reach goal within 1 step
+        assert_eq!(agent.current_state().unwrap(), TestState::Running);
     }
 
     #[tokio::test]
     async fn test_agent_episode_management() {
-        let builder = create_test_machine_builder();
+        let builder = super::create_test_machine_builder();
         let policy = TestPolicy;
         let storage = MemoryStorage::<TestState, TestEvent>::new();
         let mut agent =
@@ -779,11 +788,7 @@ mod tests {
 
         // Start episode
         agent
-            .start_episode(
-                "ep1",
-                TestState::Idle,
-                Goal::new(TestState::Stopped), // Assuming Goal::new exists
-            )
+            .start_episode("ep1", TestState::Idle, Goal::new(TestState::Stopped))
             .await
             .unwrap();
 
@@ -793,10 +798,6 @@ mod tests {
             agent.current_episode().unwrap().initial_state,
             TestState::Idle
         );
-
-        // TODO: Re-evaluate these lines if necessary and how to implement correctly
-        // agent.current_states = [TestState::Stopped.id().to_string()]; // Commented out E0609
-        // agent.current_episode.as_mut().unwrap().current_state = TestState::Stopped; // Commented out E0609
 
         // Complete episode
         let completed_episode = agent.complete_episode(true).await.unwrap();

@@ -3,14 +3,15 @@ use crate::insight::Insight;
 use crate::observation::Observation;
 use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use serde::de::DeserializeOwned;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::time::SystemTime;
 
 /// エージェントが行う決定
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Decision<E>
 where
-    E: EventTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug + DeserializeOwned,
 {
     /// 決定の一意ID
     pub id: String,
@@ -32,7 +33,7 @@ where
 
 impl<E> Decision<E>
 where
-    E: EventTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug + DeserializeOwned,
 {
     /// 新しい決定を作成します
     pub fn new(
@@ -109,7 +110,7 @@ where
 pub struct DecisionContext<S, E>
 where
     S: StateTrait + Clone + Debug,
-    E: EventTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug + DeserializeOwned,
 {
     /// 現在の状態
     pub current_state: S,
@@ -126,7 +127,7 @@ where
 impl<S, E> DecisionContext<S, E>
 where
     S: StateTrait + Clone + Debug,
-    E: EventTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug + DeserializeOwned,
 {
     /// 新しい決定コンテキストを作成します
     pub fn new(
@@ -175,7 +176,7 @@ where
 pub trait DecisionMaker<S, E>
 where
     S: StateTrait + Clone + Debug,
-    E: EventTrait + Clone + Debug,
+    E: EventTrait + Clone + Debug + DeserializeOwned,
 {
     /// コンテキストに基づいて決定を行います
     fn make_decision(&self, context: DecisionContext<S, E>) -> Decision<E>;
@@ -184,44 +185,33 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustate::{Event, StateType};
+    use rustate::{Event, IntoEvent, StateType};
+    use serde::{Deserialize, Serialize};
     use serde_json::Value;
+    use std::fmt::{self, Display, Formatter};
+    use std::hash::Hash;
 
     // テスト用の状態
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct TestState {
         id: String,
     }
 
+    // Add Display impl for TestState
+    impl Display for TestState {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.id)
+        }
+    }
+
     impl StateTrait for TestState {
-        fn id(&self) -> &str {
-            &self.id
-        }
-
-        fn state_type(&self) -> &StateType {
-            static STATE_TYPE: StateType = StateType::Normal;
-            &STATE_TYPE
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            &[]
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
+        fn id(&self) -> &Self {
+            self
         }
     }
 
     // テスト用のイベント
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct TestEvent {
         event_type: String,
     }
@@ -233,6 +223,11 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             None
+        }
+
+        // Implement the missing name method
+        fn name(&self) -> &str {
+            self.event_type()
         }
     }
 

@@ -4,6 +4,7 @@ use rustate::EventTrait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// フィードバックの種類
@@ -116,7 +117,7 @@ mod tests {
     use rustate::EventTrait;
     use serde_json::Value;
 
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     enum TestEvent {
         Action1,
         Action2,
@@ -132,6 +133,13 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             None
+        }
+
+        fn name(&self) -> &str {
+            match self {
+                TestEvent::Action1 => "ACTION1",
+                TestEvent::Action2 => "ACTION2",
+            }
         }
     }
 

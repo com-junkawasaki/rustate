@@ -1,8 +1,9 @@
 use crate::goal::Goal;
 use crate::{decision::Decision, feedback::Feedback, insight::Insight, observation::Observation};
 use rustate::{EventTrait, StateTrait};
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::fmt::{self, Debug, Display, Formatter};
+use std::hash::Hash;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -16,8 +17,8 @@ use uuid::Uuid;
 )]
 pub struct Episode<S, E>
 where
-    S: StateTrait + Send + Sync + Clone + Debug + 'static,
-    E: EventTrait + Send + Sync + Debug + Clone + 'static,
+    S: StateTrait + Send + Sync + Clone + Debug + 'static + DeserializeOwned,
+    E: EventTrait + Send + Sync + Debug + Clone + 'static + DeserializeOwned,
 {
     /// エピソードの一意な識別子
     pub id: Uuid,
@@ -61,8 +62,8 @@ where
 
 impl<S, E> Episode<S, E>
 where
-    S: StateTrait + Send + Sync + Clone + Debug + 'static,
-    E: EventTrait + Send + Sync + Debug + Clone + 'static,
+    S: StateTrait + Send + Sync + Clone + Debug + 'static + DeserializeOwned,
+    E: EventTrait + Send + Sync + Debug + Clone + 'static + DeserializeOwned,
 {
     /// 新しいエピソードを作成します
     pub fn new(name: impl Into<String>, initial_state: S, goal: Goal<S>) -> Self {
@@ -229,47 +230,30 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestState {
         Initial,
         Processing,
         Final,
     }
 
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
+    impl Display for TestState {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             match self {
-                TestState::Initial => "initial",
-                TestState::Processing => "processing",
-                TestState::Final => "final",
+                TestState::Initial => write!(f, "Initial"),
+                TestState::Processing => write!(f, "Processing"),
+                TestState::Final => write!(f, "Final"),
             }
-        }
-
-        fn state_type(&self) -> &StateType {
-            // Use a static StateType as this is just for tests
-            static STATE_TYPE: StateType = StateType::Normal;
-            &STATE_TYPE
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            static EMPTY: [String; 0] = [];
-            &EMPTY
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    impl StateTrait for TestState {
+        fn id(&self) -> &Self {
+            self
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestEvent {
         Start,
         Process,
@@ -287,6 +271,14 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             None
+        }
+
+        fn name(&self) -> &str {
+            match self {
+                TestEvent::Start => "START",
+                TestEvent::Process => "PROCESS",
+                TestEvent::Finish => "FINISH",
+            }
         }
     }
 

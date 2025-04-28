@@ -1,7 +1,8 @@
 use rustate::{EventTrait, StateTrait};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display, Formatter};
+use std::hash::Hash;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid as uuid_crate;
 
@@ -10,8 +11,8 @@ use uuid as uuid_crate;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Observation<S, E>
 where
-    S: StateTrait,
-    E: EventTrait,
+    S: StateTrait + DeserializeOwned,
+    E: EventTrait + DeserializeOwned,
 {
     /// 観測の一意な識別子
     pub id: String,
@@ -35,8 +36,8 @@ where
 /// 状態遷移の観測データに関するメソッド
 impl<S, E> Observation<S, E>
 where
-    S: StateTrait,
-    E: EventTrait,
+    S: StateTrait + DeserializeOwned,
+    E: EventTrait + DeserializeOwned,
 {
     /// 新しい観測を作成します
     pub fn new(previous_state: S, event: E, next_state: S) -> Self {
@@ -91,45 +92,30 @@ mod tests {
     use super::*;
     use rustate::{EventTrait, StateTrait};
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestState {
         Initial,
         Processing,
         Final,
     }
 
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
+    impl Display for TestState {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             match self {
-                TestState::Initial => "initial",
-                TestState::Processing => "processing",
-                TestState::Final => "final",
+                TestState::Initial => write!(f, "Initial"),
+                TestState::Processing => write!(f, "Processing"),
+                TestState::Final => write!(f, "Final"),
             }
-        }
-
-        fn state_type(&self) -> &rustate::StateType {
-            static NORMAL: rustate::StateType = rustate::StateType::Normal;
-            &NORMAL
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            &[]
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&serde_json::Value> {
-            None
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    impl StateTrait for TestState {
+        fn id(&self) -> &Self {
+            self
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum TestEvent {
         Start,
         Process,
@@ -147,6 +133,14 @@ mod tests {
 
         fn payload(&self) -> Option<&serde_json::Value> {
             None
+        }
+
+        fn name(&self) -> &str {
+            match self {
+                TestEvent::Start => "START",
+                TestEvent::Process => "PROCESS",
+                TestEvent::Finish => "FINISH",
+            }
         }
     }
 

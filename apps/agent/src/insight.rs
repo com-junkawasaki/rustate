@@ -2,6 +2,8 @@ use crate::observation::Observation;
 use rustate::{EventTrait, StateTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::{self, Display, Formatter};
+use std::hash::Hash;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 洞察は、観測データに基づく追加情報や解釈を提供します。
@@ -71,8 +73,8 @@ impl Insight {
     /// 洞察に関連する観測データを追加します
     pub fn with_related_observation<S, E>(mut self, observation: &Observation<S, E>) -> Self
     where
-        S: StateTrait,
-        E: EventTrait,
+        S: StateTrait + DeserializeOwned,
+        E: EventTrait + DeserializeOwned,
     {
         self.related_observation_ids.push(observation.id.clone());
         self
@@ -81,8 +83,8 @@ impl Insight {
     /// 洞察に複数の関連観測データを一度に追加します
     pub fn with_related_observations<S, E>(mut self, observations: &[Observation<S, E>]) -> Self
     where
-        S: StateTrait,
-        E: EventTrait,
+        S: StateTrait + DeserializeOwned,
+        E: EventTrait + DeserializeOwned,
     {
         for observation in observations {
             self.related_observation_ids.push(observation.id.clone());
@@ -120,46 +122,30 @@ mod tests {
     use rustate::{EventTrait, StateTrait, StateType};
     use serde_json::Value;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestState {
         Initial,
         Processing,
         Final,
     }
 
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
+    impl Display for TestState {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             match self {
-                TestState::Initial => "initial",
-                TestState::Processing => "processing",
-                TestState::Final => "final",
+                TestState::Initial => write!(f, "Initial"),
+                TestState::Processing => write!(f, "Processing"),
+                TestState::Final => write!(f, "Final"),
             }
-        }
-
-        fn state_type(&self) -> &StateType {
-            static STATE_TYPE: StateType = StateType::Normal;
-            &STATE_TYPE
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            static EMPTY: [String; 0] = [];
-            &EMPTY
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    impl StateTrait for TestState {
+        fn id(&self) -> &Self {
+            self
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestEvent {
         Start,
         Process,
@@ -177,6 +163,14 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             None
+        }
+
+        fn name(&self) -> &str {
+            match self {
+                TestEvent::Start => "START",
+                TestEvent::Process => "PROCESS",
+                TestEvent::Finish => "FINISH",
+            }
         }
     }
 

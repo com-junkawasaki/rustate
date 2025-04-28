@@ -5,6 +5,8 @@ use rand::seq::SliceRandom;
 use rustate::{EventTrait, StateTrait};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
+use std::fmt::{self, Display, Formatter};
+use std::hash::Hash;
 use std::marker::Send;
 use std::marker::Sync;
 use std::sync::Arc;
@@ -120,47 +122,30 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestState {
         Initial,
         Processing,
         Final,
     }
 
-    impl StateTrait for TestState {
-        fn id(&self) -> &str {
+    impl Display for TestState {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             match self {
-                TestState::Initial => "Initial",
-                TestState::Processing => "Processing",
-                TestState::Final => "Final",
+                TestState::Initial => write!(f, "Initial"),
+                TestState::Processing => write!(f, "Processing"),
+                TestState::Final => write!(f, "Final"),
             }
-        }
-
-        fn state_type(&self) -> &StateType {
-            match self {
-                TestState::Final => &StateType::Final,
-                _ => &StateType::Normal,
-            }
-        }
-
-        fn parent(&self) -> Option<&str> {
-            None
-        }
-
-        fn children(&self) -> &[String] {
-            &[]
-        }
-
-        fn initial(&self) -> Option<&str> {
-            None
-        }
-
-        fn data(&self) -> Option<&Value> {
-            None
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    impl StateTrait for TestState {
+        fn id(&self) -> &Self {
+            self
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
     enum TestEvent {
         Start,
         Process,
@@ -180,6 +165,15 @@ mod tests {
 
         fn payload(&self) -> Option<&Value> {
             None
+        }
+
+        fn name(&self) -> &str {
+            match self {
+                TestEvent::Start => "START",
+                TestEvent::Process => "PROCESS",
+                TestEvent::Finish => "FINISH",
+                TestEvent::Mock => "MOCK",
+            }
         }
     }
 
@@ -204,6 +198,14 @@ mod tests {
 
     #[async_trait]
     impl Policy<TestState, TestEvent> for MockPolicy {
+        fn name(&self) -> &str {
+            "Mock Policy"
+        }
+
+        fn description(&self) -> &str {
+            "A simple mock policy for testing"
+        }
+
         async fn decide(
             &self,
             _current_state: TestState,
