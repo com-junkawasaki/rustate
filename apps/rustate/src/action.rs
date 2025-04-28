@@ -3,7 +3,7 @@
 //! or upon entering/exiting states within the RuState framework.
 
 use crate::{context::Context, error::StateError, event::EventTrait};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -38,14 +38,8 @@ pub type ActionFn<C, E> = Arc<
 #[derive(Clone, Serialize)]
 pub struct Action<C = Context, E = crate::Event> {
     /// The specific type and logic of the action.
-    #[serde(skip, default = "default_action_type")]
+    #[serde(skip)]
     pub action_type: ActionType<C, E>,
-}
-
-// Default function for serde(default). Provides a no-op async function.
-// See serialization note on the Action struct.
-fn default_action_type<C, E>() -> ActionType<C, E> {
-    ActionType::Function(Arc::new(|_, _| Box::pin(async { Ok(()) })))
 }
 
 impl<C, E> Debug for Action<C, E> {

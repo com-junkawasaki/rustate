@@ -61,7 +61,17 @@ pub enum HistoryType {
 ))]
 pub struct State<S = String, C = Context, E = Event>
 where
-    S: StateTrait + Serialize + DeserializeOwned + Clone + Debug + Display + Hash + Eq + Send + Sync + 'static,
+    S: StateTrait
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Hash
+        + Eq
+        + Send
+        + Sync
+        + 'static,
     C: Send + Sync + 'static + Default + Clone + Debug + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
@@ -103,7 +113,17 @@ where
 
 impl<S, C, E> State<S, C, E>
 where
-    S: StateTrait + Serialize + DeserializeOwned + Clone + Debug + Display + Hash + Eq + Send + Sync + 'static,
+    S: StateTrait
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Hash
+        + Eq
+        + Send
+        + Sync
+        + 'static,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
@@ -329,7 +349,18 @@ where
 #[serde(bound(serialize = "S: Serialize"))]
 pub struct StateCollection<S, C = Context, E = Event>
 where
-    S: StateTrait + Eq + Hash + Serialize + DeserializeOwned + Clone + Debug + Display + Send + Sync + 'static + From<String>,
+    S: StateTrait
+        + Eq
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + From<String>,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
@@ -339,13 +370,26 @@ where
 
 impl<S, C, E> StateCollection<S, C, E>
 where
-    S: StateTrait + Eq + Hash + Serialize + DeserializeOwned + Clone + Debug + Display + Send + Sync + 'static + From<String>,
+    S: StateTrait
+        + Eq
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + From<String>,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     E: EventTrait + Send + Sync + 'static + Eq + Clone + Debug + Serialize + DeserializeOwned,
 {
     /// Creates a new, empty `StateCollection`.
     pub fn new() -> Self {
-        Self { states: HashMap::new() }
+        Self {
+            states: HashMap::new(),
+        }
     }
 
     /// Add a state to the collection

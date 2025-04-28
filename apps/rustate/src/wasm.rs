@@ -9,12 +9,12 @@ use crate::{
     state::State,
     transition::{Transition, TransitionType},
 };
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
 use serde_json; // Import the crate itself
 use serde_json::Value; // Add this import
 use std::cell::RefCell;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::RwLock;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;

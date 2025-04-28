@@ -273,7 +273,15 @@ pub fn machine_builder_to_json<C, E, S, O>(
 ) -> Result<String>
 where
     S: StateTrait + Send + Sync + Clone + 'static + Serialize + From<String>,
-    E: EventTrait + Send + Sync + Clone + 'static + Serialize + IntoEvent + Default + DeserializeOwned,
+    E: EventTrait
+        + Send
+        + Sync
+        + Clone
+        + 'static
+        + Serialize
+        + IntoEvent
+        + Default
+        + DeserializeOwned,
     C: Clone + Default + Send + Sync + Debug + 'static + Serialize + DeserializeOwned,
     O: Default + Send + Sync + Clone + 'static + Serialize + Debug + DeserializeOwned,
 {
@@ -356,7 +364,10 @@ where
     for transition in transitions {
         // Use Debug representation for the optional event
         let event_str = format!("{:?}", transition.event);
-        let target_str = transition.target.as_ref().map_or("None".to_string(), |t| format!("Some({})", t));
+        let target_str = transition
+            .target
+            .as_ref()
+            .map_or("None".to_string(), |t| format!("Some({})", t));
         let guard_str = if let Some(guard) = &transition.guard {
             format!(".guard({})", guard.name) // Use field access
         } else {
@@ -385,7 +396,16 @@ pub fn generate_rust_code<C, E, S, O>(
 ) -> Result<String>
 where
     S: StateTrait + Display + Debug + Clone + Eq + Hash + From<String>, // Added Display for state_enum_code
-    E: EventTrait + Display + Debug + Clone + Eq + Hash + Serialize + IntoEvent + Default + DeserializeOwned, // Added Display
+    E: EventTrait
+        + Display
+        + Debug
+        + Clone
+        + Eq
+        + Hash
+        + Serialize
+        + IntoEvent
+        + Default
+        + DeserializeOwned, // Added Display
     C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned, // Removed ContextTrait
     O: Default + Clone + Debug + Serialize + Send + Sync + DeserializeOwned, // Added Serialize, Send, Sync, DeserializeOwned
 {
@@ -422,7 +442,10 @@ where
 
     let state_enum_name = format!("{}State", machine_name);
     let event_enum_name = format!("{}Event", machine_name);
-    let context_type_name = std::any::type_name::<C>().split("::").last().unwrap_or("Context");
+    let context_type_name = std::any::type_name::<C>()
+        .split("::")
+        .last()
+        .unwrap_or("Context");
 
     let state_enum = generate_state_enum_code(&state_ids);
     let event_enum = generate_event_enum_code(&event_ids);
@@ -435,10 +458,11 @@ where
     let initial = &builder.initial;
     let initial_state_code = format!("{}.into()", initial);
 
-    let builder_init = format!("let mut builder = MachineBuilder::<{}, {}, {}, {}>::new(\"{}\", {});\n",
+    let builder_init = format!(
+        "let mut builder = MachineBuilder::<{}, {}, {}, {}>::new(\"{}\", {});\n",
         std::any::type_name::<C>(), // C - Use actual type name
-        event_enum_name, // E - Use generated enum name
-        state_enum_name, // S - Use generated enum name
+        event_enum_name,            // E - Use generated enum name
+        state_enum_name,            // S - Use generated enum name
         std::any::type_name::<O>(), // O - Use actual type name
         machine_name,
         initial_state_code // Use the generated initial state code
@@ -451,12 +475,17 @@ where
     // Add state configurations to builder
     for state_id in builder.get_state_ids() {
         if let Some(state_def) = builder.get_state(&state_id) {
-            let mut state_config = format!("    builder = builder.state({}.into(), |s| {{\n", state_id);
+            let mut state_config =
+                format!("    builder = builder.state({}.into(), |s| {{\n", state_id);
 
             // Add transitions for this state
-            if !state_def.on.is_empty() { // Check if the `on` map itself is empty
-                let transitions_code = generate_rust_transitions(&state_def.on.values().flatten().cloned().collect::<Vec<_>>())?;
-                if !transitions_code.trim().is_empty() { // Only add if transitions were generated
+            if !state_def.on.is_empty() {
+                // Check if the `on` map itself is empty
+                let transitions_code = generate_rust_transitions(
+                    &state_def.on.values().flatten().cloned().collect::<Vec<_>>(),
+                )?;
+                if !transitions_code.trim().is_empty() {
+                    // Only add if transitions were generated
                     state_config.push_str(&transitions_code);
                 }
             }
@@ -464,11 +493,15 @@ where
             // Add entry/exit actions
             if !state_def.entry.is_empty() {
                 let entry_actions_code = generate_rust_actions(&state_def.entry)?;
-                state_config.push_str(&entry_actions_code.replace("// Action:", "        s.on_entry(/* Action: */")); // Basic wrapping
+                state_config.push_str(
+                    &entry_actions_code.replace("// Action:", "        s.on_entry(/* Action: */"),
+                ); // Basic wrapping
             }
             if !state_def.exit.is_empty() {
                 let exit_actions_code = generate_rust_actions(&state_def.exit)?;
-                state_config.push_str(&exit_actions_code.replace("// Action:", "        s.on_exit(/* Action: */")); // Basic wrapping
+                state_config.push_str(
+                    &exit_actions_code.replace("// Action:", "        s.on_exit(/* Action: */"),
+                ); // Basic wrapping
             }
 
             state_config.push_str("    });\n");
@@ -633,7 +666,8 @@ pub struct {} {{ /* ... fields ... */ }}
 pub fn generate_action_enum_code<E>(action_names: &[String]) -> String
 where
     // C bounds removed as C is not used here
-    E: EventTrait // Keep only necessary bounds for E if action names depend on it (currently they don't seem to)
+    E: EventTrait
+        // Keep only necessary bounds for E if action names depend on it (currently they don't seem to)
         + Clone
         + Eq
         + Hash
@@ -712,7 +746,19 @@ pub fn generate_builder_code<
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     S: StateTrait + Display + Clone + Eq + Hash + Send + Sync + 'static + From<String>,
-    E: EventTrait + Clone + Eq + Hash + Send + Sync + 'static + Debug + IntoEvent + Display + Serialize + Default + DeserializeOwned,
+    E: EventTrait
+        + Clone
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Debug
+        + IntoEvent
+        + Display
+        + Serialize
+        + Default
+        + DeserializeOwned,
     C: Clone + Debug + Default + Send + Sync + 'static + Serialize + DeserializeOwned,
     O: Default + Clone + Debug + Send + Sync + 'static + Serialize + DeserializeOwned,
 {

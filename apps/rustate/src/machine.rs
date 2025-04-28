@@ -3,7 +3,7 @@ use crate::{
     context::Context,
     error::{Result as StateResult, StateError},
     event::{Event, EventTrait, IntoEvent},
-    state::{State, StateCollection, StateTrait, StateType, HistoryType},
+    state::{State, StateCollection, StateTrait, StateType},
     transition::{Transition, TransitionType},
 };
 use crate::{Actor, ActorError};
@@ -18,7 +18,6 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use async_recursion::async_recursion;
 
 /// Define the serializable state structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -38,8 +37,29 @@ where
 pub struct Machine<C = Context, E = Event, S = String, O = ()>
 where
     C: Send + Sync + 'static + Default + Clone + Debug + Serialize + DeserializeOwned,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + Clone
+        + Send
+        + Sync
+        + Eq
+        + Hash
+        + IntoEvent
+        + Default,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + PartialEq
+        + Serialize
+        + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
@@ -81,15 +101,36 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + Clone
+        + Send
+        + Sync
+        + Eq
+        + Hash
+        + IntoEvent
+        + Default,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + PartialEq
+        + Serialize
+        + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new state machine instance from a builder
     pub async fn new(builder: MachineBuilder<C, E, S, O>) -> StateResult<Self> {
         let MachineBuilder {
             name,
-            mut states,
+            states,
             transitions,
             initial,
             entry_actions,
@@ -172,7 +213,10 @@ where
         // Fix State parent links *before* initialization
         let state_ids: Vec<S> = machine.states.all().map(|s| s.id.clone()).collect();
         for state_id in state_ids {
-            let children_ids: Vec<String> = machine.states.get(&state_id).map_or(Vec::new(), |s| s.children.keys().cloned().collect());
+            let children_ids: Vec<String> = machine
+                .states
+                .get(&state_id)
+                .map_or(Vec::new(), |s| s.children.keys().cloned().collect());
             for child_key in children_ids {
                 let child_id = S::from(child_key);
                 if let Some(child_state) = machine.states.get_mut(&child_id) {
@@ -233,7 +277,7 @@ where
                             }
                         }
                     })
-                    .filter_map(|t| futures::future::ready(t));
+                    .filter_map(futures::future::ready);
                 valid_transitions.extend(stream.collect::<Vec<_>>().await);
             }
         }
@@ -296,8 +340,7 @@ where
         // Clone the result of find_lcca to avoid holding the borrow
         let lcca_id = target_states
             .as_ref()
-            .and_then(|target_id| self.find_lcca(source_state_id, target_id))
-            .map(|s| s.clone()); // Correctly clone the value inside Option
+            .and_then(|target_id| self.find_lcca(source_state_id, target_id)); // Correctly clone the value inside Option
 
         // 2. Determine states to exit
         let mut exit_states = HashSet::new();
@@ -333,14 +376,12 @@ where
         // Refine exit states based on transition type (especially for external)
         if transition.transition_type == TransitionType::External {
             let source = &transition.source;
-            // Use cloned lcca_id
+            // Combine conditions leading to the same action
             if exit_states.contains(source)
                 || (lcca_id.as_ref() == Some(source) && target_states.is_some())
-            {
-                exit_states.insert(source.clone());
-            } else if lcca_id
-                .as_ref()
-                .map_or(false, |lcca| self.is_ancestor(source, lcca))
+                || lcca_id
+                    .as_ref()
+                    .is_some_and(|lcca| self.is_ancestor(source, lcca))
             {
                 exit_states.insert(source.clone());
             }
@@ -741,7 +782,7 @@ where
                             }
                         }
                     })
-                    .filter_map(|t| futures::future::ready(t));
+                    .filter_map(futures::future::ready);
                 valid_transitions.extend(stream.collect::<Vec<_>>().await);
             }
             // Find wildcard transitions for the state
@@ -758,7 +799,7 @@ where
                             }
                         }
                     })
-                    .filter_map(|t| futures::future::ready(t));
+                    .filter_map(futures::future::ready);
                 valid_transitions.extend(stream.collect::<Vec<_>>().await);
             }
         }
@@ -824,7 +865,7 @@ where
     #[allow(dead_code)]
     fn sort_states_by_depth(&self, states: &HashSet<S>, reverse: bool) -> Vec<S> {
         let mut sorted: Vec<S> = states.iter().cloned().collect();
-        sorted.sort_by(|a, b| self._get_state_depth(a).cmp(&self._get_state_depth(b)));
+        sorted.sort_by_key(|a| self._get_state_depth(a));
         if reverse {
             sorted.reverse();
         }
@@ -848,8 +889,29 @@ where
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + Clone
+        + Send
+        + Sync
+        + Eq
+        + Hash
+        + IntoEvent
+        + Default,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + PartialEq
+        + Serialize
+        + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     // ... other methods like new, send, etc. ...
@@ -874,8 +936,29 @@ where
 impl<C, E, S, O> Actor for Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + Clone + Send + Sync + Eq + Hash + IntoEvent + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + Clone
+        + Send
+        + Sync
+        + Eq
+        + Hash
+        + IntoEvent
+        + Default,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + PartialEq
+        + Serialize
+        + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     // Define the actor's state as the machine's current states
@@ -915,8 +998,30 @@ where
 pub struct MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Clone + Eq + Send + Sync + Hash + 'static + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + IntoEvent
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + Hash
+        + 'static
+        + Default,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + PartialEq
+        + Serialize
+        + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Name of the machine
@@ -941,8 +1046,30 @@ where
 impl<C, E, S, O> MachineBuilder<C, E, S, O>
 where
     C: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
-    E: EventTrait + Serialize + DeserializeOwned + fmt::Debug + IntoEvent + Clone + Eq + Send + Sync + Hash + 'static + Default,
-    S: StateTrait + Display + Eq + Hash + Send + Sync + 'static + Clone + From<String> + PartialEq + Serialize + DeserializeOwned,
+    E: EventTrait
+        + Serialize
+        + DeserializeOwned
+        + fmt::Debug
+        + IntoEvent
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + Hash
+        + 'static
+        + Default,
+    S: StateTrait
+        + Display
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + From<String>
+        + PartialEq
+        + Serialize
+        + DeserializeOwned,
     O: Serialize + DeserializeOwned + Clone + Send + Sync + 'static + Default + fmt::Debug,
 {
     /// Create a new MachineBuilder

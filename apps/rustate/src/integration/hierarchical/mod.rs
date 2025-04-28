@@ -158,15 +158,13 @@
 
 use crate::error::AgentError;
 use crate::integration::error::Result as IntegrationResult;
-use crate::{Context, Error as StateError, Event, EventTrait, IntoEvent, Machine};
+use crate::{Context, Error as StateError, Event, EventTrait, Machine};
+use async_trait::async_trait;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, error};
-use async_trait::async_trait;
 
 /// 子ステートマシンのインターフェース
 ///
@@ -182,10 +180,7 @@ pub trait ChildMachine: Send + Sync {
     /// # 戻り値
     /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
     /// * エラーが発生した場合は `Err`。
-    async fn send_event(
-        &mut self,
-        event: Event,
-    ) -> Result<bool, StateError>;
+    async fn send_event(&mut self, event: Event) -> Result<bool, StateError>;
 
     /// 子ステートマシンの現在の状態（またはステータス）を取得します。
     ///
@@ -239,10 +234,7 @@ impl ChildMachine for DefaultChildMachine {
     /// # 戻り値
     /// * イベントが処理された場合は `Ok(true)`、処理されなかった場合は `Ok(false)`。
     /// * エラーが発生した場合は `Err`。
-    async fn send_event(
-        &mut self,
-        event: Event,
-    ) -> Result<bool, StateError> {
+    async fn send_event(&mut self, event: Event) -> Result<bool, StateError> {
         let machine_arc = Arc::clone(&self.machine);
         let event_owned = event;
         let mut guard = machine_arc.lock().await;
@@ -339,11 +331,14 @@ pub mod coordination {
         let child_complete: State<String, Context, Event> = State::new("childComplete".to_string());
         let done: State<String, Context, Event> = State::new_final("done".to_string());
 
-        let child_arc_for_monitor: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child);
-        let child_arc_for_forward: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child);
+        let child_arc_for_monitor: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> =
+            Arc::clone(&child);
+        let child_arc_for_forward: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> =
+            Arc::clone(&child);
 
         let monitor_closure = move |ctx: Arc<RwLock<Context>>, _evt: &Event| {
-            let child_lock: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child_arc_for_monitor);
+            let child_lock: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> =
+                Arc::clone(&child_arc_for_monitor);
             Box::pin(async move {
                 let child = child_lock.lock().await;
                 match child.get_status().await {
@@ -372,7 +367,8 @@ pub mod coordination {
         };
 
         let forward_closure = move |_ctx: Arc<RwLock<Context>>, evt: &Event| {
-            let child_lock: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> = Arc::clone(&child_arc_for_forward);
+            let child_lock: Arc<Mutex<Box<dyn ChildMachine + Send + Sync + 'static>>> =
+                Arc::clone(&child_arc_for_forward);
             // Clone the event to pass to send_event
             let event_to_forward = evt.clone(); // evt is already &Event
             Box::pin(async move {
