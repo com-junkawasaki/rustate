@@ -147,3 +147,111 @@ pub struct TodoItem {
 // The necessary trait bounds (Debug, Clone, Eq, Hash, Serialize, Deserialize, Display)
 // are handled by derives or direct impls above.
 // Entry/exit logic simulation remains tied to the main loop's subscription for now.
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Import items from parent module
+
+    #[test]
+    fn test_todo_state_display_and_name() {
+        assert_eq!(format!("{}", TodoState::Idle), "Idle");
+        assert_eq!(TodoState::Idle.name(), "Idle");
+
+        let adding_state = TodoState::AddingTodo {
+            title: "Test".to_string(),
+        };
+        assert_eq!(
+            format!("{}", adding_state),
+            "AddingTodo { title: \"Test\" }"
+        ); // Debug format from derive
+        assert_eq!(adding_state.name(), "AddingTodo");
+
+        assert_eq!(format!("{}", TodoState::ViewingTodos), "ViewingTodos");
+        assert_eq!(TodoState::ViewingTodos.name(), "ViewingTodos");
+    }
+
+    #[test]
+    fn test_todo_context_display() {
+        let mut context = TodoContext::default();
+        assert_eq!(format!("{}", context), "Context(todos: 0, last_id: 0)");
+        context.todos.push(TodoItem {
+            id: 1,
+            title: "T1".to_string(),
+            content: "C1".to_string(),
+            completed: false,
+        });
+        context.last_added_id = 1;
+        assert_eq!(format!("{}", context), "Context(todos: 1, last_id: 1)");
+    }
+
+    #[test]
+    fn test_todo_event_names_and_type() {
+        let add_event = TodoEvent::Add {
+            title: "T".to_string(),
+            content: "C".to_string(),
+        };
+        assert_eq!(add_event.name(), "Add");
+        assert_eq!(add_event.event_type(), "Add");
+
+        let view_event = TodoEvent::View;
+        assert_eq!(view_event.name(), "View");
+        assert_eq!(view_event.event_type(), "View");
+
+        let added_event = TodoEvent::Added { id: 1 };
+        assert_eq!(added_event.name(), "Added");
+        assert_eq!(added_event.event_type(), "Added");
+
+        let viewed_event = TodoEvent::Viewed { count: 5 };
+        assert_eq!(viewed_event.name(), "Viewed");
+        assert_eq!(viewed_event.event_type(), "Viewed");
+
+        let idle_event = TodoEvent::BackToIdle;
+        assert_eq!(idle_event.name(), "BackToIdle");
+        assert_eq!(idle_event.event_type(), "BackToIdle");
+    }
+
+    // Test payload serialization (simplified representation)
+    // Note: The current payload implementation using Box::leak is problematic for testing
+    // and general use. A better approach would avoid leaking memory.
+    // This test assumes the leak-based approach for now.
+    // #[test]
+    // fn test_todo_event_payload() {
+    //     let add_event = TodoEvent::Add { title: "Task".to_string(), content: "Do it".to_string() };
+    //     let expected_payload = json!({ "title": "Task", "content": "Do it" });
+    //     // Direct comparison is difficult due to the leaked static reference.
+    //     // We check if serialization produces *something* that looks right.
+    //     assert!(add_event.payload().is_some());
+    //     if let Some(payload_val) = add_event.payload() {
+    //         let payload_map = payload_val.as_object().expect("Payload should be object");
+    //         assert_eq!(payload_map.get("title").and_then(|v| v.as_str()), Some("Task"));
+    //         assert_eq!(payload_map.get("content").and_then(|v| v.as_str()), Some("Do it"));
+    //     }
+
+    //     let view_event = TodoEvent::View;
+    //     assert!(view_event.payload().is_none());
+
+    //     let added_event = TodoEvent::Added { id: 5 };
+    //      assert!(added_event.payload().is_some());
+    //     if let Some(payload_val) = added_event.payload() {
+    //         let payload_map = payload_val.as_object().expect("Payload should be object");
+    //         assert_eq!(payload_map.get("id").and_then(|v| v.as_u64()), Some(5));
+    //      }
+    // }
+
+    #[test]
+    fn test_todo_event_into_event() {
+        let add_event = TodoEvent::Add {
+            title: "T".to_string(),
+            content: "C".to_string(),
+        };
+        let event: Event = add_event.into_event();
+        assert_eq!(event.name(), "Add");
+        // Again, testing payload is tricky with the current implementation
+        // assert!(event.payload.is_some());
+
+        let view_event = TodoEvent::View;
+        let event: Event = view_event.into_event();
+        assert_eq!(event.name(), "View");
+        assert!(event.payload.is_none());
+    }
+}

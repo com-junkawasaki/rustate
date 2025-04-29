@@ -46,7 +46,7 @@ pub struct Feedback {
 #[derive(Debug)]
 pub struct Agent {
     name: String,
-    client: OpenAiClient<OpenAIConfig>,
+    client: Option<OpenAiClient<OpenAIConfig>>,
     observations: Arc<Mutex<Vec<Observation>>>, // Keep observations thread-safe
     feedback: Arc<Mutex<Vec<Feedback>>>,        // Added feedback field
 }
@@ -62,11 +62,12 @@ impl Agent {
         // Check if key was loaded (optional, client calls will fail later if not)
         if env::var("OPENAI_API_KEY").is_err() {
             warn!("OPENAI_API_KEY not found in environment or .env file. OpenAI calls will fail.");
+            // Consider returning Err here if client is mandatory for production
         }
 
         Ok(Agent {
             name,
-            client,
+            client: Some(client),
             observations: Arc::new(Mutex::new(Vec::new())),
             feedback: Arc::new(Mutex::new(Vec::new())), // Initialize feedback
         })
@@ -108,6 +109,14 @@ impl Agent {
         context_arc: &Arc<tokio::sync::RwLock<TodoContext>>,
         goal: &str,
     ) -> Option<TodoEvent> {
+        let client = match &self.client {
+            Some(c) => c,
+            None => {
+                error!("Agent '{}' cannot decide without an OpenAI client.", self.name);
+                return None;
+            }
+        };
+
         let state_name = current_state.name();
         info!(
             "Agent '{}' deciding based on goal: '{}'. Current state: {}.",
@@ -233,7 +242,7 @@ impl Agent {
         };
 
         info!("Sending request to OpenAI...");
-        match self.client.chat().create(request).await {
+        match client.chat().create(request).await {
             Ok(response) => {
                 if let Some(choice) = response.choices.first() {
                     let response_text = choice.message.content.as_deref().unwrap_or("").trim();
@@ -279,4 +288,127 @@ impl Agent {
     pub fn get_observations(&self) -> Vec<Observation> {
         self.observations.lock().unwrap().clone()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Import items from parent module
+    use crate::state_machine::{TodoEvent, TodoState};
+
+    // Helper to create a default agent for tests
+    fn create_test_agent() -> Agent {
+        // Modified: Directly construct Agent with client: None
+        Agent {
+            name: "TestAgent".to_string(),
+            client: None,
+            observations: Arc::new(Mutex::new(Vec::new())),
+            feedback: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    #[test]
+    fn test_agent_new() {
+        // Modified: Test creation with Some(client)
+        // Temporarily set dummy API key for tests if not present
+        std::env::set_var("OPENAI_API_KEY", "test_key_for_new");
+        let agent_result = Agent::new("RealAgent".to_string());
+        std::env::remove_var("OPENAI_API_KEY"); // Clean up env var
+
+        assert!(agent_result.is_ok());
+        let agent = agent_result.unwrap();
+        assert_eq!(agent.name, "RealAgent");
+        assert!(agent.client.is_some()); // Check that client is Some
+        assert!(agent.observations.lock().unwrap().is_empty());
+        assert!(agent.feedback.lock().unwrap().is_empty());
+
+        // Test creation without API key (should still succeed but log warning)
+        // Ensure key is not set
+        let key_present = std::env::var("OPENAI_API_KEY").is_ok();
+        if key_present {
+             std::env::remove_var("OPENAI_API_KEY");
+        }
+        let agent_no_key_result = Agent::new("NoKeyAgent".to_string());
+         if key_present { // Restore if it was present before
+             std::env::set_var("OPENAI_API_KEY", "test_key_for_new"); // Or original value if needed
+         }
+        assert!(agent_no_key_result.is_ok()); // Should still be Ok
+        assert!(agent_no_key_result.unwrap().client.is_some()); // Client is still created
+    }
+
+    #[test]
+    fn test_add_observation() {
+        let agent = create_test_agent();
+        let prev_state = TodoState::Idle;
+        let event = TodoEvent::Add {
+            title: "T1".into(),
+            content: "C1".into(),
+        };
+        let current_state = TodoState::AddingTodo { title: "T1".into() };
+
+        agent.add_observation(Some(&prev_state), &event, &current_state);
+
+        let observations = agent.observations.lock().unwrap();
+        assert_eq!(observations.len(), 1);
+        let obs = &observations[0];
+        assert_eq!(obs.prev_state, Some("Idle".to_string()));
+        // Event serialization might be complex, check basic structure
+        assert!(obs.event.contains("Add"));
+        assert!(obs.event.contains("T1"));
+        assert_eq!(obs.current_state, "AddingTodo");
+
+        // Add another one
+        let event2 = TodoEvent::Added { id: 1 };
+        let current_state2 = TodoState::Idle;
+        agent.add_observation(Some(&current_state), &event2, &current_state2);
+        let observations2 = agent.observations.lock().unwrap();
+        assert_eq!(observations2.len(), 2);
+        assert_eq!(observations2[1].prev_state, Some("AddingTodo".to_string()));
+        assert_eq!(observations2[1].current_state, "Idle");
+    }
+
+    #[test]
+    fn test_add_feedback() {
+        let agent = create_test_agent();
+        let event = TodoEvent::View;
+        let feedback_item = Feedback {
+            timestamp: Utc::now(),
+            attempted_event: Some(event.clone()),
+            outcome: FeedbackOutcome::SuccessStateChanged,
+            reason: None,
+            goal_at_time: "Test Goal".to_string(),
+            state_at_time: "Idle".to_string(),
+        };
+
+        agent.add_feedback(feedback_item.clone());
+
+        let feedbacks = agent.feedback.lock().unwrap();
+        assert_eq!(feedbacks.len(), 1);
+        // Compare relevant fields, timestamp might differ slightly
+        assert_eq!(feedbacks[0].attempted_event, Some(event));
+        assert!(matches!(
+            feedbacks[0].outcome,
+            FeedbackOutcome::SuccessStateChanged
+        ));
+        assert_eq!(feedbacks[0].goal_at_time, "Test Goal");
+        assert_eq!(feedbacks[0].state_at_time, "Idle");
+
+        // Add another one
+        let feedback_item2 = Feedback {
+            timestamp: Utc::now(),
+            attempted_event: None,
+            outcome: FeedbackOutcome::SendError("Some error".to_string()),
+            reason: Some("details".to_string()),
+            goal_at_time: "Test Goal 2".to_string(),
+            state_at_time: "AddingTodo".to_string(),
+        };
+        agent.add_feedback(feedback_item2);
+        let feedbacks2 = agent.feedback.lock().unwrap();
+        assert_eq!(feedbacks2.len(), 2);
+        assert!(matches!(
+            feedbacks2[1].outcome,
+            FeedbackOutcome::SendError(_)
+        ));
+    }
+
+    // TODO: Add tests for Agent::decide (requires mocking OpenAI client or extensive setup)
 }
