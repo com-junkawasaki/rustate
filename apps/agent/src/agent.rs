@@ -10,8 +10,10 @@ use async_openai::{
 use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
 use std::env;
+// Use std::sync::Mutex for observations, as it's mostly accessed synchronously
+use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
-use tracing::{error, info, warn};
+use tracing::{error, info, warn}; // Added for timestamping feedback
 
 // --- Agent Definition ---
 
@@ -23,12 +25,30 @@ pub struct Observation {
     // Consider adding context snapshot here for richer history
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FeedbackOutcome {
+    SuccessStateChanged,
+    SuccessNoStateChange,
+    InvalidEventForState, // If send() rejects it based on current state
+    SendError(String),    // If send() returns Err
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Feedback {
+    pub timestamp: DateTime<Utc>,
+    pub attempted_event: Option<TodoEvent>,
+    pub outcome: FeedbackOutcome,
+    pub reason: Option<String>,
+    pub goal_at_time: String,
+    pub state_at_time: String,
+}
+
 #[derive(Debug)]
 pub struct Agent {
     name: String,
     client: OpenAiClient<OpenAIConfig>,
     observations: Arc<Mutex<Vec<Observation>>>, // Keep observations thread-safe
-                                                // Add memory for Feedback, Plans, Messages etc.
+    feedback: Arc<Mutex<Vec<Feedback>>>,        // Added feedback field
 }
 
 impl Agent {
@@ -48,6 +68,7 @@ impl Agent {
             name,
             client,
             observations: Arc::new(Mutex::new(Vec::new())),
+            feedback: Arc::new(Mutex::new(Vec::new())), // Initialize feedback
         })
     }
 
@@ -69,10 +90,22 @@ impl Agent {
         // if obs.len() > 10 { obs.remove(0); }
     }
 
+    // Method to add feedback
+    pub fn add_feedback(&self, feedback: Feedback) {
+        info!("Agent '{}' received feedback: {:?}", self.name, feedback);
+        let mut feedbacks = self.feedback.lock().unwrap();
+        feedbacks.push(feedback);
+        // Optional: Limit feedback history size
+        // const MAX_FEEDBACK: usize = 10;
+        // if feedbacks.len() > MAX_FEEDBACK {
+        //     feedbacks.remove(0);
+        // }
+    }
+
     pub async fn decide(
         &self,
         current_state: &TodoState,
-        context: &TodoContext,
+        context_arc: &Arc<tokio::sync::RwLock<TodoContext>>,
         goal: &str,
     ) -> Option<TodoEvent> {
         let state_name = current_state.name();
@@ -81,38 +114,83 @@ impl Agent {
             self.name, goal, state_name,
         );
 
-        let context_json = serde_json::to_string_pretty(context)
+        // Lock context internally
+        let context_guard = context_arc.read().await;
+        let context_json = serde_json::to_string_pretty(&*context_guard)
             .unwrap_or_else(|_| "Context unavailable".to_string());
-        let observations_json = serde_json::to_string_pretty(&*self.observations.lock().unwrap())
-            .unwrap_or_else(|_| "Observations unavailable".to_string());
+        drop(context_guard); // Drop guard after reading context
 
-        let event_schema_description = r#"
-Available event types (output JSON):
-- {"type": "Add", "title": "string", "content": "string"} (Use only when in Idle state)
-- {"type": "View"} (Use only when in Idle state)
-- (Do not generate Added or Viewed events, they are system responses)
-"#;
+        // Lock observations and feedback
+        let observations_json;
+        let feedback_json;
+        {
+            // Scope for mutex guards
+            let obs_guard = self.observations.lock().unwrap();
+            observations_json = serde_json::to_string_pretty(&*obs_guard)
+                .unwrap_or_else(|_| "Observations unavailable".to_string());
 
+            let feedback_guard = self.feedback.lock().unwrap();
+            // Get recent feedback (e.g., last 5)
+            let recent_feedback: Vec<_> = feedback_guard.iter().rev().take(5).cloned().collect();
+            feedback_json =
+                serde_json::to_string_pretty(&recent_feedback.iter().rev().collect::<Vec<_>>()) // Reverse back for chronological order in prompt
+                    .unwrap_or_else(|_| "Feedback unavailable".to_string());
+        } // Guards dropped here
+
+        let event_schema_description = match current_state {
+            TodoState::Idle => {
+                r#"
+- {"type": "Add", "title": "string", "content": "string"}
+- {"type": "View"}
+(Added, Viewed, BackToIdle イベントはシステムが発行するため、生成しないでください)
+"#
+            }
+            // Add descriptions for other states if they allow specific events
+            _ => "(この状態からユーザー/エージェントが直接発行できるイベントはありません)",
+        };
+
+        // Updated system prompt with feedback
         let system_prompt = format!(
             r#"
-You are an agent controlling a Todo state machine.
-Your goal is: {}
+あなたは効率的なタスクマネージャーとして動作するAIエージェントであり、Todoリストの状態機械を制御します。
+あなたの現在の目標は: {}
 
-The current state is: {}
-The current context (list of todos) is:
+# 状態とコンテキスト
+現在の状態: {}
+現在のコンテキスト (Todoリスト):
 {}
-Recent observations (state transitions):
+
+# 観測履歴 (最近の遷移)
 {}
-Based on the goal, current state, context, and observations, decide the next *single* event to send to the state machine to progress towards the goal.
-Only output a valid JSON object representing one of the allowed events for the current state.
+
+# 最近のフィードバック (あなたの試行とその結果)
 {}
-If no action is appropriate or possible now based on the goal and state, output the text "NO_ACTION".
-Output *only* the JSON event object or "NO_ACTION".
+
+# あなたのタスク
+上記の目標、現在の状態、コンテキスト、観測履歴、そして**特に最近のフィードバック**を考慮し、目標達成に向けて状態機械に送信すべき**次の単一のイベント**を決定してください。失敗した試行を繰り返さないように注意してください。
+
+# 制約事項
+- **現在の状態で許可されているイベントのみ**を出力しなければなりません。
+- 出力は、以下の「許可されるイベントスキーマ」に厳密に従うJSONオブジェクト、**または**、現時点で適切なアクションがない場合は文字列 "NO_ACTION" の**いずれかのみ**です。他のテキストは一切含めないでください。
+- 観測履歴とフィードバックを参考に、目標達成に最も効果的なアクションを選択してください。
+
+# 許可されるイベントスキーマ (現在の状態: {})
+{}
+
+# 出力:
+(ここにJSONイベントオブジェクトまたは"NO_ACTION"のみを出力)
+
 "#,
-            goal, state_name, context_json, observations_json, event_schema_description
+            goal,
+            state_name,
+            context_json,
+            observations_json,
+            feedback_json, // Added feedback here
+            state_name,    // For schema title
+            event_schema_description
         );
 
-        // Restore original message building logic
+        // User message can be simplified or adjusted
         let messages = match (
             ChatCompletionRequestSystemMessageArgs::default()
                 .content(system_prompt)
@@ -157,7 +235,7 @@ Output *only* the JSON event object or "NO_ACTION".
         info!("Sending request to OpenAI...");
         match self.client.chat().create(request).await {
             Ok(response) => {
-                if let Some(choice) = response.choices.get(0) {
+                if let Some(choice) = response.choices.first() {
                     let response_text = choice.message.content.as_deref().unwrap_or("").trim();
                     info!("OpenAI response: {}", response_text);
 
