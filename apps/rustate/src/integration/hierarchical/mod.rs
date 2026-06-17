@@ -450,6 +450,9 @@ pub mod coordination {
         .unwrap()
     }
 
+    // `#[tokio::test]` needs Tokio's `macros` feature, which is only guaranteed
+    // under `cargo test`; gate it so plain builds (e.g. `state`-only) don't require it.
+    #[cfg(test)]
     #[tokio::test]
     async fn test_hierarchical_integration() -> crate::Result<()> {
         let child_machine = create_child_machine();

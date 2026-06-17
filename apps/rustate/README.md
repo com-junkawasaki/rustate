@@ -18,6 +18,31 @@ RuState provides the following features:
 - ✅ Actor pattern support (Basic: Actor trait, ActorRef, spawn, system)
 - ❌ Model-based testing (MBT) support (Planned, not implemented)
 
+## Cargo Features
+
+The state machine and the actor model are split into two independent features so
+you only compile (and depend on) the part you actually use. Both are enabled by
+default, so existing dependencies keep working unchanged.
+
+| Feature | Enables | Notes |
+| --- | --- | --- |
+| `state` | Statecharts, guards, actions, context, transitions, integration patterns, code generation target | Only needs Tokio's `sync` primitives. |
+| `actor` | Actor trait, `ActorRef`, `spawn`, `ActorSystem` | Pulls in the full Tokio runtime (`rt-multi-thread`, `macros`). |
+
+```toml
+# Everything (default)
+rustate = "0.3"
+
+# Just the state machine — no actor runtime / lighter Tokio footprint
+rustate = { version = "0.3", default-features = false, features = ["state"] }
+
+# Just the actor model
+rustate = { version = "0.3", default-features = false, features = ["actor"] }
+```
+
+Other features (`codegen`, `xstate-compat`, `wasm`, `integration`, `proto`) build on
+top of `state` and enable it automatically.
+
 ## Model-Based Testing (MBT) Integration
 
 TODO: Implement MBT integration. (Currently not implemented)
