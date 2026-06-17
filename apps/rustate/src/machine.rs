@@ -6,7 +6,9 @@ use crate::{
     state::{State, StateCollection, StateTrait, StateType},
     transition::{Transition, TransitionType},
 };
+#[cfg(feature = "actor")]
 use crate::{Actor, ActorError};
+#[cfg(feature = "actor")]
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use log;
@@ -886,6 +888,8 @@ where
 }
 
 // Move handle_event outside the impl Actor block
+// This helper deals in actor types (`ActorError`), so it only exists with the actor feature.
+#[cfg(feature = "actor")]
 impl<C, E, S, O> Machine<C, E, S, O>
 where
     C: Clone + Default + Serialize + DeserializeOwned + Send + Sync + Debug + 'static,
@@ -932,6 +936,8 @@ where
     }
 }
 
+// Bridges the state machine into the actor model; only compiled with the actor feature.
+#[cfg(feature = "actor")]
 #[async_trait]
 impl<C, E, S, O> Actor for Machine<C, E, S, O>
 where

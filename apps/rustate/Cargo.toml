@@ -15,22 +15,33 @@ categories = ["algorithms", "data-structures", "development-tools"]
 crate-type = ["cdylib", "rlib"] # Add "rlib" for testing and Rust usage
 
 [features]
-default = ["tokio", "serde_json"] # Add serde_json to default features
-codegen = ["syn", "quote", "proc-macro2", "serde_json"]
-xstate-compat = ["serde_json"]
+# By default both halves are enabled, preserving backward compatibility.
+default = ["state", "actor"]
+
+# Core state-machine / statechart functionality (XState-style), usable on its own
+# without pulling in the actor runtime. Only needs Tokio's `sync` primitives
+# (used by guards/actions/transitions for the shared context lock).
+state = ["serde_json", "tokio", "tokio/sync"]
+
+# Actor-model runtime (actor system, mailboxes, spawning). This is what pulls in
+# the heavier Tokio runtime (`rt-multi-thread`, `macros`). Independent of `state`.
+actor = ["tokio", "tokio/sync", "tokio/rt-multi-thread", "tokio/macros"]
+
+codegen = ["state", "syn", "quote", "proc-macro2", "serde_json"]
+xstate-compat = ["state", "serde_json"]
 mbt = []
 property-testing = ["proptest", "rand"]
-wasm = ["wasm-bindgen", "js-sys", "console_error_panic_hook", "serde-wasm-bindgen", "wasm-bindgen-futures"] # Add serde-wasm-bindgen and wasm-bindgen-futures
-proto = ["prost", "prost-types"]
-# Add integration feature
-integration = []
+wasm = ["state", "wasm-bindgen", "js-sys", "console_error_panic_hook", "serde-wasm-bindgen", "wasm-bindgen-futures"] # Add serde-wasm-bindgen and wasm-bindgen-futures
+proto = ["codegen", "prost", "prost-types"]
+# Integration patterns build on top of the state machine layer.
+integration = ["state"]
 
 [dependencies]
 # Core
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", optional = true } # Keep optional for feature consistency, but default enables it
 async-trait = "0.1"
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"], optional = true } # Ensure features needed are here
+tokio = { version = "1", default-features = false, optional = true } # Tokio sub-features are selected per crate feature (`state` -> sync, `actor` -> full runtime)
 uuid = { version = "1.0", features = ["v4", "serde"] }
 tracing = { version = "0.1", features = ["log"] }
 futures = "0.3"

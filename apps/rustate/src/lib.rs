@@ -5,75 +5,116 @@
 //! It forms the basis for building concurrent applications using the actor model.
 
 // Module declarations
+//
+// The crate is split into two independent halves, each behind its own Cargo
+// feature so users can compile only what they need (see the `state` / `actor`
+// features in `Cargo.toml`):
+//   * `actor` — the actor-model runtime (actor system, mailboxes, spawning).
+//   * `state` — the XState-style state machine / statechart layer.
+// Both are enabled by default; the `simple_counter` demo needs both.
+
+// --- Actor model modules (feature = "actor") ---
+#[cfg(feature = "actor")]
 pub mod actor;
+#[cfg(feature = "actor")]
 pub mod actor_ref;
+#[cfg(feature = "actor")]
 pub mod logic;
-pub mod simple_counter;
+#[cfg(feature = "actor")]
 pub mod spawn;
+#[cfg(feature = "actor")]
 pub mod system;
 
-// Add modules from obsolete crate
+// --- State machine modules (feature = "state") ---
+#[cfg(feature = "state")]
 pub mod action;
+#[cfg(feature = "state")]
 pub mod context;
+#[cfg(feature = "state")]
 pub mod error;
+#[cfg(feature = "state")]
 pub mod event;
+#[cfg(feature = "state")]
 pub mod guard;
+#[cfg(feature = "state")]
 pub mod machine;
+#[cfg(feature = "state")]
 pub mod state;
 // pub mod state_registry; // Removed - seems unused/missing
+#[cfg(feature = "state")]
 pub mod transition;
+
+// Demo actor that wires a state machine into an actor — needs both halves.
+#[cfg(all(feature = "state", feature = "actor"))]
+pub mod simple_counter;
 
 #[cfg(feature = "codegen")]
 pub mod codegen;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
-// Add integration module declaration (assuming it should always be present for now)
-// If it should be optional based on the 'integration' feature, wrap with #[cfg(feature = "integration")]
+// Integration patterns build on top of the state machine layer.
+#[cfg(feature = "state")]
 pub mod integration;
 
 // Public re-exports for easier access by users of the crate.
 
 /// The core trait defining actor behavior, state, events, and outputs.
 /// See [`actor::Actor`] for details.
+#[cfg(feature = "actor")]
 pub use actor::Actor;
 
 /// Enum representing errors that can occur within the actor system or during actor processing.
 /// See [`actor::ActorError`] for variants.
+#[cfg(feature = "actor")]
 pub use actor::ActorError;
 
 /// A reference (handle) to a spawned actor, used for sending events.
 /// See [`actor_ref::ActorRef`] for details.
+#[cfg(feature = "actor")]
 pub use actor_ref::ActorRef;
 
 /// A trait encapsulating the state transition logic (state machine behavior) of an actor.
 /// Often implemented by code generated via macros.
 /// See [`logic::ActorLogic`] for details.
+#[cfg(feature = "actor")]
 pub use logic::ActorLogic;
 
 /// Spawns an actor with the default mailbox buffer size.
 /// See [`spawn::spawn`] for details.
+#[cfg(feature = "actor")]
 pub use spawn::spawn;
 
 /// Represents the actor system, the entry point for creating top-level actors.
 /// See [`system::ActorSystem`] for details.
+#[cfg(feature = "actor")]
 pub use system::ActorSystem;
 
 // Add re-exports for types needed by machine.rs or others
 // pub use actor::{ActorStatus, Snapshot as ActorSnapshot}; // Added for MachineSnapshot - COMMENTED OUT
+#[cfg(feature = "state")]
 pub use event::{Event, IntoEvent}; // Removed duplicate EventTrait
 
 // --- Add re-exports from obsolete crate (Review and merge carefully) ---
 
 // Re-export core types from moved modules
+#[cfg(feature = "state")]
 pub use action::{Action, ActionType, IntoAction};
+#[cfg(feature = "state")]
 pub use context::Context;
+#[cfg(feature = "state")]
 pub use error::Result;
+#[cfg(feature = "state")]
 pub use error::StateError as Error;
+#[cfg(feature = "state")]
 pub use event::EventTrait;
+#[cfg(feature = "state")]
 pub use guard::{Guard, IntoGuard};
+#[cfg(feature = "state")]
 pub use machine::{Machine, MachineBuilder, MachineSnapshot};
+#[cfg(feature = "state")]
 pub use state::{HistoryType, State, StateCollection, StateTrait, StateType};
+#[cfg(feature = "state")]
 pub use transition::{Transition, TransitionType};
 
 // Actor model related re-exports from obsolete's actor.rs (may conflict/need merging)
@@ -87,7 +128,8 @@ pub use crate::wasm::*; // Re-export WASM specific items
 #[cfg(feature = "codegen")]
 pub use crate::codegen::*; // Re-export codegen specific items
 
-// Re-export integration items (no longer conditional)
+// Re-export integration items (part of the state machine layer)
+#[cfg(feature = "state")]
 pub use crate::integration::{
     context_sharing::SharedContext,
     event_forwarding::SharedMachineRef, // Assuming SharedMachineRef exists
@@ -96,7 +138,8 @@ pub use crate::integration::{
     Result as IntegrationResult,
 };
 
-// Re-export serde_json for convenience
+// Re-export serde_json for convenience (enabled together with the `state` feature)
+#[cfg(feature = "serde_json")]
 pub use serde_json;
 
 // --- Consider creating or merging a `prelude` module ---
@@ -128,8 +171,8 @@ pub mod prelude {
 }
 */
 
-// Tests module
-#[cfg(test)]
+// Tests module (exercises the counter actor, which needs both halves)
+#[cfg(all(test, feature = "state", feature = "actor"))]
 mod tests {
     // Re-import necessary items for tests
     use super::*;
